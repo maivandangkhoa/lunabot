@@ -9,7 +9,9 @@ Channel-agnostic: nhận `ChannelAdapter` bất kỳ (Telegram/Google Chat). Tá
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections import defaultdict
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,9 +35,31 @@ _W_CANCEL = {"huỷ", "huy", "hủy", "cancel", "bỏ", "bo", "stop"}
 _W_VERIFY_OK = {"đạt", "dat", "ok", "pass", "duyệt", "duyet", "done", "xong", "good"}
 _W_REJECT = {"từ chối", "tu choi", "reject", "no", "không", "khong"}
 
+# Khoá theo user: serialize các event của cùng 1 người (mỗi event là 1 task nền + DB
+# session riêng) → tránh đua giữa /start (link) và tin kế tiếp, và tránh tạo request trùng.
+_user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
 
 async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, raw: dict) -> None:
+    """Parse update; nếu đang bận xử lý tin trước của CÙNG user (Claude đang chạy) thì báo
+    bận + BỎ QUA tin này (xử lý trễ sẽ sai ngữ cảnh). Ngược lại xử lý dưới khoá.
+
+    Khoá chỉ bị giữ trong lúc chạy việc nặng (ANALYZING/EXECUTING). Lúc chờ user trả lời
+    (CLARIFYING/PLAN_REVIEW/VERIFY) khoá đã nhả → tin mới được xử lý bình thường.
+    """
     inbound = adapter.parse_inbound(raw)
+    lock = _user_locks[f"{adapter.name}:{inbound.platform_user_id}"]
+    if lock.locked():
+        log.info("user %s đang bận — bỏ qua tin mới", inbound.platform_user_id)
+        await adapter.send(inbound.platform_user_id,
+                           "⏳ Em đang xử lý việc trước, xong em báo ngay. "
+                           "Gửi lại nội dung này sau khi em xong nhé.")
+        return
+    async with lock:
+        await _dispatch_inbound(db, adapter, github, inbound)
+
+
+async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inbound) -> None:
     text = (inbound.text or "").strip()
 
     # /start [<token>] — liên kết tài khoản.
@@ -45,6 +69,8 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
 
     user = get_user_by_platform(db, adapter.name, inbound.platform_user_id)
     if user is None:
+        log.warning("chưa liên kết: platform=%r pid=%r text=%r",
+                    adapter.name, inbound.platform_user_id, text[:40])
         await adapter.send(inbound.platform_user_id,
                            "Anh/chị chưa liên kết tài khoản. Dùng /start <token> (admin cấp).")
         return
@@ -58,7 +84,7 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
 
     # Callback (bấm nút).
     if inbound.callback_data and parse_cb(inbound.callback_data):
-        cbid = getattr(adapter, "callback_id", lambda r: None)(raw)
+        cbid = getattr(adapter, "callback_id", lambda r: None)(inbound.raw)
         if cbid:
             await adapter.answer_callback(cbid)
         _, rid = parse_cb(inbound.callback_data)

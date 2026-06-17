@@ -1,4 +1,6 @@
 """Tests dispatcher + onboarding — /start link, tạo request từ text, route callback."""
+import asyncio
+
 import pytest
 
 from app.dispatcher import handle_channel_update, handle_telegram_update
@@ -79,6 +81,35 @@ async def test_google_chat_start_links_account(db):
     linked = get_user_by_platform(db, "google_chat", "users/777")
     assert linked is not None and linked.id == u.id
     assert any("Đã liên kết" in s[1] for s in adapter.sent)
+
+
+@pytest.mark.asyncio
+async def test_busy_drops_second_message(db, fakes, monkeypatch):
+    """Đang chạy Claude (giữ khoá) → tin thứ 2 bị báo bận + bỏ qua, KHÔNG xử lý trễ."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t)
+    u.platform_user_id = "99"
+    db.commit()
+
+    gate = asyncio.Event()
+    async def blocking_claude(**kw):       # giữ task 1 lại như Claude chạy lâu
+        await gate.wait()
+        return claude_json(PLAN, "s1")
+    monkeypatch.setattr("app.orchestrator.run_claude", blocking_claude)
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    t1 = asyncio.create_task(
+        handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "fix bug")))
+    await asyncio.sleep(0.05)              # cho task1 vào khoá + kẹt ở Claude
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "tin 2"))
+    assert any("đang xử lý" in s[1] for s in fakes["adapter"].sent)
+    assert len(u.tenant.requests) == 1    # tin 2 không tạo request mới
+
+    gate.set()
+    await t1
 
 
 @pytest.mark.asyncio
