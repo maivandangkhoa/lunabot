@@ -158,6 +158,8 @@ class GoogleChatAdapter:
     _token: str | None = field(default=None, init=False)
     _token_exp: float = field(default=0.0, init=False)
     _space_cache: dict[str, str] = field(default_factory=dict, init=False)
+    # space → thread gần nhất thấy ở space đó. Để reply nằm cùng thread tin đến (space threaded).
+    _thread_cache: dict[str, str] = field(default_factory=dict, init=False)
 
     @classmethod
     def from_settings(cls, settings=None) -> "GoogleChatAdapter":
@@ -219,19 +221,22 @@ class GoogleChatAdapter:
         """Event Workspace add-on: user/space/text/attachment lồng dưới chat.*."""
         chat = raw.get("chat", {})
         uid = chat.get("user", {}).get("name", "")
-        text, callback, space_obj = "", None, {}
+        text, callback, space_obj, thread = "", None, {}, None
         attachments: list[Attachment] = []
         if "messagePayload" in chat:
             mp = chat["messagePayload"]
             msg = mp.get("message", {})
             space_obj = mp.get("space") or msg.get("space") or {}
+            thread = (msg.get("thread") or {}).get("name")
             # Trong group, msg["text"] dính mention bot ("@Luna ok"); argumentText là phần
             # đã bỏ mention ("ok") → ưu tiên nó để khớp từ khoá hành động (ok/sửa/huỷ).
             text = (msg.get("argumentText") or msg.get("text") or "").strip()
             attachments = _parse_attachments(msg.get("attachment") or [])
         elif "buttonClickedPayload" in chat:
             bp = chat["buttonClickedPayload"]
-            space_obj = bp.get("space") or bp.get("message", {}).get("space") or {}
+            bmsg = bp.get("message", {})
+            space_obj = bp.get("space") or bmsg.get("space") or {}
+            thread = (bmsg.get("thread") or {}).get("name")
             params = raw.get("commonEventObject", {}).get("parameters", {})
             callback = params.get(_CB_PARAM) or _extract_callback(bp)
             text = callback or ""
@@ -240,6 +245,8 @@ class GoogleChatAdapter:
         space = space_obj.get("name")
         if space and uid:
             self._space_cache[uid] = space      # nhớ space để reply trong cùng flow
+        if space and thread:
+            self._thread_cache[space] = thread  # nhớ thread để reply cùng mạch (space threaded)
         return InboundMessage(
             platform=self.name, platform_user_id=uid, text=text,
             callback_data=callback, chat_id=space, is_group=_space_is_group(space_obj),
@@ -251,8 +258,11 @@ class GoogleChatAdapter:
         space_obj = raw.get("space", {})
         space = space_obj.get("name")
         is_group = _space_is_group(space_obj)
+        thread = (raw.get("message", {}).get("thread") or {}).get("name")
         if space and uid:
             self._space_cache[uid] = space
+        if space and thread:
+            self._thread_cache[space] = thread
         if raw.get("type") == "CARD_CLICKED":
             cbdata = _extract_callback(raw)
             return InboundMessage(
@@ -313,16 +323,22 @@ class GoogleChatAdapter:
             log.warning("Không tìm được space cho %s — bỏ gửi.", destination)
             return {}
         headers = await self._headers()
+        # Reply cùng thread tin đến (space threaded). FALLBACK_TO_NEW_THREAD: space flat thì
+        # tham số vô hại, không có thread thì gửi như thường.
+        thread = self._thread_cache.get(space)
+        params = {"messageReplyOption": "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"} if thread else None
         chunks = [text[i : i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]
         result: dict = {}
         for idx, chunk in enumerate(chunks):
             payload: dict[str, Any] = {"text": chunk}
+            if thread:
+                payload["thread"] = {"name": thread}
             if idx == len(chunks) - 1:
                 cards = self._cards(buttons)
                 if cards:
                     payload["cardsV2"] = cards
             resp = await self._http().post(
-                f"/v1/{space}/messages", json=payload, headers=headers
+                f"/v1/{space}/messages", json=payload, headers=headers, params=params
             )
             if resp.status_code >= 300:
                 log.warning("Chat sendMessage lỗi %s: %s", resp.status_code, resp.text[:200])

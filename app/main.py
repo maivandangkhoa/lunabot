@@ -19,6 +19,7 @@ from app.db import SessionLocal
 from app.dispatcher import handle_channel_update
 from app.github_app import GitHubApp
 from app.poller import run_polling
+from app.recovery import recover_interrupted_requests
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -30,6 +31,12 @@ async def lifespan(_app: FastAPI):
     """Bật long-polling khi TELEGRAM_MODE=polling; tắt gọn khi shutdown."""
     task = None
     stop = asyncio.Event()
+    try:
+        n = await recover_interrupted_requests(settings)
+        if n:
+            log.warning("recovery: đã đóng %d request kẹt do restart", n)
+    except Exception:  # noqa: BLE001 — recovery không được làm hỏng startup
+        log.exception("recovery khởi động lỗi")
     if settings.telegram_mode == "polling" and settings.telegram_bot_token:
         task = asyncio.create_task(run_polling(stop))
         log.info("Khởi động Telegram poller")

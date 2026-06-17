@@ -99,6 +99,43 @@ async def test_send_to_space_skips_dm_resolution():
     assert calls == ["/v1/spaces/ROOM1/messages"]
 
 
+@pytest.mark.asyncio
+async def test_send_replies_in_cached_thread():
+    """Tin đến kèm thread → send sau đó reply cùng thread + set messageReplyOption."""
+    captured = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.append((str(req.url), json.loads(req.content)))
+        return httpx.Response(200, json={"name": "spaces/ROOM1/messages/1"})
+
+    a = _adapter(handler)
+    # tin đến trong thread T1 → điền _thread_cache
+    a.parse_inbound({"type": "MESSAGE", "user": {"name": "users/1"},
+                     "space": {"name": "spaces/ROOM1", "type": "ROOM"},
+                     "message": {"text": "@Luna ok", "argumentText": "ok",
+                                 "thread": {"name": "spaces/ROOM1/threads/T1"}}})
+    await a.send("spaces/ROOM1", "trả lời")
+    url, payload = captured[-1]
+    assert payload["thread"] == {"name": "spaces/ROOM1/threads/T1"}
+    assert "messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" in url
+
+
+@pytest.mark.asyncio
+async def test_send_no_thread_when_none_cached():
+    """Space chưa thấy thread → gửi thường, không gắn thread/param."""
+    captured = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.append((str(req.url), json.loads(req.content)))
+        return httpx.Response(200, json={"name": "spaces/ROOM9/messages/1"})
+
+    a = _adapter(handler)
+    await a.send("spaces/ROOM9", "hi")
+    url, payload = captured[-1]
+    assert "thread" not in payload
+    assert "messageReplyOption" not in url
+
+
 def test_parse_inbound_room_is_group():
     a = GoogleChatAdapter()
     raw = {"type": "MESSAGE", "user": {"name": "users/1"},
