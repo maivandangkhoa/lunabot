@@ -125,18 +125,22 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
                 "Chờ em xong rồi gửi yêu cầu mới nhé.")
         return
 
-    # Không còn request mở → tạo request mới.
-    repos = db.scalars(select(Repository).where(Repository.tenant_id == user.tenant_id)).all()
-    if len(repos) == 1:
-        title = text.splitlines()[0][:200] if text else "(ảnh đính kèm)"
-        await orch.create_request(repos[0], user, title=title, body=text,
-                                  attachments=inbound.attachments)
-    elif not repos:
-        await adapter.send(user.platform_user_id, "Tenant chưa có repo nào được cấu hình.")
-    else:
-        names = ", ".join(r.repo_full_name for r in repos)
+    # Không còn request mở → tạo request mới (vào dự án đang chọn).
+    repos = db.scalars(
+        select(Repository).where(Repository.tenant_id == user.tenant_id).order_by(Repository.id)
+    ).all()
+    if not repos:
+        await adapter.send(user.platform_user_id, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
+        return
+    chosen = (repos[0] if len(repos) == 1
+              else next((r for r in repos if r.id == user.active_repo_id), None))
+    if chosen is None:                          # nhiều repo + chưa chọn → bảo chọn
+        lines = "\n".join(f"{i}. {r.repo_full_name}" for i, r in enumerate(repos, 1))
         await adapter.send(user.platform_user_id,
-                           f"Tenant có nhiều repo ({names}). MVP: liên hệ admin để chọn repo.")
+                           f"Tenant có nhiều dự án. Chọn trước bằng /repo <số|tên>:\n{lines}")
+        return
+    title = text.splitlines()[0][:200] if text else "(ảnh đính kèm)"
+    await orch.create_request(chosen, user, title=title, body=text, attachments=inbound.attachments)
 
 
 async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str) -> bool:

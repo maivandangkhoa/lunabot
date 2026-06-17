@@ -147,6 +147,10 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(255))
     link_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Repo "đang chọn" — dùng khi tenant có nhiều repo để biết gửi yêu cầu vào repo nào.
+    active_repo_id: Mapped[int | None] = mapped_column(
+        ForeignKey("repositories.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = _created_at()
 
     tenant: Mapped[Tenant] = relationship(back_populates="users")
