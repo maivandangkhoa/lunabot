@@ -1,0 +1,57 @@
+# luna — deploy stack. Trên VM: docker compose -f deploy/docker-compose.yml up -d --build
+# Secrets: /etc/luna/luna.env (xem deploy/env.example). MVP có Postgres kèm; production
+# nên trỏ DATABASE_URL sang Supabase và bỏ service `db`.
+services:
+  luna:
+    build:
+      context: ..                  # repo root (cần app/ + alembic/)
+      dockerfile: deploy/Dockerfile
+    image: luna:latest
+    container_name: luna
+    restart: unless-stopped
+    env_file: /etc/luna/luna.env
+    environment:
+      - TZ=UTC
+      - WORKSPACE=/workspace
+    ports:
+      - "127.0.0.1:8000:8000"   # chỉ localhost — đứng sau reverse proxy/tunnel, tránh đụng internal-api
+    volumes:
+      - luna-workspace:/workspace          # clone repo khách + state
+      - luna-claude:/home/node/.claude     # config + session history Claude (--resume)
+      - /etc/luna/github-app.pem:/etc/luna/github-app.pem:ro  # private key GitHub App (host → container)
+      # Google Chat SA key. Khi KHÔNG bật GChat: tạo file rỗng `sudo touch /etc/luna/google-chat-sa.json`
+      # hoặc comment dòng này (tránh Docker tạo thư mục rỗng nếu file chưa tồn tại).
+      - /etc/luna/google-chat-sa.json:/etc/luna/google-chat-sa.json:ro  # SA key Google Chat
+    depends_on:
+      - db
+    mem_limit: 2g
+    cpus: "1.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db:
+    image: postgres:16-alpine
+    container_name: luna-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=luna
+      - POSTGRES_PASSWORD=luna
+      - POSTGRES_DB=luna
+    volumes:
+      - luna-pgdata:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  luna-workspace:
+    name: luna-workspace
+  luna-claude:
+    name: luna-claude
+  luna-pgdata:
+    name: luna-pgdata

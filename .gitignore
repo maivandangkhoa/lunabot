@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Env / secrets — KHÔNG commit
+.env
+.env.*
+!.env.example
+*.pem            # GitHub App private key
+deploy/env       # file env thật trên VM
+
+# Workspace (clone repo khách + state)
+workspace/
+
+# Claude Code — personal overrides
+.claude/settings.local.json
+
+# Local DB / misc
+*.sqlite3
+.DS_Store
+
+# Reference (chỉ để đọc & port, không phải code production)
+# Bỏ comment dòng dưới nếu muốn loại  khỏi git:
+# 

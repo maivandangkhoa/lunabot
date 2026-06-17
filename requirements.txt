@@ -1,0 +1,20 @@
+# luna — runtime deps. Giữ tối thiểu; thêm theo từng mốc.
+# --- M0 core ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+SQLAlchemy>=2.0.36
+alembic>=1.14.0
+psycopg[binary]>=3.2.0       # Postgres driver (psycopg3)
+
+# --- M2 GitHub App ---
+httpx>=0.28.0
+PyJWT[crypto]>=2.10.0
+
+# --- M3 Telegram adapter ---
+aiogram>=3.15.0
+
+# --- G Google Chat adapter ---
+# Không thêm dep mới: tự ký JWT service account bằng PyJWT[crypto] (đã có ở M2),
+# gọi Chat REST bằng httpx. cryptography đi kèm PyJWT[crypto] (verify cert Google).
