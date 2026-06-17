@@ -13,7 +13,7 @@ có request riêng (bind theo người gửi). **Liên kết tài khoản (`/sta
 3. **Cho bot thấy tin nhắn** — chọn 1:
    - Tắt *Group Privacy* trong BotFather (`/setprivacy` → Disable) → bot nhận mọi tin, nhưng luna
      **chỉ xử lý** tin có @mention/command/reply tới bot; HOẶC
-   - Giữ Privacy bật → **luôn @mention bot** (vd `@LunaMaiBot thêm cache cho API`).
+   - Giữ Privacy bật → **luôn @mention bot** (vd `@YourLunaBot thêm cache cho API`).
 4. **Mode webhook:** đặt `TELEGRAM_BOT_USERNAME=<username_không_@>` để bot nhận diện @mention.
    Mode polling tự lấy qua `getMe`, không cần.
 
