@@ -14,6 +14,7 @@ import logging
 from collections import defaultdict
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.admin_commands import handle_command, is_command
@@ -185,11 +186,17 @@ async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: 
         await adapter.send(platform_user_id,
                            "Chào mừng đến luna 🌙\nĐể liên kết: /start <token> (admin cấp cho anh/chị).")
         return
-    user = link_user(db, parts[1].strip(), platform_user_id)
+    user = link_user(db, parts[1].strip(), platform_user_id, platform=adapter.name)
     if user is None:
         await adapter.send(platform_user_id, "❌ Token không hợp lệ hoặc đã dùng.")
         return
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # (platform, platform_user_id) đã tồn tại → tài khoản này đã liên kết bằng token khác.
+        db.rollback()
+        await adapter.send(platform_user_id, "Tài khoản này đã được liên kết rồi. Bạn có thể gửi yêu cầu luôn.")
+        return
     await adapter.send(platform_user_id,
                        f"✅ Đã liên kết! Vai trò: {user.role.value}. Gửi yêu cầu bảo trì để bắt đầu.")
 

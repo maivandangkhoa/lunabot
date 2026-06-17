@@ -162,6 +162,22 @@ async def test_text_ok_confirms_plan(db, fakes, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_link_rebinds_platform(db):
+    """User tạo nhầm platform=telegram nhưng /start trên Google Chat → rebind google_chat."""
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, platform="telegram")        # admin quên --platform google_chat
+    db.commit()
+    adapter = RecordingGoogleChat()
+    raw = {"chat": {"user": {"name": "users/777"}, "space": {"name": "spaces/A"},
+                    "messagePayload": {"space": {"name": "spaces/A"},
+                                       "message": {"text": f"/start {u.link_token}"}}}}
+    await handle_channel_update(db, adapter, None, raw)
+    linked = get_user_by_platform(db, "google_chat", "users/777")   # lookup theo kênh thực
+    assert linked is not None and linked.id == u.id
+    assert linked.platform == "google_chat"
+
+
+@pytest.mark.asyncio
 async def test_callback_answered_and_routed(db, fakes, monkeypatch):
     t = create_tenant(db, "Acme")
     repo = add_repository(db, t, "acme/widgets", 123)

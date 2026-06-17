@@ -49,14 +49,19 @@ def create_user(
     return u
 
 
-def link_user(db: Session, link_token: str, platform_user_id: str) -> User | None:
-    """Liên kết platform_user_id (vd Telegram chat_id) vào user qua link_token.
+def link_user(db: Session, link_token: str, platform_user_id: str,
+              platform: str | None = None) -> User | None:
+    """Liên kết platform_user_id vào user qua link_token.
 
+    `platform`: kênh user THỰC SỰ dùng để /start (vd "google_chat"). Token vốn không gắn
+    kênh, nên bind platform tại đây để khớp lookup — tránh lệch khi admin tạo user sai platform.
     Vô hiệu hoá token sau khi dùng (chống tái sử dụng). Muốn link lại → cấp token mới.
     """
     u = db.scalars(select(User).where(User.link_token == link_token)).first()
     if u is None:
         return None
+    if platform:
+        u.platform = platform
     u.platform_user_id = platform_user_id
     u.linked_at = datetime.now(timezone.utc)
     u.link_token = None
