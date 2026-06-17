@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -18,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.admin_commands import HELP_TEXT, handle_command, is_command
-from app.channels.base import ChannelAdapter
+from app.channels.base import Button, ChannelAdapter
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
@@ -35,6 +36,31 @@ _W_EDIT = {"sửa", "sua", "chỉnh", "chinh", "edit", "fix"}
 _W_CANCEL = {"huỷ", "huy", "hủy", "cancel", "bỏ", "bo", "stop"}
 _W_VERIFY_OK = {"đạt", "dat", "ok", "pass", "duyệt", "duyet", "done", "xong", "good"}
 _W_REJECT = {"từ chối", "tu choi", "reject", "no", "không", "khong"}
+# Hợp của mọi từ khoá hành động — chặn tin thường (vd "fix bug #123") lọt vào nhánh hành động.
+_W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT
+
+# Cho phép nhắm tường minh "ok #12" → tách số request khỏi câu trước khi khớp từ khoá.
+_REQ_ID_RE = re.compile(r"#(\d+)")
+# action → nhãn nút khi hỏi lại lúc nhập nhằng (nhiều việc cùng khớp 1 từ khoá).
+_ACTION_VERB = {
+    "confirm": "✅ Duyệt KH", "reject": "✏️ Sửa KH", "cancel": "❌ Huỷ",
+    "verify_ok": "✅ Xác nhận đạt", "mgr_approve": "✅ Cho merge", "mgr_reject": "❌ Từ chối merge",
+}
+
+
+def _keyword_action(word: str, status: RequestStatus) -> str | None:
+    """Map từ khoá → action hợp lệ cho TỪNG trạng thái. None nếu không khớp."""
+    if status == RequestStatus.PLAN_REVIEW:
+        if word in _W_CONFIRM: return "confirm"
+        if word in _W_EDIT:    return "reject"
+        if word in _W_CANCEL:  return "cancel"
+    elif status == RequestStatus.VERIFY:
+        if word in _W_VERIFY_OK: return "verify_ok"
+        if word in _W_CANCEL:    return "cancel"
+    elif status == RequestStatus.AWAIT_MANAGER:
+        if word in _W_CONFIRM: return "mgr_approve"
+        if word in _W_REJECT:  return "mgr_reject"
+    return None
 
 # Khoá theo user: serialize các event của cùng 1 người (mỗi event là 1 task nền + DB
 # session riêng) → tránh đua giữa /start (link) và tin kế tiếp, và tránh tạo request trùng.
@@ -117,7 +143,7 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         return
 
     # Hành động bằng text (thay cho bấm nút) — ưu tiên trước khi coi là feedback/clarify.
-    if text and await _try_text_action(db, orch, user, text):
+    if text and await _try_text_action(db, orch, user, text, reply_to):
         return
 
     # Mỗi user chỉ 1 request ĐANG TƯƠNG TÁC tại một thời điểm. Nếu đang có:
@@ -159,45 +185,61 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
                               is_group=inbound.is_group)
 
 
-async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str) -> bool:
-    """Map text từ khoá → hành động nút (cho kênh không route click, vd Google Chat add-on).
-
-    Trả True nếu đã xử lý như 1 hành động. PLAN_REVIEW/VERIFY của requester + AWAIT_MANAGER
-    của manager. Text khác (feedback sửa, làm rõ) rơi xuống luồng cũ.
-    """
-    word = text.strip().lower()
-    req = db.scalars(
+def _actionable(db: Session, user: User, word: str) -> list[tuple[Request, str]]:
+    """Mọi việc đang chờ của user mà từ khoá `word` áp dụng được: request PLAN_REVIEW/VERIFY
+    của chính họ (vai requester) + AWAIT_MANAGER của tenant (vai manager). Trả (request, action)."""
+    reqs = list(db.scalars(
         select(Request).where(
             Request.requester_user_id == user.id,
             Request.status.in_((RequestStatus.PLAN_REVIEW, RequestStatus.VERIFY)),
         ).order_by(Request.id.desc())
-    ).first()
-    if req and req.status == RequestStatus.PLAN_REVIEW:
-        action = ("confirm" if word in _W_CONFIRM else "reject" if word in _W_EDIT
-                  else "cancel" if word in _W_CANCEL else None)
-        if action:
-            await orch.handle_callback(req, user, cb(action, req.id))
-            return True
-    elif req and req.status == RequestStatus.VERIFY:
-        action = ("verify_ok" if word in _W_VERIFY_OK else "cancel" if word in _W_CANCEL else None)
-        if action:
-            await orch.handle_callback(req, user, cb(action, req.id))
-            return True  # text khác → feedback sửa (luồng cũ)
-
+    ).all())
     if user.role in (UserRole.MANAGER, UserRole.ADMIN):
-        mreq = db.scalars(
+        reqs += db.scalars(
             select(Request).where(
                 Request.tenant_id == user.tenant_id,
                 Request.status == RequestStatus.AWAIT_MANAGER,
             ).order_by(Request.id.desc())
-        ).first()
-        if mreq:
-            action = ("mgr_approve" if word in _W_CONFIRM else "mgr_reject" if word in _W_REJECT
-                      else None)
-            if action:
-                await orch.handle_callback(mreq, user, cb(action, mreq.id))
-                return True
-    return False
+        ).all()
+    return [(r, act) for r in reqs if (act := _keyword_action(word, r.status))]
+
+
+async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str,
+                           reply_to: str) -> bool:
+    """Map text từ khoá → hành động nút (cho kênh không route click, vd Google Chat add-on).
+
+    Gom mọi việc actionable (requester + manager) rồi quyết: nhắm tường minh `ok #id`; đúng 1
+    việc → làm luôn; nhiều việc cùng khớp → hỏi lại bằng nút (mỗi nút mang đúng req.id) thay vì
+    đoán. Trả True nếu đã xử lý/đã hỏi. Text không khớp việc nào → False (feedback/làm rõ ở luồng cũ).
+    """
+    m = _REQ_ID_RE.search(text)
+    target_id = int(m.group(1)) if m else None
+    word = _REQ_ID_RE.sub("", text).strip().lower()   # bỏ '#12' trước khi khớp từ khoá
+    if word not in _W_ANY:                             # không phải từ khoá → luồng cũ (tránh hijack)
+        return False
+    cands = _actionable(db, user, word)
+
+    if target_id is not None:                          # nhắm tường minh "ok #12"
+        hit = next((c for c in cands if c[0].id == target_id), None)
+        if hit is None:
+            await orch.adapter.send(
+                reply_to, f"⚠️ Yêu cầu #{target_id} không đang chờ '{word}' của anh/chị.")
+            return True
+        await orch.handle_callback(hit[0], user, cb(hit[1], hit[0].id), reply_to=reply_to)
+        return True
+
+    if not cands:                                      # không phải hành động → luồng cũ
+        return False
+    if len(cands) == 1:                                # rõ ràng → làm luôn
+        req, action = cands[0]
+        await orch.handle_callback(req, user, cb(action, req.id), reply_to=reply_to)
+        return True
+
+    # Nhập nhằng (>1 việc khớp) → hỏi lại; nút mang đúng cb(action, req.id) đi đường callback.
+    buttons = [[Button(f"{_ACTION_VERB[act]} #{r.id}", cb(act, r.id))] for r, act in cands]
+    await orch.adapter.send(
+        reply_to, "🤔 Anh/chị có nhiều việc đang chờ — chọn việc cần áp dụng:", buttons)
+    return True
 
 
 async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: str, text: str) -> None:

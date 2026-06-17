@@ -3,10 +3,10 @@ import asyncio
 
 import pytest
 
-from app.dispatcher import handle_channel_update, handle_telegram_update
-from app.models import RequestStatus, UserRole
+from app.dispatcher import _try_text_action, handle_channel_update, handle_telegram_update
+from app.models import Request, RequestStatus, UserRole
 from app.onboarding import add_repository, create_tenant, create_user, get_user_by_platform
-from app.orchestrator import cb
+from app.orchestrator import Orchestrator, cb
 from tests.conftest import FakeClaude, RecordingGoogleChat, claude_json
 
 PLAN = '{"action":"plan","summary":"x","steps":["a"],"risk":"low"}'
@@ -313,3 +313,99 @@ async def test_callback_answered_and_routed(db, fakes, monkeypatch):
                                  _callback("99", cb("confirm", req.id)))
     assert "cb1" in fakes["adapter"].answered  # đã answerCallbackQuery
     assert req.status == RequestStatus.VERIFY
+
+
+# ---------------- Khử nhập nhằng lệnh "ok" (manager vừa có việc riêng vừa cần duyệt) ----------------
+
+def _mkreq(db, t, repo, user, status):
+    r = Request(tenant_id=t.id, repo_id=repo.id, requester_user_id=user.id,
+                title="x", body="x", status=status)
+    db.add(r)
+    db.commit()
+    return r
+
+
+def _seed_mgr(db):
+    t = create_tenant(db, "Acme")
+    repo = add_repository(db, t, "acme/widgets", 123)
+    emp = create_user(db, t, role=UserRole.EMPLOYEE)
+    emp.platform_user_id = "emp"
+    mgr = create_user(db, t, role=UserRole.MANAGER)
+    mgr.platform_user_id = "mgr"
+    db.commit()
+    return t, repo, emp, mgr
+
+
+@pytest.mark.asyncio
+async def test_ok_ambiguous_asks_back(db, fakes):
+    """Manager có KH của mình (PLAN_REVIEW) + 1 merge cần duyệt (AWAIT_MANAGER): 'ok' mơ hồ
+    → bot hỏi lại bằng nút, KHÔNG tự đổi trạng thái cái nào."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    own = _mkreq(db, t, repo, mgr, RequestStatus.PLAN_REVIEW)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, "ok", "mgr")
+
+    assert handled is True
+    assert own.status == RequestStatus.PLAN_REVIEW
+    assert merge.status == RequestStatus.AWAIT_MANAGER
+    dest, txt, buttons = fakes["adapter"].sent[-1]
+    assert "nhiều việc" in txt
+    flat = [b for row in buttons for b in row]
+    assert {cb("confirm", own.id), cb("mgr_approve", merge.id)} == {b.callback_data for b in flat}
+
+
+@pytest.mark.asyncio
+async def test_ok_with_explicit_id_targets_that_request(db, fakes):
+    """'ok #<merge>' duyệt đúng merge đó, KHÔNG đụng KH riêng của manager."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    own = _mkreq(db, t, repo, mgr, RequestStatus.PLAN_REVIEW)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, f"ok #{merge.id}", "mgr")
+
+    assert handled is True
+    assert own.status == RequestStatus.PLAN_REVIEW         # KH riêng không đụng
+    assert merge.status != RequestStatus.AWAIT_MANAGER     # merge đã được xử lý
+
+
+@pytest.mark.asyncio
+async def test_ok_with_invalid_id_reports_error(db, fakes):
+    """'ok #<không hợp lệ>' → báo lỗi rõ, không đổi trạng thái."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    own = _mkreq(db, t, repo, mgr, RequestStatus.PLAN_REVIEW)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, "ok #99999", "mgr")
+
+    assert handled is True
+    assert own.status == RequestStatus.PLAN_REVIEW
+    assert any("không đang chờ" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_single_candidate_acts_directly(db, fakes):
+    """Chỉ 1 việc chờ (không mơ hồ) → 'ok' duyệt luôn (giữ trải nghiệm cũ)."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, "ok", "mgr")
+
+    assert handled is True
+    assert merge.status != RequestStatus.AWAIT_MANAGER
+
+
+@pytest.mark.asyncio
+async def test_message_with_hash_id_not_hijacked(db, fakes):
+    """Tin thường chứa '#123' (vd 'fix bug #123') không bị coi là hành động → rơi luồng cũ."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    _mkreq(db, t, repo, mgr, RequestStatus.PLAN_REVIEW)   # mgr có việc chờ
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, "fix bug #123", "mgr")
+
+    assert handled is False                               # không hijack
+    assert fakes["adapter"].sent == []
