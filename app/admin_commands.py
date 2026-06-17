@@ -25,9 +25,10 @@ from app.onboarding import add_repository, create_user, regenerate_link_token
 log = logging.getLogger("luna.admin")
 
 _ADMIN_CMDS = {"/users", "/invite", "/role", "/unlink", "/addrepo"}
-_HELP = (
+HELP_TEXT = (
     "🛠 Lệnh:\n"
     "/whoami — thông tin của anh/chị\n"
+    "/clear — đóng yêu cầu đang mở, bắt đầu session mới\n"
     "/repos — liệt kê dự án (repo) của tenant\n"
     "/repo <tên|số> — chọn dự án để gửi yêu cầu\n"
     "/users — liệt kê user (admin)\n"
@@ -56,7 +57,7 @@ async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text:
     send = lambda t: adapter.send(user.platform_user_id, t)  # noqa: E731
 
     if cmd in ("/help", "/start"):
-        await send(_HELP)
+        await send(HELP_TEXT)
         return
     if cmd == "/whoami":
         await send(f"id={user.id} · vai trò={user.role.value} · tenant={user.tenant_id} · {user.display_name or ''}")
@@ -69,7 +70,7 @@ async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text:
         return
 
     if cmd not in _ADMIN_CMDS:
-        await send(f"Lệnh không rõ.\n\n{_HELP}")
+        await send(f"Lệnh không rõ.\n\n{HELP_TEXT}")
         return
 
     if user.role != UserRole.ADMIN:

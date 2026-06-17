@@ -39,6 +39,14 @@ log = logging.getLogger("luna.orchestrator")
 
 _repo_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+# Trạng thái "đang bận với user" → chặn tạo request mới (1 user/1 request đang chạy) và là
+# tập mà /clear có thể huỷ để mở session mới. AWAIT_MANAGER/MERGED_DEV KHÔNG nằm đây: phần
+# của requester đã xong, chỉ chờ manager → không chặn requester gửi yêu cầu khác.
+BLOCKING_STATUSES = (
+    RequestStatus.NEW, RequestStatus.ANALYZING, RequestStatus.CLARIFYING,
+    RequestStatus.PLAN_REVIEW, RequestStatus.EXECUTING, RequestStatus.VERIFY,
+)
+
 
 def cb(action: str, req_id: int) -> str:
     return f"{action}:{req_id}"
@@ -208,6 +216,28 @@ class Orchestrator:
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
             await self._say(req, self._requester(req), "❌ Đã huỷ yêu cầu.")
+
+    async def clear_open_request(self, user: User, *, reply_to: str | None = None) -> None:
+        """Lệnh /clear: huỷ request đang mở (blocking) của user để bắt đầu session mới.
+
+        Dùng được ở MỌI trạng thái blocking (kể cả ANALYZING/EXECUTING, nơi không có nút huỷ).
+        Chỉ dừng FSM + đóng session Claude hiện tại — KHÔNG đụng nhánh dev/commit đã tạo.
+        """
+        target = reply_to or user.platform_user_id
+        req = self.db.scalars(
+            select(Request).where(
+                Request.requester_user_id == user.id,
+                Request.status.in_(BLOCKING_STATUSES),
+            ).order_by(Request.id.desc())
+        ).first()
+        if req is None:
+            await self.adapter.send(target, "✨ Không có yêu cầu đang mở. Gửi yêu cầu mới để bắt đầu.")
+            return
+        self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=user.id, action="clear")
+        self._set_status(req, RequestStatus.CANCELLED)
+        self.db.commit()
+        await self.adapter.send(
+            target, f"🧹 Đã đóng yêu cầu #{req.id}. Gửi yêu cầu mới để bắt đầu session mới.")
 
     # ---------------- phases ----------------
     async def _analyze(self, req: Request, clarifications: list[str] | None = None,

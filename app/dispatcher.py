@@ -17,22 +17,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.admin_commands import handle_command, is_command
+from app.admin_commands import HELP_TEXT, handle_command, is_command
 from app.channels.base import ChannelAdapter
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import get_user_by_platform, link_user
+from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
 
 log = logging.getLogger("luna.dispatcher")
 
 _TEXT_ACTIVE = (RequestStatus.CLARIFYING, RequestStatus.VERIFY)
-# Trạng thái "đang bận với user" → chặn tạo request mới (1 user/1 request đang chạy).
-# AWAIT_MANAGER/MERGED_DEV KHÔNG nằm đây: phần của requester đã xong, chỉ chờ manager
-# → không được chặn requester gửi yêu cầu khác.
-_BLOCKING = (
-    RequestStatus.NEW, RequestStatus.ANALYZING, RequestStatus.CLARIFYING,
-    RequestStatus.PLAN_REVIEW, RequestStatus.EXECUTING, RequestStatus.VERIFY,
-)
+_W_CLEAR = {"/clear", "/new", "/reset"}     # huỷ request đang mở → mở session mới
 
 # Từ khoá text thay cho bấm nút (kênh add-on như Google Chat không route click về endpoint).
 _W_CONFIRM = {"ok", "confirm", "duyệt", "duyet", "đồng ý", "dong y", "yes", "y", "ừ", "u"}
@@ -92,6 +87,12 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
 
     # Lệnh quản trị (/help, /whoami, /users, /invite, /role, /unlink) — tin text, không callback.
     # CHỈ trong DM: nhiều lệnh (/users, /invite) in token → tránh lộ trong group.
+    _cmd0 = text.strip().split(maxsplit=1)[0].lower() if text.strip() else ""
+    if inbound.callback_data is None and _cmd0 in _W_CLEAR:
+        # /clear dùng được cả trong group (request có thể khởi tạo từ group) — không chặn DM-only.
+        await Orchestrator(db, adapter, github=github).clear_open_request(user, reply_to=reply_to)
+        return
+
     if inbound.callback_data is None and is_command(text):
         if inbound.is_group:
             await adapter.send(reply_to, "🔒 Lệnh quản trị chỉ dùng khi nhắn riêng (DM) cho bot.")
@@ -217,7 +218,8 @@ async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: 
         await adapter.send(platform_user_id, "Tài khoản này đã được liên kết rồi. Bạn có thể gửi yêu cầu luôn.")
         return
     await adapter.send(platform_user_id,
-                       f"✅ Đã liên kết! Vai trò: {user.role.value}. Gửi yêu cầu bảo trì để bắt đầu.")
+                       f"✅ Đã liên kết! Vai trò: {user.role.value}. "
+                       f"Gửi yêu cầu bảo trì để bắt đầu.\n\n{HELP_TEXT}")
 
 
 # Alias tương thích ngược: tên cũ thời chỉ-Telegram (tests/poller/main vẫn dùng được).

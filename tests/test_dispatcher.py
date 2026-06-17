@@ -140,6 +140,46 @@ async def test_no_duplicate_request_while_open(db, fakes, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_clear_cancels_open_and_allows_new(db, fakes, monkeypatch):
+    """/clear huỷ request đang mở → cho gửi yêu cầu mới (session mới) ngay sau đó."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    monkeypatch.setattr("app.orchestrator.run_claude",
+                        FakeClaude([claude_json(PLAN, "s1"), claude_json(PLAN, "s2")]))
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "Thêm cache"))
+    first = u.tenant.requests[0]
+    assert first.status == RequestStatus.PLAN_REVIEW
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "/clear"))
+    assert first.status == RequestStatus.CANCELLED
+    assert any("session mới" in s[1] for s in fakes["adapter"].sent)
+
+    # Hết blocking → tin kế tiếp tạo request mới.
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "Việc khác"))
+    assert len(u.tenant.requests) == 2 and u.tenant.requests[1].status == RequestStatus.PLAN_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_clear_no_open_request(db, fakes):
+    """/clear khi không có request mở → báo nhẹ, không lỗi."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "/clear"))
+    assert any("Không có yêu cầu đang mở" in s[1] for s in fakes["adapter"].sent)
+    assert len(u.tenant.requests) == 0
+
+
+@pytest.mark.asyncio
 async def test_text_ok_confirms_plan(db, fakes, monkeypatch):
     """Kênh không bấm nút được (Google Chat add-on): gõ 'ok' ở PLAN_REVIEW → confirm → execute."""
     t = create_tenant(db, "Acme")
