@@ -225,7 +225,9 @@ class GoogleChatAdapter:
             mp = chat["messagePayload"]
             msg = mp.get("message", {})
             space_obj = mp.get("space") or msg.get("space") or {}
-            text = msg.get("text") or msg.get("argumentText") or ""
+            # Trong group, msg["text"] dính mention bot ("@Luna ok"); argumentText là phần
+            # đã bỏ mention ("ok") → ưu tiên nó để khớp từ khoá hành động (ok/sửa/huỷ).
+            text = (msg.get("argumentText") or msg.get("text") or "").strip()
             attachments = _parse_attachments(msg.get("attachment") or [])
         elif "buttonClickedPayload" in chat:
             bp = chat["buttonClickedPayload"]

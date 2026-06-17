@@ -158,6 +158,16 @@ def test_parse_inbound_message_with_image():
     assert m.attachments[0].is_image
 
 
+def test_parse_inbound_group_strips_bot_mention():
+    """Group: text dính '@Luna'; argumentText đã strip mention → dùng để khớp 'ok'."""
+    a = GoogleChatAdapter()
+    raw = {"chat": {"user": {"name": "users/1"}, "messagePayload": {
+        "space": {"name": "spaces/A", "type": "ROOM"},
+        "message": {"text": "@Luna ok", "argumentText": " ok"}}}}
+    m = a.parse_inbound(raw)
+    assert m.text == "ok"          # mention bỏ + trim → khớp _W_CONFIRM
+
+
 @pytest.mark.asyncio
 async def test_download_attachment():
     from app.channels.base import Attachment
