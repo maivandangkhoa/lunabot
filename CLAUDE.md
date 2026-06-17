@@ -46,9 +46,9 @@ tests/
 - **App giữ quyền điều phối (FSM).** Claude chỉ "suy nghĩ + viết code" trong từng phase và
   **trả về 1 khối ```json ở cuối** để app chuyển state. Không để Claude tự quyết toàn bộ.
 
-## Gotchas (rút từ plan + )
+## Gotchas (rút từ plan)
 - **Claude từ chối `bypassPermissions` khi chạy root** → container drop xuống user `node`
-  bằng `gosu` (xem `entrypoint.sh`). Đây là lý do image non-root.
+  bằng `gosu`. Đây là lý do image non-root.
 - **Permission mode theo phase:** `--permission-mode plan` cho phase chỉ-đọc
   (ANALYZING/CLARIFYING/PLAN_REVIEW); `bypassPermissions` cho EXECUTING.
 - **NEVER push `main`:** cài pre-push hook chặn (port từ `bot.py`) + GitHub branch protection.
@@ -59,7 +59,6 @@ tests/
 - **Isolation:** mỗi repo clone tại `WORKSPACE/<tenant>/<repo>`; MVP **serialize per-repo
   bằng lock** (nâng cấp `git worktree` khi cần song song).
 - **Auth Claude:** `CLAUDE_CODE_OAUTH_TOKEN` (subscription) cho MVP.
-- **`` chỉ để đọc & port** — KHÔNG import trực tiếp, KHÔNG phải code production.
 
 ## FSM (status của `requests`)
 `NEW → ANALYZING → (CLARIFYING ⇄ ANALYZING) → PLAN_REVIEW → EXECUTING → VERIFY →

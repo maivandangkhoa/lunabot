@@ -63,7 +63,3 @@ là root. `entrypoint.sh` tự `alembic upgrade head` trước khi serve.
 ## Data model
 `tenants → repositories / users → requests → request_events / approvals`.
 `requests.status` chạy qua FSM `RequestStatus` (xem [app/models.py](app/models.py)).
-
-## Reference
-`` là code mẫu từ internal (ops-bot + notifications) **chỉ để đọc & port** —
-không phải code production của luna, không import trực tiếp.
