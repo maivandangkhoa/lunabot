@@ -82,6 +82,20 @@ async def ensure_clone(
     return repo_dir
 
 
+def exclude_local(repo_dir: Path, pattern: str) -> None:
+    """Thêm pattern vào .git/info/exclude (gitignore local, KHÔNG commit) — idempotent.
+
+    Dùng cho thư mục tạm (vd ảnh đính kèm) để `git add -A` không stage vào repo khách.
+    """
+    info = Path(repo_dir) / ".git" / "info"
+    info.mkdir(parents=True, exist_ok=True)
+    f = info / "exclude"
+    lines = f.read_text().splitlines() if f.exists() else []
+    if pattern not in lines:
+        with f.open("a") as fh:
+            fh.write(f"\n{pattern}\n")
+
+
 async def prepare_branch(repo_dir: Path, branch: str, base_branch: str) -> None:
     """Tạo/đưa về nhánh làm việc từ base mới nhất (idempotent)."""
     await run_git(["checkout", base_branch], cwd=repo_dir)

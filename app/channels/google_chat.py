@@ -23,7 +23,7 @@ from typing import Any, Callable
 import httpx
 import jwt
 
-from app.channels.base import Button, InboundMessage
+from app.channels.base import Attachment, Button, InboundMessage
 
 log = logging.getLogger("luna.google_chat")
 
@@ -56,6 +56,19 @@ def load_sa_credentials(value: str | None) -> dict:
     except json.JSONDecodeError:
         log.warning("GOOGLE_CHAT_SA_JSON không phải path hợp lệ cũng không phải JSON.")
         return {}
+
+
+def _parse_attachments(items: list) -> list[Attachment]:
+    """message.attachment[] → list Attachment (chỉ giữ ảnh). resourceName để tải qua media API."""
+    out: list[Attachment] = []
+    for a in items:
+        ct = a.get("contentType", "")
+        if not ct.startswith("image/"):
+            continue
+        rn = a.get("attachmentDataRef", {}).get("resourceName")
+        if rn:
+            out.append(Attachment(a.get("contentName") or "image", ct, {"resource_name": rn}))
+    return out
 
 
 def _extract_callback(raw: dict) -> str | None:
@@ -195,15 +208,17 @@ class GoogleChatAdapter:
         return self._parse_classic(raw)         # classic Chat API (fallback/tests)
 
     def _parse_addon(self, raw: dict) -> InboundMessage:
-        """Event Workspace add-on: user/space/text lồng dưới chat.*."""
+        """Event Workspace add-on: user/space/text/attachment lồng dưới chat.*."""
         chat = raw.get("chat", {})
         uid = chat.get("user", {}).get("name", "")
         text, callback, space = "", None, None
+        attachments: list[Attachment] = []
         if "messagePayload" in chat:
             mp = chat["messagePayload"]
             msg = mp.get("message", {})
             space = (mp.get("space") or msg.get("space") or {}).get("name")
             text = msg.get("text") or msg.get("argumentText") or ""
+            attachments = _parse_attachments(msg.get("attachment") or [])
         elif "buttonClickedPayload" in chat:
             bp = chat["buttonClickedPayload"]
             space = (bp.get("space") or bp.get("message", {}).get("space") or {}).get("name")
@@ -216,7 +231,7 @@ class GoogleChatAdapter:
             self._space_cache[uid] = space      # nhớ space để reply trong cùng flow
         return InboundMessage(
             platform=self.name, platform_user_id=uid, text=text,
-            callback_data=callback, chat_id=space, raw=raw,
+            callback_data=callback, chat_id=space, attachments=attachments, raw=raw,
         )
 
     def _parse_classic(self, raw: dict) -> InboundMessage:
@@ -302,3 +317,16 @@ class GoogleChatAdapter:
     async def answer_callback(self, callback_id: str, text: str | None = None) -> dict:
         """Google Chat không có spinner để tắt — no-op cho hợp protocol."""
         return {}
+
+    async def download_attachment(self, attachment: Attachment) -> bytes:
+        """Tải nội dung attachment qua Chat media API: GET /v1/media/{resourceName}?alt=media."""
+        from urllib.parse import quote
+
+        rn = attachment.ref.get("resource_name", "")
+        resp = await self._http().get(
+            f"/v1/media/{quote(rn, safe='')}",
+            params={"alt": "media"}, headers=await self._headers(),
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"media download lỗi {resp.status_code}: {resp.text[:200]}")
+        return resp.content

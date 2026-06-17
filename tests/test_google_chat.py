@@ -107,6 +107,39 @@ async def test_send_skips_when_no_space():
     assert await a.send("users/ghost", "hi") == {}
 
 
+def test_parse_inbound_message_with_image():
+    a = GoogleChatAdapter()
+    raw = {"chat": {"user": {"name": "users/1"}, "messagePayload": {
+        "space": {"name": "spaces/A"},
+        "message": {"text": "đây", "attachment": [
+            {"contentName": "image.png", "contentType": "image/png",
+             "attachmentDataRef": {"resourceName": "RES123"}},
+            {"contentName": "doc.pdf", "contentType": "application/pdf",
+             "attachmentDataRef": {"resourceName": "RESPDF"}},  # không phải ảnh → bỏ
+        ]}}}}
+    m = a.parse_inbound(raw)
+    assert m.text == "đây" and m.platform_user_id == "users/1"
+    assert len(m.attachments) == 1                         # chỉ giữ ảnh
+    assert m.attachments[0].content_type == "image/png"
+    assert m.attachments[0].ref["resource_name"] == "RES123"
+    assert m.attachments[0].is_image
+
+
+@pytest.mark.asyncio
+async def test_download_attachment():
+    from app.channels.base import Attachment
+
+    captured = []
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.append(req.url.path)
+        return httpx.Response(200, content=b"\x89PNG-bytes")
+
+    a = _adapter(handler)
+    data = await a.download_attachment(Attachment("image.png", "image/png", {"resource_name": "RES123"}))
+    assert data == b"\x89PNG-bytes"
+    assert captured[-1] == "/v1/media/RES123"
+
+
 @pytest.mark.asyncio
 async def test_answer_callback_noop():
     assert await GoogleChatAdapter().answer_callback("x") == {}

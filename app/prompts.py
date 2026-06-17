@@ -67,13 +67,21 @@ def executing_system_prompt(
     ).strip()
 
 
-def build_request_prompt(title: str, body: str | None, clarifications: list[str] | None = None) -> str:
-    """Ghép nội dung yêu cầu (+ trả lời làm rõ nếu có) thành user prompt cho Claude."""
+def build_request_prompt(
+    title: str, body: str | None, clarifications: list[str] | None = None,
+    image_paths: list[str] | None = None,
+) -> str:
+    """Ghép nội dung yêu cầu (+ trả lời làm rõ + ảnh đính kèm nếu có) thành user prompt."""
     parts = [f"# Yêu cầu\n{title}"]
     if body:
         parts.append(body)
     if clarifications:
         parts.append("# Trả lời làm rõ\n" + "\n".join(f"- {c}" for c in clarifications))
+    if image_paths:
+        listed = "\n".join(f"- {p}" for p in image_paths)
+        parts.append(
+            "# Ảnh đính kèm\nNgười dùng gửi kèm ảnh (đường dẫn tương đối trong repo). "
+            "Dùng công cụ Read để XEM các ảnh này rồi vận dụng vào yêu cầu:\n" + listed)
     return "\n\n".join(parts)
 
 

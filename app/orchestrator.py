@@ -110,7 +110,7 @@ class Orchestrator:
 
     # ---------------- entrypoints ----------------
     async def create_request(self, repo: Repository, requester: User,
-                             title: str, body: str | None) -> Request:
+                             title: str, body: str | None, attachments=None) -> Request:
         req = Request(
             tenant_id=repo.tenant_id, repo_id=repo.id, requester_user_id=requester.id,
             title=title, body=body, status=RequestStatus.NEW,
@@ -119,18 +119,41 @@ class Orchestrator:
         self.db.flush()
         self._event(req, EventKind.MSG, EventDirection.IN, actor_id=requester.id, title=title)
         self.db.commit()
-        await self._analyze(req)
+        await self._analyze(req, attachments=attachments)
         return req
 
-    async def handle_message(self, req: Request, actor: User, text: str) -> None:
+    async def handle_message(self, req: Request, actor: User, text: str, attachments=None) -> None:
         """Tin text: ý nghĩa tuỳ state hiện tại."""
         self._event(req, EventKind.MSG, EventDirection.IN, actor_id=actor.id, text=text[:500])
         if req.status == RequestStatus.CLARIFYING:
-            await self._analyze(req, clarifications=[text])
+            await self._analyze(req, clarifications=[text], attachments=attachments)
         elif req.status == RequestStatus.VERIFY:
             await self._execute(req, fix_feedback=text)
         else:
             self.db.commit()  # chỉ lưu lại, không chuyển state
+
+    async def _save_attachments(self, req: Request, repo_dir: Path, attachments) -> list[str]:
+        """Tải ảnh đính kèm về repo_dir/.luna-attachments/ (loại khỏi git) → list path tương đối."""
+        imgs = [a for a in (attachments or []) if getattr(a, "is_image", False)]
+        download = getattr(self.adapter, "download_attachment", None)
+        if not imgs or download is None:
+            return []
+        self.git.exclude_local(repo_dir, ".luna-attachments/")
+        out_dir = Path(repo_dir) / ".luna-attachments" / f"req-{req.id}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        paths: list[str] = []
+        for i, att in enumerate(imgs):
+            try:
+                data = await download(att)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("tải ảnh req %s lỗi: %s", req.id, exc)
+                continue
+            fp = out_dir / f"{i}_{att.file_name.replace('/', '_')[:60]}"
+            fp.write_bytes(data)
+            paths.append(str(fp.relative_to(repo_dir)))
+        if paths:
+            self._event(req, EventKind.MSG, EventDirection.IN, images=paths)
+        return paths
 
     async def handle_callback(self, req: Request, actor: User, data: str) -> None:
         parsed = parse_cb(data)
@@ -162,7 +185,8 @@ class Orchestrator:
             await self._say(req, self._requester(req), "❌ Đã huỷ yêu cầu.")
 
     # ---------------- phases ----------------
-    async def _analyze(self, req: Request, clarifications: list[str] | None = None) -> None:
+    async def _analyze(self, req: Request, clarifications: list[str] | None = None,
+                       attachments=None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
         self._set_status(req, RequestStatus.ANALYZING)
@@ -177,7 +201,9 @@ class Orchestrator:
             await self._say(req, requester, f"⚠️ Không chuẩn bị được repo để phân tích: {exc}")
             return
 
-        prompt = prompts.build_request_prompt(req.title, req.body, clarifications)
+        img_paths = await self._save_attachments(req, repo_dir, attachments)
+        prompt = prompts.build_request_prompt(req.title, req.body, clarifications,
+                                              image_paths=img_paths)
         sysp = prompts.analyzing_system_prompt(repo.repo_full_name, repo.base_branch)
         res = await self.claude_run(
             prompt=prompt, cwd=repo_dir,

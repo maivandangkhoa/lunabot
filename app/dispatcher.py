@@ -25,8 +25,13 @@ from app.orchestrator import Orchestrator, cb, parse_cb
 log = logging.getLogger("luna.dispatcher")
 
 _TEXT_ACTIVE = (RequestStatus.CLARIFYING, RequestStatus.VERIFY)
-# Trạng thái kết thúc — coi như "không còn request mở", cho phép tạo request mới.
-_TERMINAL = (RequestStatus.CLOSED, RequestStatus.CANCELLED)
+# Trạng thái "đang bận với user" → chặn tạo request mới (1 user/1 request đang chạy).
+# AWAIT_MANAGER/MERGED_DEV KHÔNG nằm đây: phần của requester đã xong, chỉ chờ manager
+# → không được chặn requester gửi yêu cầu khác.
+_BLOCKING = (
+    RequestStatus.NEW, RequestStatus.ANALYZING, RequestStatus.CLARIFYING,
+    RequestStatus.PLAN_REVIEW, RequestStatus.EXECUTING, RequestStatus.VERIFY,
+)
 
 # Từ khoá text thay cho bấm nút (kênh add-on như Google Chat không route click về endpoint).
 _W_CONFIRM = {"ok", "confirm", "duyệt", "duyet", "đồng ý", "dong y", "yes", "y", "ừ", "u"}
@@ -93,27 +98,27 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
             await orch.handle_callback(req, user, inbound.callback_data)
         return
 
-    if not text:
+    if not text and not inbound.attachments:
         return
 
     # Hành động bằng text (thay cho bấm nút) — ưu tiên trước khi coi là feedback/clarify.
-    if await _try_text_action(db, orch, user, text):
+    if text and await _try_text_action(db, orch, user, text):
         return
 
-    # Mỗi user chỉ 1 request hoạt động tại một thời điểm. Nếu đang có request mở:
-    # xử lý theo trạng thái thay vì tạo request mới (tránh trùng + nhầm lẫn).
+    # Mỗi user chỉ 1 request ĐANG TƯƠNG TÁC tại một thời điểm. Nếu đang có:
+    # xử lý theo trạng thái thay vì tạo mới. (AWAIT_MANAGER/MERGED_DEV không tính → cho tạo mới.)
     open_req = db.scalars(
         select(Request).where(
-            Request.requester_user_id == user.id, Request.status.notin_(_TERMINAL)
+            Request.requester_user_id == user.id, Request.status.in_(_BLOCKING)
         ).order_by(Request.id.desc())
     ).first()
     if open_req:
         if open_req.status in _TEXT_ACTIVE:        # CLARIFYING → làm rõ; VERIFY → feedback sửa
-            await orch.handle_message(open_req, user, text)
+            await orch.handle_message(open_req, user, text, attachments=inbound.attachments)
         elif open_req.status == RequestStatus.PLAN_REVIEW:
             await adapter.send(user.platform_user_id,
                 f"📋 Yêu cầu #{open_req.id} đang chờ duyệt kế hoạch. Trả lời: ok · sửa · huỷ.")
-        else:                                       # ANALYZING/EXECUTING/MERGED_DEV/AWAIT_MANAGER
+        else:                                       # NEW/ANALYZING/EXECUTING
             await adapter.send(user.platform_user_id,
                 f"⏳ Em đang xử lý yêu cầu #{open_req.id} ({open_req.status.value}). "
                 "Chờ em xong rồi gửi yêu cầu mới nhé.")
@@ -122,8 +127,9 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
     # Không còn request mở → tạo request mới.
     repos = db.scalars(select(Repository).where(Repository.tenant_id == user.tenant_id)).all()
     if len(repos) == 1:
-        title = text.splitlines()[0][:200]
-        await orch.create_request(repos[0], user, title=title, body=text)
+        title = text.splitlines()[0][:200] if text else "(ảnh đính kèm)"
+        await orch.create_request(repos[0], user, title=title, body=text,
+                                  attachments=inbound.attachments)
     elif not repos:
         await adapter.send(user.platform_user_id, "Tenant chưa có repo nào được cấu hình.")
     else:

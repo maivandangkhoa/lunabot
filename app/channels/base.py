@@ -12,6 +12,19 @@ from typing import Any, Protocol
 
 
 @dataclass
+class Attachment:
+    """Ảnh/tệp đính kèm đã normalize. `ref` giữ thông tin để adapter tải về (mỗi platform khác)."""
+
+    file_name: str
+    content_type: str
+    ref: dict = field(default_factory=dict)
+
+    @property
+    def is_image(self) -> bool:
+        return self.content_type.startswith("image/")
+
+
+@dataclass
 class InboundMessage:
     """Tin nhắn đến đã normalize từ update raw của platform."""
 
@@ -21,6 +34,7 @@ class InboundMessage:
     # Với callback (bấm nút) thì callback_data có giá trị; tin text thường thì None.
     callback_data: str | None = None
     chat_id: str | None = None
+    attachments: list[Attachment] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
 
@@ -52,4 +66,8 @@ class ChannelAdapter(Protocol):
 
     async def answer_callback(self, callback_id: str, text: str | None = None) -> Any:
         """Xác nhận đã xử lý 1 lần bấm nút (tránh spinner kẹt trên client)."""
+        ...
+
+    async def download_attachment(self, attachment: Attachment) -> bytes:
+        """Tải nội dung attachment về (bytes). Adapter nào hỗ trợ ảnh mới hiện thực."""
         ...
