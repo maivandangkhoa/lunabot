@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str | None = None
     # "webhook" (FastAPI endpoint) hoặc "polling" (tự getUpdates — hợp VM khoá port).
     telegram_mode: str = "webhook"
+    # Username bot (không @) — để nhận diện @mention trong group ở mode webhook (poller tự lấy
+    # qua getMe). Đặt khi muốn dùng group + webhook.
+    telegram_bot_username: str | None = None
 
     # --- Google Chat (G) ---
     google_chat_enabled: bool = False

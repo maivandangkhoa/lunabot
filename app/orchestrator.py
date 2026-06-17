@@ -85,8 +85,14 @@ class Orchestrator:
 
     async def _say(self, req: Request, user: User, text: str,
                    buttons: list[list[Button]] | None = None) -> None:
+        """Trả lời hướng-tới-requester: đăng vào nơi khởi tạo request (group hoặc DM)."""
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, payload=text[:500])
-        await self.adapter.send(user.platform_user_id, text, buttons)
+        await self.adapter.send(self._reply_target(req), text, buttons)
+
+    def _reply_target(self, req: Request) -> str:
+        """Đích đăng tin của 1 request: origin_chat_id (group/DM) nếu có, else DM requester
+        (request cũ NULL origin / đường DM thuần)."""
+        return req.origin_chat_id or self._requester(req).platform_user_id
 
     def _requester(self, req: Request) -> User:
         return self.db.get(User, req.requester_user_id)
@@ -110,10 +116,13 @@ class Orchestrator:
 
     # ---------------- entrypoints ----------------
     async def create_request(self, repo: Repository, requester: User,
-                             title: str, body: str | None, attachments=None) -> Request:
+                             title: str, body: str | None, attachments=None,
+                             *, chat_id: str | None = None, platform: str | None = None,
+                             is_group: bool = False) -> Request:
         req = Request(
             tenant_id=repo.tenant_id, repo_id=repo.id, requester_user_id=requester.id,
             title=title, body=body, status=RequestStatus.NEW,
+            origin_platform=platform, origin_chat_id=chat_id, origin_is_group=is_group,
         )
         self.db.add(req)
         self.db.flush()
@@ -155,11 +164,27 @@ class Orchestrator:
             self._event(req, EventKind.MSG, EventDirection.IN, images=paths)
         return paths
 
-    async def handle_callback(self, req: Request, actor: User, data: str) -> None:
+    async def handle_callback(self, req: Request, actor: User, data: str,
+                              *, reply_to: str | None = None) -> None:
         parsed = parse_cb(data)
         if not parsed:
             return
         action, _ = parsed
+        # Nơi báo lỗi/ephemeral cho NGƯỜI BẤM (đúng chat họ bấm): group thì trong group, DM thì DM.
+        target = reply_to or req.origin_chat_id or actor.platform_user_id
+        is_mgr_action = action in ("mgr_approve", "mgr_reject")
+
+        # An ninh group: nút của request hiện công khai → người khác cũng bấm được.
+        # Hành động của requester chỉ requester (hoặc manager/admin) mới được thao tác.
+        if not is_mgr_action and actor.id != req.requester_user_id \
+                and actor.role not in (UserRole.MANAGER, UserRole.ADMIN):
+            await self.adapter.send(target, f"⚠️ Yêu cầu #{req.id} không phải của anh/chị.")
+            return
+        # Chống double-click manager (nhiều manager trong group): đã rời AWAIT_MANAGER ⇒ bỏ qua.
+        if is_mgr_action and req.status != RequestStatus.AWAIT_MANAGER:
+            await self.adapter.send(target, f"ℹ️ Yêu cầu #{req.id} đã được xử lý.")
+            return
+
         self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=actor.id, action=action)
 
         if action == "confirm" and req.status == RequestStatus.PLAN_REVIEW:
@@ -176,9 +201,9 @@ class Orchestrator:
             await self._say(req, self._requester(req),
                             "🔧 Cần sửa gì? Trả lời tin này để bot sửa tiếp.")
         elif action == "mgr_approve" and req.status == RequestStatus.AWAIT_MANAGER:
-            await self._merge_to_main(req, actor)
+            await self._merge_to_main(req, actor, target)
         elif action == "mgr_reject" and req.status == RequestStatus.AWAIT_MANAGER:
-            await self._manager_reject(req, actor)
+            await self._manager_reject(req, actor, target)
         elif action == "cancel":
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
@@ -337,22 +362,28 @@ class Orchestrator:
         await self._notify_managers(req, repo)
 
     async def _notify_managers(self, req: Request, repo: Repository) -> None:
+        text = (
+            f"🔔 Yêu cầu #{req.id} '{req.title}' đã sẵn sàng merge `{repo.prod_branch}`.\nPR: {req.pr_url}"
+            "\n\n(Bấm nút, hoặc trả lời: ok để duyệt · từ chối)"
+        )
+        buttons = [[Button("✅ Cho merge", cb("mgr_approve", req.id)),
+                    Button("❌ Từ chối", cb("mgr_reject", req.id))]]
+        # Request đến từ group → đăng yêu cầu duyệt CÔNG KHAI trong group (cả team thấy);
+        # manager bất kỳ trong group bấm là được. Đến từ DM → DM từng manager (group không tồn tại).
+        if req.origin_is_group and req.origin_chat_id:
+            await self.adapter.send(req.origin_chat_id, text, buttons)
+            return
         managers = self.db.scalars(
             select(User).where(User.tenant_id == repo.tenant_id, User.role == UserRole.MANAGER,
                                User.platform_user_id.is_not(None))
         ).all()
         for m in managers:
-            await self.adapter.send(
-                m.platform_user_id,
-                f"🔔 Yêu cầu #{req.id} '{req.title}' đã sẵn sàng merge `{repo.prod_branch}`.\nPR: {req.pr_url}"
-                "\n\n(Bấm nút, hoặc trả lời: ok để duyệt · từ chối)",
-                [[Button("✅ Cho merge", cb("mgr_approve", req.id)),
-                  Button("❌ Từ chối", cb("mgr_reject", req.id))]],
-            )
+            await self.adapter.send(m.platform_user_id, text, buttons)
 
-    async def _merge_to_main(self, req: Request, approver: User) -> None:
+    async def _merge_to_main(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
-            await self.adapter.send(approver.platform_user_id, "⛔ Chỉ manager được duyệt merge.")
+            await self.adapter.send(reply_to or approver.platform_user_id,
+                                    "⛔ Chỉ manager được duyệt merge.")
             return
         repo = self._repo(req)
         try:
@@ -373,9 +404,10 @@ class Orchestrator:
         self.db.commit()
         await self._say(req, self._requester(req), f"🎉 Yêu cầu #{req.id} đã merge `{repo.prod_branch}` và đóng.")
 
-    async def _manager_reject(self, req: Request, approver: User) -> None:
+    async def _manager_reject(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
-            await self.adapter.send(approver.platform_user_id, "⛔ Chỉ manager được duyệt merge.")
+            await self.adapter.send(reply_to or approver.platform_user_id,
+                                    "⛔ Chỉ manager được duyệt merge.")
             return
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.REJECTED))

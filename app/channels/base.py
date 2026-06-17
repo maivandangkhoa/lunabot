@@ -34,6 +34,12 @@ class InboundMessage:
     # Với callback (bấm nút) thì callback_data có giá trị; tin text thường thì None.
     callback_data: str | None = None
     chat_id: str | None = None
+    # True nếu tin đến từ group/space nhiều người (vs DM 1:1). FSM dùng để trả lời công khai
+    # trong group và quyết notify manager ở group hay DM.
+    is_group: bool = False
+    # True nếu tin nhắm tới bot (DM, @mention, command, reply, hoặc bấm nút). Trong group mà
+    # KHÔNG addressed thì dispatcher bỏ qua (tránh biến mọi tin trong group thành request).
+    addressed: bool = True
     attachments: list[Attachment] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
@@ -57,11 +63,12 @@ class ChannelAdapter(Protocol):
 
     async def send(
         self,
-        platform_user_id: str,
+        destination: str,
         text: str,
         buttons: list[list[Button]] | None = None,
     ) -> Any:
-        """Gửi tin (kèm inline buttons tuỳ chọn) tới user."""
+        """Gửi tin (kèm inline buttons tuỳ chọn) tới `destination` — ID **đích chat**, không
+        nhất thiết là user: DM (user id / DM space) hoặc group (group chat_id / space ROOM)."""
         ...
 
     async def answer_callback(self, callback_id: str, text: str | None = None) -> Any:

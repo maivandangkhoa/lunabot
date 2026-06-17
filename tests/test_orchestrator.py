@@ -62,6 +62,64 @@ async def test_full_happy_path(db, fakes, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_group_request_notifies_managers_in_group(db, fakes, tmp_path):
+    """Request đến từ group: reply + yêu cầu duyệt manager đăng CÔNG KHAI trong group, không DM."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "X", None,
+                                    chat_id="-100", platform="telegram", is_group=True)
+    await orch.handle_callback(req, emp, cb("confirm", req.id), reply_to="-100")
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id), reply_to="-100")
+    assert req.status == RequestStatus.AWAIT_MANAGER
+    # Yêu cầu duyệt đăng vào group; KHÔNG DM mgr-1.
+    assert any(s[0] == "-100" and "sẵn sàng merge" in s[1] for s in fakes["adapter"].sent)
+    assert not any(s[0] == "mgr-1" for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_ownership_guard_blocks_other_user(db, fakes, tmp_path):
+    """Trong group, user khác bấm nút của request không phải của mình → bị chặn."""
+    t, repo, emp, mgr = _seed(db)
+    other = create_user(db, t, role=UserRole.EMPLOYEE, display_name="Eve")
+    other.platform_user_id = "emp-2"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "X", None,
+                                    chat_id="-100", platform="telegram", is_group=True)
+    assert req.status == RequestStatus.PLAN_REVIEW
+    await orch.handle_callback(req, other, cb("confirm", req.id), reply_to="-100")
+    assert req.status == RequestStatus.PLAN_REVIEW  # không đổi
+    assert any("không phải" in s[1].lower() for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_double_click_manager_blocked(db, fakes, tmp_path):
+    """Nhiều manager trong group: người thứ 2 bấm duyệt sau khi đã xử lý → báo 'đã được xử lý'."""
+    t, repo, emp, mgr = _seed(db)
+    mgr2 = create_user(db, t, role=UserRole.MANAGER, display_name="Mike")
+    mgr2.platform_user_id = "mgr-2"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "X", None,
+                                    chat_id="-100", platform="telegram", is_group=True)
+    await orch.handle_callback(req, emp, cb("confirm", req.id), reply_to="-100")
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id), reply_to="-100")
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id), reply_to="-100")
+    assert req.status == RequestStatus.CLOSED
+    await orch.handle_callback(req, mgr2, cb("mgr_approve", req.id), reply_to="-100")
+    assert any("đã được xử lý" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
 async def test_clarify_then_plan(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
     claude = FakeClaude([claude_json(CLARIFY, "s1"), claude_json(PLAN, "s1")])

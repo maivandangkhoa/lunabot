@@ -10,6 +10,7 @@ Outbound: send (kèm inline keyboard) + answer_callback (tắt spinner trên cli
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -20,6 +21,7 @@ log = logging.getLogger("luna.telegram")
 
 _API_BASE = "https://api.telegram.org"
 _MAX_LEN = 4000  # Telegram giới hạn 4096/tin — chừa biên.
+_GROUP_TYPES = ("group", "supergroup")
 
 
 @dataclass
@@ -28,6 +30,9 @@ class TelegramAdapter:
     api_base: str = _API_BASE
     client: httpx.AsyncClient | None = None
     name: str = "telegram"
+    # Định danh bot (nạp qua get_me lúc startup) — để nhận diện @mention/reply trong group.
+    bot_username: str | None = None
+    bot_id: int | None = None
 
     def _http(self) -> httpx.AsyncClient:
         if self.client is None:
@@ -46,9 +51,29 @@ class TelegramAdapter:
             log.warning("telegram %s lỗi: %s", method, data.get("description"))
         return data
 
+    async def get_me(self) -> dict:
+        """Lấy username/id của bot (cache vào self) — để nhận diện @mention/reply trong group."""
+        data = await self._api("getMe", {})
+        me = data.get("result", {})
+        if me:
+            self.bot_username = me.get("username") or self.bot_username
+            self.bot_id = me.get("id") or self.bot_id
+        return me
+
     # ----- Inbound -----
+    def _strip_mention(self, text: str) -> str:
+        """Bỏ '@<bot_username>' khỏi text (kể cả đuôi command /help@Bot → /help)."""
+        if not text or not self.bot_username:
+            return text.strip()
+        return re.sub(rf"@{re.escape(self.bot_username)}\b", "", text,
+                      flags=re.IGNORECASE).strip()
+
     def parse_inbound(self, raw: dict) -> InboundMessage:
-        """Update raw → InboundMessage. Hỗ trợ tin text và callback (bấm nút)."""
+        """Update raw → InboundMessage. Hỗ trợ tin text và callback (bấm nút).
+
+        Trong group: set is_group, bỏ @mention khỏi text, và addressed=True chỉ khi tin nhắm
+        tới bot (@mention / command / reply tới bot / bấm nút).
+        """
         if "callback_query" in raw:
             cb = raw["callback_query"]
             chat = cb.get("message", {}).get("chat", {})
@@ -58,15 +83,26 @@ class TelegramAdapter:
                 text=cb.get("data", ""),
                 callback_data=cb.get("data"),
                 chat_id=str(chat.get("id", cb["from"]["id"])),
+                is_group=chat.get("type") in _GROUP_TYPES,
+                addressed=True,          # bấm nút luôn là nhắm tới bot
                 raw=raw,
             )
         msg = raw.get("message") or raw.get("edited_message") or {}
+        chat = msg.get("chat", {})
+        is_group = chat.get("type") in _GROUP_TYPES
+        raw_text = msg.get("text", "") or ""
+        mentioned = bool(self.bot_username) and f"@{self.bot_username}".lower() in raw_text.lower()
+        is_cmd = raw_text.startswith("/")
+        replied = (self.bot_id is not None
+                   and msg.get("reply_to_message", {}).get("from", {}).get("id") == self.bot_id)
         return InboundMessage(
             platform=self.name,
             platform_user_id=str(msg.get("from", {}).get("id", "")),
-            text=msg.get("text", "") or "",
+            text=self._strip_mention(raw_text),
             callback_data=None,
-            chat_id=str(msg.get("chat", {}).get("id", "")),
+            chat_id=str(chat.get("id", "")),
+            is_group=is_group,
+            addressed=(not is_group) or mentioned or is_cmd or replied,
             raw=raw,
         )
 

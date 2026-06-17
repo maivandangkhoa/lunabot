@@ -22,6 +22,55 @@ def test_parse_inbound_callback():
     assert a.callback_id(raw) == "cb1"
 
 
+def test_parse_inbound_group_unaddressed():
+    """Tin thường trong group (không @mention/command/reply) → is_group + KHÔNG addressed."""
+    a = TelegramAdapter(token="t", bot_username="LunaBot", bot_id=42)
+    raw = {"message": {"text": "anh em ăn trưa chưa", "from": {"id": 111},
+                       "chat": {"id": -100, "type": "supergroup"}}}
+    m = a.parse_inbound(raw)
+    assert m.is_group and not m.addressed and m.chat_id == "-100"
+
+
+def test_parse_inbound_group_mention_strips_and_addresses():
+    a = TelegramAdapter(token="t", bot_username="LunaBot", bot_id=42)
+    raw = {"message": {"text": "@LunaBot fix the bug", "from": {"id": 111},
+                       "chat": {"id": -100, "type": "group"}}}
+    m = a.parse_inbound(raw)
+    assert m.is_group and m.addressed and m.text == "fix the bug"
+
+
+def test_parse_inbound_group_command_suffix_stripped():
+    a = TelegramAdapter(token="t", bot_username="LunaBot")
+    raw = {"message": {"text": "/help@LunaBot", "from": {"id": 1},
+                       "chat": {"id": -5, "type": "group"}}}
+    m = a.parse_inbound(raw)
+    assert m.addressed and m.text == "/help"
+
+
+def test_parse_inbound_group_reply_to_bot_addresses():
+    a = TelegramAdapter(token="t", bot_username="LunaBot", bot_id=42)
+    raw = {"message": {"text": "đồng ý", "from": {"id": 1},
+                       "chat": {"id": -5, "type": "group"},
+                       "reply_to_message": {"from": {"id": 42}}}}
+    m = a.parse_inbound(raw)
+    assert m.addressed
+
+
+def test_parse_inbound_private_always_addressed():
+    a = TelegramAdapter(token="t", bot_username="LunaBot")
+    raw = {"message": {"text": "hi", "from": {"id": 1}, "chat": {"id": 1, "type": "private"}}}
+    m = a.parse_inbound(raw)
+    assert not m.is_group and m.addressed
+
+
+def test_parse_inbound_group_callback_addressed():
+    a = TelegramAdapter(token="t", bot_username="LunaBot")
+    raw = {"callback_query": {"id": "cb1", "data": "confirm:5", "from": {"id": 111},
+                             "message": {"chat": {"id": -100, "type": "supergroup"}}}}
+    m = a.parse_inbound(raw)
+    assert m.is_group and m.addressed and m.chat_id == "-100"
+
+
 @pytest.mark.asyncio
 async def test_send_with_buttons_builds_inline_keyboard():
     captured = []

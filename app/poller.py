@@ -20,7 +20,12 @@ log = logging.getLogger("luna.poller")
 
 async def run_polling(stop: asyncio.Event) -> None:
     s = get_settings()
-    adapter = TelegramAdapter(token=s.telegram_bot_token or "")
+    adapter = TelegramAdapter(token=s.telegram_bot_token or "",
+                              bot_username=s.telegram_bot_username)
+    try:
+        await adapter.get_me()  # nạp bot_username/bot_id để nhận diện @mention/reply trong group
+    except Exception as exc:  # noqa: BLE001
+        log.warning("getMe lỗi (bỏ qua, group mention có thể không nhận diện): %s", exc)
     try:
         github = GitHubApp.from_settings()
     except Exception as exc:  # noqa: BLE001

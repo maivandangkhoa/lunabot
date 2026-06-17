@@ -54,10 +54,14 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
     (CLARIFYING/PLAN_REVIEW/VERIFY) khoá đã nhả → tin mới được xử lý bình thường.
     """
     inbound = adapter.parse_inbound(raw)
+    # Trong group mà tin KHÔNG nhắm tới bot (không @mention/command/reply) → bỏ qua im lặng.
+    if inbound.is_group and not inbound.addressed:
+        return
+    reply_to = inbound.chat_id or inbound.platform_user_id
     lock = _user_locks[f"{adapter.name}:{inbound.platform_user_id}"]
     if lock.locked():
         log.info("user %s đang bận — bỏ qua tin mới", inbound.platform_user_id)
-        await adapter.send(inbound.platform_user_id,
+        await adapter.send(reply_to,
                            "⏳ Em đang xử lý việc trước, xong em báo ngay. "
                            "Gửi lại nội dung này sau khi em xong nhé.")
         return
@@ -67,9 +71,14 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
 
 async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inbound) -> None:
     text = (inbound.text or "").strip()
+    reply_to = inbound.chat_id or inbound.platform_user_id
 
-    # /start [<token>] — liên kết tài khoản.
+    # /start [<token>] — liên kết tài khoản. KHÔNG nhận token trong group (lộ token) → bảo DM.
     if text.startswith("/start"):
+        if inbound.is_group:
+            await adapter.send(reply_to,
+                               "🔒 Hãy nhắn riêng (DM) cho bot để liên kết: /start <token>.")
+            return
         await _handle_start(db, adapter, inbound.platform_user_id, text)
         return
 
@@ -77,12 +86,16 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
     if user is None:
         log.warning("chưa liên kết: platform=%r pid=%r text=%r",
                     adapter.name, inbound.platform_user_id, text[:40])
-        await adapter.send(inbound.platform_user_id,
-                           "Anh/chị chưa liên kết tài khoản. Dùng /start <token> (admin cấp).")
+        await adapter.send(reply_to,
+                           "Anh/chị chưa liên kết tài khoản. Nhắn riêng bot: /start <token> (admin cấp).")
         return
 
     # Lệnh quản trị (/help, /whoami, /users, /invite, /role, /unlink) — tin text, không callback.
+    # CHỈ trong DM: nhiều lệnh (/users, /invite) in token → tránh lộ trong group.
     if inbound.callback_data is None and is_command(text):
+        if inbound.is_group:
+            await adapter.send(reply_to, "🔒 Lệnh quản trị chỉ dùng khi nhắn riêng (DM) cho bot.")
+            return
         await handle_command(db, adapter, user, text)
         return
 
@@ -96,7 +109,7 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         _, rid = parse_cb(inbound.callback_data)
         req = db.get(Request, rid)
         if req and req.tenant_id == user.tenant_id:
-            await orch.handle_callback(req, user, inbound.callback_data)
+            await orch.handle_callback(req, user, inbound.callback_data, reply_to=reply_to)
         return
 
     if not text and not inbound.attachments:
@@ -117,10 +130,10 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         if open_req.status in _TEXT_ACTIVE:        # CLARIFYING → làm rõ; VERIFY → feedback sửa
             await orch.handle_message(open_req, user, text, attachments=inbound.attachments)
         elif open_req.status == RequestStatus.PLAN_REVIEW:
-            await adapter.send(user.platform_user_id,
+            await adapter.send(reply_to,
                 f"📋 Yêu cầu #{open_req.id} đang chờ duyệt kế hoạch. Trả lời: ok · sửa · huỷ.")
         else:                                       # NEW/ANALYZING/EXECUTING
-            await adapter.send(user.platform_user_id,
+            await adapter.send(reply_to,
                 f"⏳ Em đang xử lý yêu cầu #{open_req.id} ({open_req.status.value}). "
                 "Chờ em xong rồi gửi yêu cầu mới nhé.")
         return
@@ -130,17 +143,19 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         select(Repository).where(Repository.tenant_id == user.tenant_id).order_by(Repository.id)
     ).all()
     if not repos:
-        await adapter.send(user.platform_user_id, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
+        await adapter.send(reply_to, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
         return
     chosen = (repos[0] if len(repos) == 1
               else next((r for r in repos if r.id == user.active_repo_id), None))
     if chosen is None:                          # nhiều repo + chưa chọn → bảo chọn
         lines = "\n".join(f"{i}. {r.repo_full_name}" for i, r in enumerate(repos, 1))
-        await adapter.send(user.platform_user_id,
+        await adapter.send(reply_to,
                            f"Tenant có nhiều dự án. Chọn trước bằng /repo <số|tên>:\n{lines}")
         return
     title = text.splitlines()[0][:200] if text else "(ảnh đính kèm)"
-    await orch.create_request(chosen, user, title=title, body=text, attachments=inbound.attachments)
+    await orch.create_request(chosen, user, title=title, body=text, attachments=inbound.attachments,
+                              chat_id=inbound.chat_id, platform=adapter.name,
+                              is_group=inbound.is_group)
 
 
 async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str) -> bool:

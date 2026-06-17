@@ -71,6 +71,14 @@ def _parse_attachments(items: list) -> list[Attachment]:
     return out
 
 
+def _space_is_group(space_obj: dict) -> bool:
+    """Space ROOM/SPACE (nhiều người) vs DM 1:1. Hỗ trợ cả `type` (classic) lẫn `spaceType` (mới)."""
+    if not isinstance(space_obj, dict):
+        return False
+    return (space_obj.get("type") == "ROOM"
+            or space_obj.get("spaceType") in ("SPACE", "GROUP_CHAT"))
+
+
 def _extract_callback(raw: dict) -> str | None:
     """Lấy callback_data từ event CARD_CLICKED (hỗ trợ 2 shape API)."""
     params = raw.get("action", {}).get("parameters")
@@ -211,44 +219,49 @@ class GoogleChatAdapter:
         """Event Workspace add-on: user/space/text/attachment lồng dưới chat.*."""
         chat = raw.get("chat", {})
         uid = chat.get("user", {}).get("name", "")
-        text, callback, space = "", None, None
+        text, callback, space_obj = "", None, {}
         attachments: list[Attachment] = []
         if "messagePayload" in chat:
             mp = chat["messagePayload"]
             msg = mp.get("message", {})
-            space = (mp.get("space") or msg.get("space") or {}).get("name")
+            space_obj = mp.get("space") or msg.get("space") or {}
             text = msg.get("text") or msg.get("argumentText") or ""
             attachments = _parse_attachments(msg.get("attachment") or [])
         elif "buttonClickedPayload" in chat:
             bp = chat["buttonClickedPayload"]
-            space = (bp.get("space") or bp.get("message", {}).get("space") or {}).get("name")
+            space_obj = bp.get("space") or bp.get("message", {}).get("space") or {}
             params = raw.get("commonEventObject", {}).get("parameters", {})
             callback = params.get(_CB_PARAM) or _extract_callback(bp)
             text = callback or ""
         elif "addedToSpacePayload" in chat:
-            space = chat["addedToSpacePayload"].get("space", {}).get("name")
+            space_obj = chat["addedToSpacePayload"].get("space", {})
+        space = space_obj.get("name")
         if space and uid:
             self._space_cache[uid] = space      # nhớ space để reply trong cùng flow
         return InboundMessage(
             platform=self.name, platform_user_id=uid, text=text,
-            callback_data=callback, chat_id=space, attachments=attachments, raw=raw,
+            callback_data=callback, chat_id=space, is_group=_space_is_group(space_obj),
+            attachments=attachments, raw=raw,
         )
 
     def _parse_classic(self, raw: dict) -> InboundMessage:
         uid = raw.get("user", {}).get("name", "")
-        space = raw.get("space", {}).get("name")
+        space_obj = raw.get("space", {})
+        space = space_obj.get("name")
+        is_group = _space_is_group(space_obj)
         if space and uid:
             self._space_cache[uid] = space
         if raw.get("type") == "CARD_CLICKED":
             cbdata = _extract_callback(raw)
             return InboundMessage(
                 platform=self.name, platform_user_id=uid, text=cbdata or "",
-                callback_data=cbdata, chat_id=space, raw=raw,
+                callback_data=cbdata, chat_id=space, is_group=is_group, raw=raw,
             )
         msg = raw.get("message", {})
         return InboundMessage(
             platform=self.name, platform_user_id=uid,
-            text=msg.get("text", "") or "", callback_data=None, chat_id=space, raw=raw,
+            text=msg.get("text", "") or "", callback_data=None, chat_id=space,
+            is_group=is_group, raw=raw,
         )
 
     # ----- Outbound -----
@@ -287,14 +300,15 @@ class GoogleChatAdapter:
 
     async def send(
         self,
-        platform_user_id: str,
+        destination: str,
         text: str,
         buttons: list[list[Button]] | None = None,
     ) -> dict:
-        """Gửi tin tới DM space của user (chunk nếu dài; cards gắn chunk cuối)."""
-        space = await self._resolve_space(platform_user_id)
+        """Gửi tin tới `destination` (chunk nếu dài; cards gắn chunk cuối). `destination` là
+        space sẵn (`spaces/...`, vd group/origin) → gửi thẳng; là user (`users/...`) → resolve DM."""
+        space = destination if destination.startswith("spaces/") else await self._resolve_space(destination)
         if not space:
-            log.warning("Không tìm được space cho %s — bỏ gửi.", platform_user_id)
+            log.warning("Không tìm được space cho %s — bỏ gửi.", destination)
             return {}
         headers = await self._headers()
         chunks = [text[i : i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]

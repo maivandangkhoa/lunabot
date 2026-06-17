@@ -85,6 +85,39 @@ async def test_send_uses_cached_space_from_inbound():
 
 
 @pytest.mark.asyncio
+async def test_send_to_space_skips_dm_resolution():
+    """destination là space sẵn (spaces/...) → gửi thẳng, KHÔNG gọi findDirectMessage."""
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        return httpx.Response(200, json={"name": "spaces/ROOM1/messages/1"})
+
+    a = _adapter(handler)
+    await a.send("spaces/ROOM1", "hi")
+    assert "/v1/spaces:findDirectMessage" not in calls
+    assert calls == ["/v1/spaces/ROOM1/messages"]
+
+
+def test_parse_inbound_room_is_group():
+    a = GoogleChatAdapter()
+    raw = {"type": "MESSAGE", "user": {"name": "users/1"},
+           "space": {"name": "spaces/ROOM1", "type": "ROOM"},
+           "message": {"text": "hi"}}
+    m = a.parse_inbound(raw)
+    assert m.is_group and m.chat_id == "spaces/ROOM1"
+
+
+def test_parse_inbound_dm_not_group():
+    a = GoogleChatAdapter()
+    raw = {"type": "MESSAGE", "user": {"name": "users/1"},
+           "space": {"name": "spaces/DM1", "type": "DM"},
+           "message": {"text": "hi"}}
+    m = a.parse_inbound(raw)
+    assert not m.is_group
+
+
+@pytest.mark.asyncio
 async def test_send_chunks_long_text():
     calls = []
 

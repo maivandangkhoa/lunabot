@@ -62,7 +62,8 @@ async def webhook_telegram(
     raw = await request.json()
     db = SessionLocal()
     try:
-        adapter = TelegramAdapter(token=settings.telegram_bot_token or "")
+        adapter = TelegramAdapter(token=settings.telegram_bot_token or "",
+                                  bot_username=settings.telegram_bot_username)
         github = GitHubApp.from_settings()
         await handle_channel_update(db, adapter, github, raw)
         await adapter.aclose()

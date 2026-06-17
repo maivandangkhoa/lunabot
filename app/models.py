@@ -13,6 +13,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -181,6 +182,13 @@ class Request(Base):
         Enum(RequestStatus, name="request_status"),
         default=RequestStatus.NEW,
         index=True,
+    )
+    # Nơi khởi tạo request — để FSM trả lời đúng chỗ (DM hay group). NULL = request cũ ⇒
+    # fallback DM requester (tương thích ngược). origin_is_group quyết notify manager ở group hay DM.
+    origin_platform: Mapped[str | None] = mapped_column(String(32))
+    origin_chat_id: Mapped[str | None] = mapped_column(String(128))
+    origin_is_group: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
     )
     # Neo session Claude để --resume xuyên vòng đời.
     claude_session_id: Mapped[str | None] = mapped_column(String(128))

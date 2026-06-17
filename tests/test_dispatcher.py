@@ -21,6 +21,11 @@ def _callback(uid, data):
                                "from": {"id": uid}, "message": {"chat": {"id": uid}}}}
 
 
+def _group_msg(uid, text, chat_id):
+    return {"message": {"text": text, "from": {"id": uid},
+                        "chat": {"id": chat_id, "type": "supergroup"}}}
+
+
 @pytest.mark.asyncio
 async def test_start_links_account(db, fakes):
     t = create_tenant(db, "Acme")
@@ -175,6 +180,70 @@ async def test_link_rebinds_platform(db):
     linked = get_user_by_platform(db, "google_chat", "users/777")   # lookup theo kênh thực
     assert linked is not None and linked.id == u.id
     assert linked.platform == "google_chat"
+
+
+@pytest.mark.asyncio
+async def test_group_unaddressed_ignored(db, fakes):
+    """Tin thường trong group (không @mention bot) → bỏ qua: không gửi gì, không tạo request."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "trưa nay ăn gì", -100))
+    assert fakes["adapter"].sent == []
+    assert len(u.tenant.requests) == 0
+
+
+@pytest.mark.asyncio
+async def test_group_mention_creates_request_with_origin(db, fakes, monkeypatch):
+    """@mention bot trong group → tạo request, ghi origin_chat_id=group, reply đăng trong group."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    monkeypatch.setattr("app.orchestrator.run_claude", FakeClaude([claude_json(PLAN, "s1")]))
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "@LunaBot Thêm cache", -100))
+    reqs = u.tenant.requests
+    assert len(reqs) == 1 and reqs[0].status == RequestStatus.PLAN_REVIEW
+    assert reqs[0].origin_chat_id == "-100" and reqs[0].origin_is_group
+    assert reqs[0].title == "Thêm cache"            # @mention đã bị strip khỏi title
+    assert all(s[0] == "-100" for s in fakes["adapter"].sent)   # reply vào group, không DM
+
+
+@pytest.mark.asyncio
+async def test_start_token_rejected_in_group(db, fakes):
+    """/start <token> trong group bị từ chối (tránh lộ token) → bảo DM, không liên kết."""
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", f"/start {u.link_token}", -100))
+    assert get_user_by_platform(db, "telegram", "99") is None
+    assert any("nhắn riêng" in s[1].lower() for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_admin_command_blocked_in_group(db, fakes):
+    """Lệnh quản trị trong group bị chặn (vd /users in token) → bảo DM."""
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.MANAGER)
+    u.platform_user_id = "99"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "/users", -100))
+    assert any("nhắn riêng" in s[1].lower() for s in fakes["adapter"].sent)
 
 
 @pytest.mark.asyncio
