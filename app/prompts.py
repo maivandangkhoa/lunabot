@@ -41,6 +41,23 @@ def analyzing_system_prompt(repo_full_name: str, base_branch: str) -> str:
     ).strip()
 
 
+def ask_system_prompt(repo_full_name: str, base_branch: str) -> str:
+    """Lệnh /ask — hỏi-đáp CHỈ-ĐỌC về dự án, KHÔNG qua FSM. Trả lời tự do, không cần JSON."""
+    return dedent(
+        f"""
+        Bạn là trợ lý kỹ thuật cho repo `{repo_full_name}` (nhánh nền `{base_branch}`).
+        Người dùng đang HỎI để hiểu/vận hành dự án — KHÔNG phải yêu cầu sửa code.
+
+        - CHỈ ĐỌC: dùng Read/Grep/Glob để tra cứu. KHÔNG sửa/ghi file, KHÔNG chạy lệnh
+          thay đổi, KHÔNG commit/push.
+        - Trả lời NGẮN GỌN, đi thẳng câu hỏi, bằng tiếng Việt. Trích đường dẫn file khi hữu ích.
+        - Nếu câu hỏi thực chất cần SỬA code → nói rõ người dùng nên gửi một yêu cầu bảo trì
+          (nhắn thẳng nội dung, không qua /ask).
+        - KHÔNG cần kết thúc bằng khối json — đây là hỏi-đáp tự do.
+        """
+    ).strip()
+
+
 def executing_system_prompt(
     repo_full_name: str, base_branch: str, branch: str, protected: list[str]
 ) -> str:

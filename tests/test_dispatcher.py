@@ -3,6 +3,7 @@ import asyncio
 
 import pytest
 
+from app.claude_runner import ClaudeResult
 from app.dispatcher import _try_text_action, handle_channel_update, handle_telegram_update
 from app.models import Request, RequestStatus, UserRole
 from app.onboarding import add_repository, create_tenant, create_user, get_user_by_platform
@@ -396,6 +397,63 @@ async def test_single_candidate_acts_directly(db, fakes):
 
     assert handled is True
     assert merge.status != RequestStatus.AWAIT_MANAGER
+
+
+@pytest.mark.asyncio
+async def test_ask_answers_without_creating_request(db, fakes, monkeypatch):
+    """/ask trả lời chỉ-đọc, KHÔNG tạo request; prompt gửi Claude là nguyên câu hỏi."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    fake = FakeClaude([ClaudeResult(ok=True, result="Dự án dùng Postgres.", session_id=None)])
+    monkeypatch.setattr("app.orchestrator.run_claude", fake)
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _msg("99", "/ask dự án này dùng DB gì?"))
+    assert len(u.tenant.requests) == 0                       # KHÔNG qua FSM
+    assert any("Postgres" in s[1] for s in fakes["adapter"].sent)
+    assert fake.calls[0]["prompt"] == "dự án này dùng DB gì?"
+    assert fake.calls[0]["permission_mode"].value == "default"   # chỉ-đọc
+
+
+@pytest.mark.asyncio
+async def test_ask_without_question_shows_usage(db, fakes):
+    """/ask không kèm câu hỏi → nhắc cú pháp, không gọi Claude, không tạo request."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "/ask"))
+    assert any("Cú pháp: /ask" in s[1] for s in fakes["adapter"].sent)
+    assert len(u.tenant.requests) == 0
+
+
+@pytest.mark.asyncio
+async def test_ask_allowed_in_group_replies_publicly(db, fakes, monkeypatch):
+    """/ask dùng được trong group (không bị chặn DM-only) → trả lời công khai trong group."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    monkeypatch.setattr("app.orchestrator.run_claude",
+                        FakeClaude([ClaudeResult(ok=True, result="Câu trả lời.", session_id=None)]))
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "@LunaBot /ask repo dùng gì?", -100))
+    assert any("Câu trả lời." in s[1] for s in fakes["adapter"].sent)
+    assert all(s[0] == "-100" for s in fakes["adapter"].sent)    # reply trong group, không DM
+    assert len(u.tenant.requests) == 0
 
 
 @pytest.mark.asyncio

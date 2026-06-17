@@ -239,6 +239,28 @@ class Orchestrator:
         await self.adapter.send(
             target, f"🧹 Đã đóng yêu cầu #{req.id}. Gửi yêu cầu mới để bắt đầu session mới.")
 
+    async def ask(self, repo: Repository, user: User, question: str,
+                  *, reply_to: str | None = None) -> None:
+        """Lệnh /ask: hỏi-đáp CHỈ-ĐỌC về dự án, KHÔNG qua FSM (không tạo request, không
+        nhánh/commit/PR, không neo session). Tái dùng bản clone sẵn (fetch nhẹ), chạy Claude
+        read-only một lần. Giữ lock per-repo để không đọc lúc một request khác đang EXECUTING."""
+        target = reply_to or user.platform_user_id
+        async with _repo_locks[repo.id]:
+            try:
+                repo_dir = await self._ensure_repo_cloned(repo)
+            except Exception as exc:  # noqa: BLE001
+                await self.adapter.send(target, f"⚠️ Không chuẩn bị được repo để trả lời: {exc}")
+                return
+            sysp = prompts.ask_system_prompt(repo.repo_full_name, repo.base_branch)
+            res = await self.claude_run(
+                prompt=question, cwd=repo_dir,
+                permission_mode=PermissionMode.READONLY, system_prompt=sysp,
+            )
+        if not res.ok:
+            await self.adapter.send(target, f"⚠️ Chưa trả lời được, thử lại sau nhé:\n{res.result[:800]}")
+            return
+        await self.adapter.send(target, res.result[:3500] or "(không có nội dung)")
+
     # ---------------- phases ----------------
     async def _analyze(self, req: Request, clarifications: list[str] | None = None,
                        attachments=None) -> None:

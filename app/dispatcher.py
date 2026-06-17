@@ -119,6 +119,13 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         await Orchestrator(db, adapter, github=github).clear_open_request(user, reply_to=reply_to)
         return
 
+    if inbound.callback_data is None and _cmd0 == "/ask":
+        # /ask dùng được cả group (giống /clear) — chỉ-đọc, không lộ token.
+        rest = text.split(maxsplit=1)
+        await _handle_ask(db, Orchestrator(db, adapter, github=github), user,
+                          rest[1].strip() if len(rest) > 1 else "", reply_to)
+        return
+
     if inbound.callback_data is None and is_command(text):
         if inbound.is_group:
             await adapter.send(reply_to, "🔒 Lệnh quản trị chỉ dùng khi nhắn riêng (DM) cho bot.")
@@ -166,14 +173,10 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         return
 
     # Không còn request mở → tạo request mới (vào dự án đang chọn).
-    repos = db.scalars(
-        select(Repository).where(Repository.tenant_id == user.tenant_id).order_by(Repository.id)
-    ).all()
+    chosen, repos = _resolve_active_repo(db, user)
     if not repos:
         await adapter.send(reply_to, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
         return
-    chosen = (repos[0] if len(repos) == 1
-              else next((r for r in repos if r.id == user.active_repo_id), None))
     if chosen is None:                          # nhiều repo + chưa chọn → bảo chọn
         lines = "\n".join(f"{i}. {r.repo_full_name}" for i, r in enumerate(repos, 1))
         await adapter.send(reply_to,
@@ -240,6 +243,39 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
     await orch.adapter.send(
         reply_to, "🤔 Anh/chị có nhiều việc đang chờ — chọn việc cần áp dụng:", buttons)
     return True
+
+
+def _resolve_active_repo(db: Session, user: User) -> tuple[Repository | None, list[Repository]]:
+    """Repo để thao tác cho user: 1 repo → dùng luôn; nhiều → theo active_repo_id (None nếu
+    chưa chọn). Trả (chosen, all_repos) để caller tự lo thông báo."""
+    repos = list(db.scalars(
+        select(Repository).where(Repository.tenant_id == user.tenant_id).order_by(Repository.id)
+    ).all())
+    if not repos:
+        return None, []
+    if len(repos) == 1:
+        return repos[0], repos
+    return next((r for r in repos if r.id == user.active_repo_id), None), repos
+
+
+async def _handle_ask(db: Session, orch: Orchestrator, user: User, question: str,
+                      reply_to: str) -> None:
+    """/ask <câu hỏi> — hỏi-đáp CHỈ-ĐỌC về dự án đang chọn, KHÔNG tạo request/PR (không qua FSM)."""
+    if not question:
+        await orch.adapter.send(
+            reply_to, "Cú pháp: /ask <câu hỏi về dự án>.\nVd: /ask dự án này dùng DB gì?")
+        return
+    chosen, repos = _resolve_active_repo(db, user)
+    if not repos:
+        await orch.adapter.send(reply_to, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
+        return
+    if chosen is None:
+        lines = "\n".join(f"{i}. {r.repo_full_name}" for i, r in enumerate(repos, 1))
+        await orch.adapter.send(
+            reply_to, f"Có nhiều dự án — chọn trước bằng /repo <số|tên> rồi /ask lại:\n{lines}")
+        return
+    await orch.adapter.send(reply_to, "🔎 Em xem rồi trả lời ngay…")
+    await orch.ask(chosen, user, question, reply_to=reply_to)
 
 
 async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: str, text: str) -> None:

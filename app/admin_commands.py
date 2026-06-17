@@ -28,6 +28,7 @@ _ADMIN_CMDS = {"/users", "/invite", "/role", "/unlink", "/addrepo"}
 HELP_TEXT = (
     "🛠 Lệnh:\n"
     "/whoami — thông tin của anh/chị\n"
+    "/ask <câu hỏi> — hỏi-đáp về dự án (chỉ đọc, không tạo yêu cầu)\n"
     "/clear — đóng yêu cầu đang mở, bắt đầu session mới\n"
     "/repos — liệt kê dự án (repo) của tenant\n"
     "/repo <tên|số> — chọn dự án để gửi yêu cầu\n"
