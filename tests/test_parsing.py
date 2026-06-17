@@ -41,3 +41,10 @@ def test_missing_required_field():
 
 def test_empty():
     assert parse_signal("").ok is False
+
+
+def test_strip_json_block():
+    from app.parsing import strip_json_block
+    assert strip_json_block("Câu trả lời.\n```json\n{\"action\":\"clarify\"}\n```") == "Câu trả lời."
+    assert strip_json_block("Chỉ text").strip() == "Chỉ text"
+    assert strip_json_block("") == ""

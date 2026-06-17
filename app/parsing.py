@@ -42,6 +42,18 @@ def _last_json_block(text: str) -> str | None:
     return matches[-1] if matches else None
 
 
+def strip_json_block(text: str) -> str:
+    """Bỏ khối ```json cuối → phần VĂN BẢN (câu trả lời/giải thích) Claude viết trước JSON."""
+    if not text:
+        return ""
+    for pat in (_FENCED_JSON, _FENCED_ANY):
+        matches = list(pat.finditer(text))
+        if matches:
+            last = matches[-1]
+            return (text[: last.start()] + text[last.end():]).strip()
+    return text.strip()
+
+
 def parse_signal(text: str) -> ParsedSignal:
     """Trích khối JSON cuối, validate action + field bắt buộc. Không bao giờ raise."""
     if not text:

@@ -33,7 +33,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.parsing import Action, parse_signal
+from app.parsing import Action, parse_signal, strip_json_block
 
 log = logging.getLogger("luna.orchestrator")
 
@@ -240,8 +240,12 @@ class Orchestrator:
             self._set_status(req, RequestStatus.CLARIFYING)
             self._event(req, EventKind.CLARIFY, EventDirection.OUT, questions=sig.data["questions"])
             self.db.commit()
+            # Relay câu TRẢ LỜI Claude viết (phần text trước khối json) — vd khi user chỉ
+            # HỎI thông tin thì đây mới là nội dung họ cần; trước đây bị vứt bỏ.
+            answer = strip_json_block(res.result)
             qs = "\n".join(f"❓ {q}" for q in sig.data["questions"])
-            await self._say(req, requester, f"Cần làm rõ:\n{qs}\n\n(trả lời tin này)")
+            body = f"{answer}\n\n———\n{qs}" if answer else qs
+            await self._say(req, requester, f"{body}\n\n(trả lời tin này)")
         elif sig.action == Action.PLAN:
             self._set_status(req, RequestStatus.PLAN_REVIEW)
             self._event(req, EventKind.PLAN, EventDirection.OUT, **sig.data)
