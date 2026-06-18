@@ -467,3 +467,73 @@ async def test_message_with_hash_id_not_hijacked(db, fakes):
 
     assert handled is False                               # không hijack
     assert fakes["adapter"].sent == []
+
+
+# ---------------- Manager làm rõ/feedback thay nhân viên trong cùng thread (1 thread 1 request) ----
+
+def _thread_req(db, t, repo, owner, status, chat_id="-100", **kw):
+    r = Request(tenant_id=t.id, repo_id=repo.id, requester_user_id=owner.id, title="x", body="x",
+                status=status, origin_chat_id=chat_id, origin_is_group=True,
+                origin_platform="telegram", **kw)
+    db.add(r)
+    db.commit()
+    return r
+
+
+@pytest.mark.asyncio
+async def test_manager_clarifies_employee_request_in_thread(db, fakes, monkeypatch):
+    """Request của nhân viên đang CLARIFYING trong group → MANAGER trả lời làm rõ thay → tiến tiếp."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    req = _thread_req(db, t, repo, emp, RequestStatus.CLARIFYING)
+    fakes["adapter"].bot_username = "LunaBot"
+    monkeypatch.setattr("app.orchestrator.run_claude", FakeClaude([claude_json(PLAN, "s2")]))
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("mgr", "@LunaBot Dùng Postgres", -100))
+
+    assert req.status == RequestStatus.PLAN_REVIEW       # làm rõ của manager đã đẩy request đi tiếp
+    assert len(t.requests) == 1                          # không tạo request mới
+
+
+@pytest.mark.asyncio
+async def test_manager_feedback_verify_in_thread(db, fakes, monkeypatch):
+    """Request của nhân viên đang VERIFY → MANAGER gõ mô tả sửa thay → vào luồng fix với đúng feedback."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    req = _thread_req(db, t, repo, emp, RequestStatus.VERIFY, pr_number=7, branch_name="bot/req-1")
+    fakes["adapter"].bot_username = "LunaBot"
+    fake = FakeClaude([claude_json('{"action":"implemented","summary":"d","branch":"bot/req-1"}', "s2")])
+    monkeypatch.setattr("app.orchestrator.run_claude", fake)
+    async def _noop(*a, **k):
+        return None
+    async def _changed(*a, **k):
+        return True
+    for fn in ("ensure_clone", "prepare_branch", "push_branch"):
+        monkeypatch.setattr(f"app.git_ops.{fn}", _noop)
+    monkeypatch.setattr("app.git_ops.commit_all", _changed)
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("mgr", "@LunaBot thêm validation input", -100))
+
+    assert any("thêm validation input" in c["prompt"] for c in fake.calls)  # feedback manager → fix
+    assert req.status == RequestStatus.VERIFY            # fix xong quay lại VERIFY
+
+
+@pytest.mark.asyncio
+async def test_other_member_cannot_chen_thread_request(db, fakes):
+    """Thành viên khác (không phải chủ/không manager) gõ trong thread đang có request → nhắc thread mới."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    other = create_user(db, t, role=UserRole.EMPLOYEE)
+    other.platform_user_id = "other"
+    db.commit()
+    req = _thread_req(db, t, repo, emp, RequestStatus.CLARIFYING)
+    fakes["adapter"].bot_username = "LunaBot"
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("other", "@LunaBot Cho tôi việc khác", -100))
+
+    assert any("thread mới" in s[1].lower() for s in fakes["adapter"].sent)
+    assert len(t.requests) == 1                          # KHÔNG tạo request mới trong cùng thread
+    assert req.status == RequestStatus.CLARIFYING        # request của nhân viên không bị đụng

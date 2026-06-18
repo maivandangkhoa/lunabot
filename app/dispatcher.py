@@ -155,26 +155,31 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         return
 
     # Hành động bằng text (thay cho bấm nút) — ưu tiên trước khi coi là feedback/clarify.
-    if text and await _try_text_action(db, orch, user, text, reply_to):
+    if text and await _try_text_action(db, orch, user, text, reply_to, inbound):
         return
 
-    # Mỗi user chỉ 1 request ĐANG TƯƠNG TÁC tại một thời điểm. Nếu đang có:
-    # xử lý theo trạng thái thay vì tạo mới. (AWAIT_MANAGER/MERGED_DEV không tính → cho tạo mới.)
-    open_req = db.scalars(
-        select(Request).where(
-            Request.requester_user_id == user.id, Request.status.in_(_BLOCKING)
-        ).order_by(Request.id.desc())
-    ).first()
-    if open_req:
-        if open_req.status in _TEXT_ACTIVE:        # CLARIFYING → làm rõ; VERIFY → feedback sửa
-            await orch.handle_message(open_req, user, text, attachments=inbound.attachments)
-        elif open_req.status == RequestStatus.PLAN_REVIEW:
+    # Request đang mở để TƯƠNG TÁC bằng text. Group: 1 THREAD = 1 request (theo origin_chat_id),
+    # bất kể chủ là ai → MANAGER làm rõ/feedback thay nhân viên trong cùng thread. DM: theo chính user.
+    # (AWAIT_MANAGER/MERGED_DEV không thuộc _BLOCKING → coi như thread trống, cho tạo request mới.)
+    active = _active_request(db, user, inbound)
+    if active:
+        is_mgr = user.role in (UserRole.MANAGER, UserRole.ADMIN)
+        is_owner = user.id == active.requester_user_id
+        if inbound.is_group and not is_owner and not is_mgr:
+            # Thành viên khác trong thread đã có request → giữ quy tắc 1 thread 1 request.
             await adapter.send(reply_to,
-                f"📋 Yêu cầu #{open_req.id} đang chờ duyệt kế hoạch. Trả lời: ok · sửa · huỷ.")
+                f"🧵 Thread này đang xử lý yêu cầu #{active.id}. Mở thread mới (hoặc DM bot) "
+                "để gửi yêu cầu khác nhé.")
+            return
+        if active.status in _TEXT_ACTIVE:          # CLARIFYING → làm rõ; VERIFY → feedback (chủ/manager)
+            await orch.handle_message(active, user, text, attachments=inbound.attachments)
+        elif active.status == RequestStatus.PLAN_REVIEW:
+            await adapter.send(reply_to,
+                f"📋 Yêu cầu #{active.id} đang chờ duyệt kế hoạch. Trả lời: ok · sửa · huỷ.")
         else:                                       # NEW/ANALYZING/EXECUTING
             await adapter.send(reply_to,
-                f"⏳ Em đang xử lý yêu cầu #{open_req.id} ({open_req.status.value}). "
-                "Chờ em xong rồi gửi yêu cầu mới nhé.")
+                f"⏳ Em đang xử lý yêu cầu #{active.id} ({active.status.value}). "
+                "Chờ em xong rồi gửi yêu cầu mới (thread mới) nhé.")
         return
 
     # Không còn request mở → tạo request mới (vào dự án đang chọn).
@@ -193,9 +198,29 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
                               is_group=inbound.is_group)
 
 
-def _actionable(db: Session, user: User, word: str) -> list[tuple[Request, str]]:
-    """Mọi việc đang chờ của user mà từ khoá `word` áp dụng được: request PLAN_REVIEW/VERIFY
-    của chính họ (vai requester) + AWAIT_MANAGER của tenant (vai manager). Trả (request, action)."""
+def _active_request(db: Session, user: User, inbound) -> Request | None:
+    """Request đang mở (BLOCKING) để tương tác bằng text. Group: theo THREAD (origin_chat_id) bất
+    kể chủ là ai (cho manager làm rõ/feedback thay). DM: theo chính user. Đảm bảo 1 thread 1 request."""
+    if inbound.is_group and inbound.chat_id:
+        return db.scalars(
+            select(Request).where(
+                Request.tenant_id == user.tenant_id,
+                Request.origin_chat_id == inbound.chat_id,
+                Request.status.in_(_BLOCKING),
+            ).order_by(Request.id.desc())
+        ).first()
+    return db.scalars(
+        select(Request).where(
+            Request.requester_user_id == user.id, Request.status.in_(_BLOCKING)
+        ).order_by(Request.id.desc())
+    ).first()
+
+
+def _actionable(db: Session, user: User, word: str,
+                *, group_chat_id: str | None = None) -> list[tuple[Request, str]]:
+    """Mọi việc đang chờ mà từ khoá `word` áp dụng được: request PLAN_REVIEW/VERIFY của chính họ
+    (vai requester) + AWAIT_MANAGER của tenant (vai manager) + (manager, trong group) PLAN_REVIEW/
+    VERIFY của THREAD này — để manager thao tác 'đạt/sửa/huỷ' thay nhân viên. Trả (request, action)."""
     reqs = list(db.scalars(
         select(Request).where(
             Request.requester_user_id == user.id,
@@ -209,11 +234,21 @@ def _actionable(db: Session, user: User, word: str) -> list[tuple[Request, str]]
                 Request.status == RequestStatus.AWAIT_MANAGER,
             ).order_by(Request.id.desc())
         ).all()
-    return [(r, act) for r in reqs if (act := _keyword_action(word, r.status))]
+        if group_chat_id:
+            reqs += db.scalars(
+                select(Request).where(
+                    Request.tenant_id == user.tenant_id,
+                    Request.origin_chat_id == group_chat_id,
+                    Request.status.in_((RequestStatus.PLAN_REVIEW, RequestStatus.VERIFY)),
+                ).order_by(Request.id.desc())
+            ).all()
+    seen: set[int] = set()
+    uniq = [r for r in reqs if not (r.id in seen or seen.add(r.id))]  # dedup, giữ thứ tự
+    return [(r, act) for r in uniq if (act := _keyword_action(word, r.status))]
 
 
 async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str,
-                           reply_to: str) -> bool:
+                           reply_to: str, inbound=None) -> bool:
     """Map text từ khoá → hành động nút (cho kênh không route click, vd Google Chat add-on).
 
     Gom mọi việc actionable (requester + manager) rồi quyết: nhắm tường minh `ok #id`; đúng 1
@@ -225,7 +260,8 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
     word = _REQ_ID_RE.sub("", text).strip().lower()   # bỏ '#12' trước khi khớp từ khoá
     if word not in _W_ANY:                             # không phải từ khoá → luồng cũ (tránh hijack)
         return False
-    cands = _actionable(db, user, word)
+    group_chat_id = inbound.chat_id if (inbound and inbound.is_group) else None
+    cands = _actionable(db, user, word, group_chat_id=group_chat_id)
 
     if target_id is not None:                          # nhắm tường minh "ok #12"
         hit = next((c for c in cands if c[0].id == target_id), None)
