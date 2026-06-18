@@ -160,6 +160,19 @@ class GitHubApp:
             installation_id, "DELETE", f"/repos/{repo_full_name}/git/refs/heads/{branch}",
         )
 
+    async def commit_reachable_from(
+        self, installation_id: int, repo_full_name: str, *, branch: str, sha: str,
+    ) -> bool:
+        """`sha` đã nằm trong lịch sử của `branch` chưa (đã được release/merge lên đó)?
+
+        Compare API base=branch, head=sha: status `identical` (trùng đỉnh) / `behind`
+        (sha là tổ tiên của branch) ⇒ True. `ahead`/`diverged` ⇒ chưa lên branch."""
+        data = await self._request(
+            installation_id, "GET",
+            f"/repos/{repo_full_name}/compare/{branch}...{sha}",
+        )
+        return data.get("status") in ("identical", "behind")
+
     # ----- REST: Actions (CI/deploy) -----
     async def list_workflow_runs(
         self, installation_id: int, repo_full_name: str, *, head_sha: str,
