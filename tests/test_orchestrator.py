@@ -59,6 +59,8 @@ async def test_full_happy_path(db, fakes, tmp_path):
     await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
     assert req.status == RequestStatus.CLOSED
     assert any(a.decision == ApprovalDecision.APPROVED for a in req.approvals)
+    # Nhánh feature đã merge xong → bị dọn (không tích tụ bot/req-* trên repo khách).
+    assert req.branch_name in fakes["github"].deleted_branches
 
 
 @pytest.mark.asyncio

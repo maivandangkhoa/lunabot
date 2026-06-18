@@ -461,6 +461,12 @@ class Orchestrator:
         self.db.commit()
         self._set_status(req, RequestStatus.CLOSED)
         self.db.commit()
+        # Dọn nhánh feature đã merge xong (best-effort) — tránh tích tụ bot/req-* trên repo khách.
+        if req.branch_name:
+            try:
+                await self.github.delete_branch(repo.gh_installation_id, repo.repo_full_name, req.branch_name)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("xoá nhánh %s req %s lỗi: %s", req.branch_name, req.id, exc)
         await self._say(req, self._requester(req), f"🎉 Yêu cầu #{req.id} đã merge `{repo.prod_branch}` và đóng.")
 
     async def _manager_reject(self, req: Request, approver: User, reply_to: str | None = None) -> None:
