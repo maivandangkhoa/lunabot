@@ -177,3 +177,44 @@ async def test_claude_hard_error_needs_human(db, fakes, tmp_path):
     req = await orch.create_request(repo, emp, "X", None)
     assert req.status == RequestStatus.ANALYZING
     assert any("can thiệp" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_manager_reject_reverts_dev_and_cleans(db, fakes, tmp_path):
+    """Manager từ chối ở AWAIT_MANAGER → revert dev, đóng PR, xoá nhánh."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "Thêm X", "chi tiết")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+    assert req.status == RequestStatus.AWAIT_MANAGER
+    assert req.dev_merge_sha == "mergesha7"  # SHA merge vào dev được lưu
+
+    await orch.handle_callback(req, mgr, cb("mgr_reject", req.id))
+    assert req.status == RequestStatus.CANCELLED
+    assert any(a.decision == ApprovalDecision.REJECTED for a in req.approvals)
+    assert fakes["git"].reverted == "mergesha7"            # đã revert dev
+    assert req.pr_number in fakes["github"].closed_prs      # PR đã đóng
+    assert req.branch_name in fakes["github"].deleted_branches  # nhánh đã xoá
+
+
+@pytest.mark.asyncio
+async def test_cancel_at_verify_closes_pr_no_revert(db, fakes, tmp_path):
+    """Huỷ ở VERIFY (chưa merge dev) → đóng PR + xoá nhánh, KHÔNG revert dev."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "Thêm X", "chi tiết")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    assert req.status == RequestStatus.VERIFY
+
+    await orch.handle_callback(req, emp, cb("cancel", req.id))
+    assert req.status == RequestStatus.CANCELLED
+    assert req.pr_number in fakes["github"].closed_prs
+    assert req.branch_name in fakes["github"].deleted_branches
+    assert getattr(fakes["git"], "reverted", None) is None  # dev chưa bị đụng

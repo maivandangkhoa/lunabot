@@ -137,10 +137,27 @@ class GitHubApp:
         self, installation_id: int, repo_full_name: str, number: int,
         *, method: str = "merge",
     ) -> dict:
-        """Merge PR. method: merge|squash|rebase."""
+        """Merge PR. method: merge|squash|rebase. Trả dict GitHub (có `sha` merge commit)."""
         return await self._request(
             installation_id, "PUT", f"/repos/{repo_full_name}/pulls/{number}/merge",
             json={"merge_method": method},
+        )
+
+    async def close_pull_request(
+        self, installation_id: int, repo_full_name: str, number: int,
+    ) -> dict:
+        """Đóng PR (không merge). No-op an toàn nếu PR đã đóng/đã merge."""
+        return await self._request(
+            installation_id, "PATCH", f"/repos/{repo_full_name}/pulls/{number}",
+            json={"state": "closed"},
+        )
+
+    async def delete_branch(
+        self, installation_id: int, repo_full_name: str, branch: str,
+    ) -> dict:
+        """Xoá nhánh trên remote (DELETE git ref)."""
+        return await self._request(
+            installation_id, "DELETE", f"/repos/{repo_full_name}/git/refs/heads/{branch}",
         )
 
 

@@ -120,3 +120,19 @@ async def commit_all(repo_dir: Path, message: str) -> bool:
 async def push_branch(repo_dir: Path, branch: str, remote: str = "origin") -> None:
     """Push nhánh làm việc. pre-push hook sẽ chặn nếu là nhánh protected."""
     await run_git(["push", "-u", remote, branch], cwd=repo_dir)
+
+
+async def revert_merge(
+    repo_dir: Path, base_branch: str, merge_sha: str, remote: str = "origin"
+) -> None:
+    """Revert merge commit `merge_sha` trên `base_branch` rồi push.
+
+    Đồng bộ về remote trước (reset --hard) vì merge vào dev làm qua GitHub API ⇒ bản
+    local có thể cũ. `-m 1`: revert giữ phía base_branch làm mainline. base_branch KHÔNG
+    nằm danh sách protected nên pre-push hook không chặn.
+    """
+    await run_git(["fetch", remote, base_branch], cwd=repo_dir)
+    await run_git(["checkout", base_branch], cwd=repo_dir)
+    await run_git(["reset", "--hard", f"{remote}/{base_branch}"], cwd=repo_dir)
+    await run_git(["revert", "-m", "1", "--no-edit", merge_sha], cwd=repo_dir)
+    await run_git(["push", remote, base_branch], cwd=repo_dir)

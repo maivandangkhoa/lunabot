@@ -71,6 +71,8 @@ class FakeGitHub:
     def __init__(self):
         self.created_prs: list[dict] = []
         self.merged: list[int] = []
+        self.closed_prs: list[int] = []
+        self.deleted_branches: list[str] = []
 
     async def installation_token(self, installation_id):
         return "ghs_fake"
@@ -85,7 +87,15 @@ class FakeGitHub:
 
     async def merge_pull_request(self, installation_id, repo_full_name, number, *, method="merge"):
         self.merged.append(number)
-        return {"merged": True}
+        return {"merged": True, "sha": f"mergesha{number}"}
+
+    async def close_pull_request(self, installation_id, repo_full_name, number):
+        self.closed_prs.append(number)
+        return {"state": "closed"}
+
+    async def delete_branch(self, installation_id, repo_full_name, branch):
+        self.deleted_branches.append(branch)
+        return {}
 
     async def aclose(self):
         pass
@@ -107,6 +117,10 @@ class FakeGit:
         return self.has_changes
 
     async def push_branch(self, *a, **k):
+        return None
+
+    async def revert_merge(self, *a, **k):
+        self.reverted = a[-1] if a else None
         return None
 
 

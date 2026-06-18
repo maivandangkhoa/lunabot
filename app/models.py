@@ -195,6 +195,8 @@ class Request(Base):
     branch_name: Mapped[str | None] = mapped_column(String(255))
     pr_number: Mapped[int | None] = mapped_column(Integer)
     pr_url: Mapped[str | None] = mapped_column(String(512))
+    # SHA của merge commit khi PR vào dev — để revert dev nếu manager từ chối.
+    dev_merge_sha: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

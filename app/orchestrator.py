@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import git_ops, prompts
+from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
 from app.config import get_settings
@@ -215,7 +216,11 @@ class Orchestrator:
         elif action == "cancel":
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
-            await self._say(req, self._requester(req), "❌ Đã huỷ yêu cầu.")
+            warns = await cleanup_branch(self, req, revert_dev=False)
+            msg = "❌ Đã huỷ yêu cầu."
+            if warns:
+                msg += "\n⚠️ Dọn dẹp: " + "; ".join(warns)
+            await self._say(req, self._requester(req), msg)
 
     async def clear_open_request(self, user: User, *, reply_to: str | None = None) -> None:
         """Lệnh /clear: huỷ request đang mở (blocking) của user để bắt đầu session mới.
@@ -401,11 +406,13 @@ class Orchestrator:
         repo = self._repo(req)
         requester = self._requester(req)
         try:
-            await self.github.merge_pull_request(repo.gh_installation_id, repo.repo_full_name, req.pr_number)
+            res = await self.github.merge_pull_request(
+                repo.gh_installation_id, repo.repo_full_name, req.pr_number)
         except Exception as exc:
             self.db.commit()
             await self._say(req, requester, f"⚠️ Merge vào {repo.base_branch} lỗi: {exc}")
             return
+        req.dev_merge_sha = (res or {}).get("sha")  # để revert dev nếu manager từ chối
         self._set_status(req, RequestStatus.MERGED_DEV)
         self.db.commit()
         self._set_status(req, RequestStatus.AWAIT_MANAGER)
@@ -465,4 +472,10 @@ class Orchestrator:
                              decision=ApprovalDecision.REJECTED))
         self._set_status(req, RequestStatus.CANCELLED)
         self.db.commit()
-        await self._say(req, self._requester(req), f"❌ Manager từ chối merge yêu cầu #{req.id}.")
+        repo = self._repo(req)
+        warns = await cleanup_branch(self, req, revert_dev=True)
+        msg = (f"❌ Manager từ chối merge yêu cầu #{req.id}. "
+               f"Đã hoàn tác `{repo.base_branch}`, đóng PR và xoá nhánh.")
+        if warns:
+            msg += "\n⚠️ Dọn dẹp chưa trọn: " + "; ".join(warns)
+        await self._say(req, self._requester(req), msg)
