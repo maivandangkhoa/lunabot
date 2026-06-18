@@ -92,6 +92,26 @@ def _extract_callback(raw: dict) -> str | None:
     return None
 
 
+def is_button_click(raw: dict) -> bool:
+    """Event này có phải do bấm nút card không (để webhook trả action response)."""
+    if "buttonClickedPayload" in raw.get("chat", {}):   # Workspace add-on (thật)
+        return True
+    return raw.get("type") == "CARD_CLICKED"             # classic Chat API
+
+
+def ack_update_message(text: str) -> dict:
+    """Response đồng bộ cho 1 cú bấm nút: cập nhật chính message chứa nút → bỏ nút,
+    hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat báo
+    'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST."""
+    return {
+        "hostAppDataAction": {
+            "chatDataAction": {
+                "updateMessageAction": {"message": {"text": text}}
+            }
+        }
+    }
+
+
 _certs_cache: dict[str, dict] = {}   # keyed theo URL certs
 _certs_exp: dict[str, float] = {}
 

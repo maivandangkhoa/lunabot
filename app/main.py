@@ -13,7 +13,12 @@ from fastapi import FastAPI, Header, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from app import bot_registry
-from app.channels.google_chat import GoogleChatAdapter, verify_google_jwt
+from app.channels.google_chat import (
+    GoogleChatAdapter,
+    ack_update_message,
+    is_button_click,
+    verify_google_jwt,
+)
 from app.channels.telegram import TelegramAdapter
 from app.config import get_settings
 from app.db import SessionLocal
@@ -177,8 +182,14 @@ async def webhook_google_chat(
     task = asyncio.create_task(_process_google_chat(raw))
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
-    # Trả JSON rỗng hợp lệ: add-on coi là "đã xử lý, không kèm message" (tránh
-    # "App not responding"). Reply thật gửi bất đồng bộ qua REST.
+    # Bấm nút = 'action' đồng bộ: phải trả action hợp lệ, không thì Chat báo
+    # "unable to process". Cập nhật message bỏ nút + báo đang xử lý; kết quả thật
+    # gửi async qua REST. Tin nhắn thường thì {} rỗng là đủ.
+    if is_button_click(raw):
+        return JSONResponse(
+            content=ack_update_message("⏳ Đã nhận, đang xử lý…"),
+            status_code=status.HTTP_200_OK,
+        )
     return JSONResponse(content={}, status_code=status.HTTP_200_OK)
 
 

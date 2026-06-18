@@ -6,7 +6,12 @@ import httpx
 import pytest
 
 from app.channels.base import Button
-from app.channels.google_chat import GoogleChatAdapter, load_sa_credentials
+from app.channels.google_chat import (
+    GoogleChatAdapter,
+    ack_update_message,
+    is_button_click,
+    load_sa_credentials,
+)
 
 
 def _adapter(handler) -> GoogleChatAdapter:
@@ -251,3 +256,43 @@ def test_load_sa_credentials_inline_and_missing(tmp_path):
     p = tmp_path / "sa.json"
     p.write_text('{"client_email": "file@b"}')
     assert load_sa_credentials(str(p)) == {"client_email": "file@b"}
+
+
+def test_is_button_click_detects_both_shapes():
+    assert is_button_click({"chat": {"buttonClickedPayload": {}}})   # add-on thật
+    assert is_button_click({"type": "CARD_CLICKED"})                  # classic
+    assert not is_button_click({"chat": {"messagePayload": {}}})      # tin nhắn thường
+    assert not is_button_click({})
+
+
+def test_ack_update_message_shape():
+    # Phải là action hợp lệ; {} rỗng ⇒ Chat báo "unable to process".
+    out = ack_update_message("⏳")
+    assert out["hostAppDataAction"]["chatDataAction"]["updateMessageAction"][
+        "message"
+    ]["text"] == "⏳"
+
+
+def test_webhook_button_click_returns_action(monkeypatch):
+    """Webhook trả action response cho click (bỏ nút) thay vì {} rỗng."""
+    from fastapi.testclient import TestClient
+
+    import app.main as main
+
+    async def _noop(_raw):  # cô lập khỏi DB/Claude
+        return None
+
+    monkeypatch.setattr(main, "_process_google_chat", _noop)
+    monkeypatch.setattr(main.settings, "google_chat_enabled", True)
+    monkeypatch.setattr(main.settings, "google_chat_audience", None)
+    client = TestClient(main.app)
+
+    click = {"chat": {"buttonClickedPayload": {"message": {}}}}
+    resp = client.post("/webhook/google_chat", json=click)
+    assert resp.status_code == 200
+    assert "hostAppDataAction" in resp.json()
+
+    msg = {"chat": {"messagePayload": {"message": {"text": "hi"}}}}
+    resp2 = client.post("/webhook/google_chat", json=msg)
+    assert resp2.status_code == 200
+    assert resp2.json() == {}
