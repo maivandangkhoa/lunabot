@@ -6,7 +6,7 @@ từng bước, events/approvals được ghi, manager được thông báo, non
 import pytest
 
 from app.claude_runner import ClaudeResult
-from app.models import ApprovalDecision, RequestStatus, UserRole
+from app.models import ApprovalDecision, Request, RequestStatus, UserRole
 from app.onboarding import add_repository, create_tenant, create_user
 from app.orchestrator import Orchestrator, cb
 from tests.conftest import FakeClaude, claude_json
@@ -221,3 +221,43 @@ async def test_cancel_at_verify_closes_pr_no_revert(db, fakes, tmp_path):
     assert req.pr_number in fakes["github"].closed_prs
     assert req.branch_name in fakes["github"].deleted_branches
     assert getattr(fakes["git"], "reverted", None) is None  # dev chưa bị đụng
+
+
+def _mkreq(db, t, repo, emp, status, **kw):
+    req = Request(tenant_id=t.id, repo_id=repo.id, requester_user_id=emp.id,
+                  title="x", body="x", status=status, **kw)
+    db.add(req)
+    db.commit()
+    return req
+
+
+@pytest.mark.asyncio
+async def test_verify_blocked_when_dev_slot_occupied(db, fakes, tmp_path):
+    """Serialize: request khác cùng repo đang AWAIT_MANAGER ⇒ verify_ok KHÔNG merge dev,
+    giữ VERIFY, gửi lại nút để bấm Đạt sau (tránh approve cuốn cả dev → mồ côi)."""
+    t, repo, emp, mgr = _seed(db)
+    holder = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    waiter = _mkreq(db, t, repo, emp, RequestStatus.VERIFY, pr_number=9)
+    orch = _orch(db, fakes, FakeClaude([]))
+
+    await orch.handle_callback(waiter, emp, cb("verify_ok", waiter.id))
+
+    assert waiter.status == RequestStatus.VERIFY       # chưa merge dev
+    assert 9 not in fakes["github"].merged             # PR không bị merge
+    last = fakes["adapter"].sent[-1]
+    assert f"#{holder.id}" in last[1] and last[2]      # báo chờ + có nút verify gửi lại
+
+
+@pytest.mark.asyncio
+async def test_verify_proceeds_when_slot_free(db, fakes, tmp_path):
+    """Holder đã CLOSED (không còn chiếm dev) ⇒ verify_ok merge dev bình thường."""
+    t, repo, emp, mgr = _seed(db)
+    _mkreq(db, t, repo, emp, RequestStatus.CLOSED)     # đã release, không chiếm slot
+    waiter = _mkreq(db, t, repo, emp, RequestStatus.VERIFY, pr_number=9,
+                    branch_name="bot/req-x")
+    orch = _orch(db, fakes, FakeClaude([]))
+
+    await orch.handle_callback(waiter, emp, cb("verify_ok", waiter.id))
+
+    assert waiter.status == RequestStatus.AWAIT_MANAGER
+    assert 9 in fakes["github"].merged

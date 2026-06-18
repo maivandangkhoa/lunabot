@@ -397,13 +397,36 @@ class Orchestrator:
         await self._say(req, requester,
                         f"✅ Đã triển khai. PR: {req.pr_url}\n{parse_signal(res.result).data.get('summary', '')}"
                         "\n\n(Bấm nút, hoặc trả lời: ok nếu đạt · huỷ)",
-                        buttons=[[
-                            Button("✅ Đạt", cb("verify_ok", req.id)),
-                            Button("🔧 Cần sửa", cb("verify_fix", req.id)),
-                            Button("❌ Huỷ", cb("cancel", req.id)),
-                        ]])
+                        buttons=self._verify_buttons(req))
+
+    def _verify_buttons(self, req: Request) -> list[list["Button"]]:
+        return [[
+            Button("✅ Đạt", cb("verify_ok", req.id)),
+            Button("🔧 Cần sửa", cb("verify_fix", req.id)),
+            Button("❌ Huỷ", cb("cancel", req.id)),
+        ]]
+
+    def _dev_pipeline_holder(self, req: Request) -> Request | None:
+        """Request KHÁC cùng repo đang chiếm 'slot' dev (MERGED_DEV/AWAIT_MANAGER). Serialize:
+        chỉ 1 request chưa-release/lúc, nếu không approve cuốn cả dev → mồ côi (app/reconcile.py)."""
+        return self.db.scalars(
+            select(Request).where(
+                Request.repo_id == req.repo_id,
+                Request.id != req.id,
+                Request.status.in_((RequestStatus.MERGED_DEV, RequestStatus.AWAIT_MANAGER)),
+            ).order_by(Request.id)
+        ).first()
 
     async def _merge_to_dev(self, req: Request) -> None:
+        holder = self._dev_pipeline_holder(req)
+        if holder is not None:
+            self.db.commit()  # giữ VERIFY; gửi LẠI nút vì click đã xoá nút (Google Chat)
+            await self._say(
+                req, self._requester(req),
+                f"⏳ Yêu cầu #{holder.id} đang chờ manager duyệt merge `main`. Em xử lý "
+                f"#{req.id} sau khi #{holder.id} xong — anh/chị bấm **✅ Đạt** lại lúc đó nhé.",
+                buttons=self._verify_buttons(req))
+            return
         repo = self._repo(req)
         requester = self._requester(req)
         try:
