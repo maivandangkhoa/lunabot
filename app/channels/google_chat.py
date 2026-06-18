@@ -243,13 +243,15 @@ class GoogleChatAdapter:
         elif "addedToSpacePayload" in chat:
             space_obj = chat["addedToSpacePayload"].get("space", {})
         space = space_obj.get("name")
+        is_group = _space_is_group(space_obj)
         if space and uid:
             self._space_cache[uid] = space      # nhớ space để reply trong cùng flow
-        if space and thread:
-            self._thread_cache[space] = thread  # nhớ thread để reply cùng mạch (space threaded)
+        if space and thread and is_group:
+            # Chỉ thread trong group (đỡ loãng mạch); DM thì trả lời thẳng cho dễ đọc.
+            self._thread_cache[space] = thread
         return InboundMessage(
             platform=self.name, platform_user_id=uid, text=text,
-            callback_data=callback, chat_id=space, is_group=_space_is_group(space_obj),
+            callback_data=callback, chat_id=space, is_group=is_group,
             attachments=attachments, raw=raw,
         )
 
@@ -261,7 +263,8 @@ class GoogleChatAdapter:
         thread = (raw.get("message", {}).get("thread") or {}).get("name")
         if space and uid:
             self._space_cache[uid] = space
-        if space and thread:
+        if space and thread and is_group:
+            # Chỉ thread trong group; DM trả lời thẳng cho dễ đọc.
             self._thread_cache[space] = thread
         if raw.get("type") == "CARD_CLICKED":
             cbdata = _extract_callback(raw)

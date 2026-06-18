@@ -121,6 +121,26 @@ async def test_send_replies_in_cached_thread():
 
 
 @pytest.mark.asyncio
+async def test_send_dm_does_not_thread():
+    """Tin đến trong DM (dù kèm thread) → reply thẳng, không gắn thread cho dễ đọc."""
+    captured = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.append((str(req.url), json.loads(req.content)))
+        return httpx.Response(200, json={"name": "spaces/DM1/messages/1"})
+
+    a = _adapter(handler)
+    a.parse_inbound({"type": "MESSAGE", "user": {"name": "users/1"},
+                     "space": {"name": "spaces/DM1", "type": "DM"},
+                     "message": {"text": "ok",
+                                 "thread": {"name": "spaces/DM1/threads/T1"}}})
+    await a.send("spaces/DM1", "trả lời")
+    url, payload = captured[-1]
+    assert "thread" not in payload
+    assert "messageReplyOption" not in url
+
+
+@pytest.mark.asyncio
 async def test_send_no_thread_when_none_cached():
     """Space chưa thấy thread → gửi thường, không gắn thread/param."""
     captured = []
