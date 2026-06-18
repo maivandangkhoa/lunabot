@@ -9,6 +9,7 @@ session Claude vẫn persist (volume `.claude`) → tương tác kế tiếp `--
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Callable
 
@@ -67,6 +68,26 @@ def _build_adapter(platform: str | None, settings: Settings) -> ChannelAdapter |
 def _requester_pid(db: Session, req: Request) -> str | None:
     user = db.get(User, req.requester_user_id)
     return user.platform_user_id if user else None
+
+
+async def rekick_pending_deploys(settings: Settings, *, db: Session | None = None) -> int:
+    """Sau restart: tiếp tục deploy-gate cho request kẹt ở MERGED_DEV (background task chết khi
+    restart). Re-poll theo `dev_merge_sha` đã lưu — idempotent: deploy đã xong thì đi tiếp ngay.
+
+    Spawn task có db/adapter/github RIÊNG (xem post_deploy.verify_after_dev_merge)."""
+    from app.post_deploy import verify_after_dev_merge
+
+    own = db is None
+    db = db or SessionLocal()
+    try:
+        reqs = list(db.scalars(
+            select(Request).where(Request.status == RequestStatus.MERGED_DEV)).all())
+        for req in reqs:
+            asyncio.create_task(verify_after_dev_merge(req.id, settings=settings))
+        return len(reqs)
+    finally:
+        if own:
+            db.close()
 
 
 async def recover_interrupted_requests(

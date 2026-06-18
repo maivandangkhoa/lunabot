@@ -19,6 +19,7 @@ CLARIFY = '{"action":"clarify","questions":["DB nào?"]}'
 def _seed(db):
     t = create_tenant(db, "Acme")
     repo = add_repository(db, t, "acme/widgets", 12345)
+    repo.settings_json = {"deploy_gate": False}  # test FSM thuần; deploy-gate test riêng ở test_post_deploy
     emp = create_user(db, t, role=UserRole.EMPLOYEE, display_name="Bob")
     emp.platform_user_id = "emp-1"
     mgr = create_user(db, t, role=UserRole.MANAGER, display_name="Alice")

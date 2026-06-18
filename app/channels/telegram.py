@@ -161,3 +161,11 @@ class TelegramAdapter:
     async def delete_webhook(self) -> dict:
         """Xoá webhook nếu có (getUpdates và webhook loại trừ nhau)."""
         return await self._api("deleteWebhook", {"drop_pending_updates": False})
+
+    async def set_webhook(self, url: str, secret_token: str | None = None) -> dict:
+        """Đăng ký webhook cho bot riêng (provisioning). `secret_token` → Telegram gửi kèm
+        header X-Telegram-Bot-Api-Secret-Token để ta xác thực inbound."""
+        payload: dict = {"url": url, "allowed_updates": ["message", "callback_query"]}
+        if secret_token:
+            payload["secret_token"] = secret_token
+        return await self._api("setWebhook", payload)

@@ -67,9 +67,13 @@ def _keyword_action(word: str, status: RequestStatus) -> str | None:
 _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
-async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, raw: dict) -> None:
+async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, raw: dict,
+                                bot_id: int | None = None) -> None:
     """Parse update; nếu đang bận xử lý tin trước của CÙNG user (Claude đang chạy) thì báo
     bận + BỎ QUA tin này (xử lý trễ sẽ sai ngữ cảnh). Ngược lại xử lý dưới khoá.
+
+    `bot_id`: bot riêng mà inbound thuộc về (None = bot Luna chung). Cô lập tenant — cùng 1
+    tài khoản chat nói với nhiều bot khác tenant không bị lẫn user.
 
     Khoá chỉ bị giữ trong lúc chạy việc nặng (ANALYZING/EXECUTING). Lúc chờ user trả lời
     (CLARIFYING/PLAN_REVIEW/VERIFY) khoá đã nhả → tin mới được xử lý bình thường.
@@ -79,7 +83,7 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
     if inbound.is_group and not inbound.addressed:
         return
     reply_to = inbound.chat_id or inbound.platform_user_id
-    lock = _user_locks[f"{adapter.name}:{inbound.platform_user_id}"]
+    lock = _user_locks[f"{bot_id}:{adapter.name}:{inbound.platform_user_id}"]
     if lock.locked():
         log.info("user %s đang bận — bỏ qua tin mới", inbound.platform_user_id)
         await adapter.send(reply_to,
@@ -87,10 +91,11 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
                            "Gửi lại nội dung này sau khi em xong nhé.")
         return
     async with lock:
-        await _dispatch_inbound(db, adapter, github, inbound)
+        await _dispatch_inbound(db, adapter, github, inbound, bot_id)
 
 
-async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inbound) -> None:
+async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inbound,
+                            bot_id: int | None = None) -> None:
     text = (inbound.text or "").strip()
     reply_to = inbound.chat_id or inbound.platform_user_id
 
@@ -100,10 +105,10 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
             await adapter.send(reply_to,
                                "🔒 Hãy nhắn riêng (DM) cho bot để liên kết: /start <token>.")
             return
-        await _handle_start(db, adapter, inbound.platform_user_id, text)
+        await _handle_start(db, adapter, inbound.platform_user_id, text, bot_id)
         return
 
-    user = get_user_by_platform(db, adapter.name, inbound.platform_user_id)
+    user = get_user_by_platform(db, adapter.name, inbound.platform_user_id, bot_id)
     if user is None:
         log.warning("chưa liên kết: platform=%r pid=%r text=%r",
                     adapter.name, inbound.platform_user_id, text[:40])
@@ -278,13 +283,14 @@ async def _handle_ask(db: Session, orch: Orchestrator, user: User, question: str
     await orch.ask(chosen, user, question, reply_to=reply_to)
 
 
-async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: str, text: str) -> None:
+async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: str, text: str,
+                        bot_id: int | None = None) -> None:
     parts = text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
         await adapter.send(platform_user_id,
                            "Chào mừng đến luna 🌙\nĐể liên kết: /start <token> (admin cấp cho anh/chị).")
         return
-    user = link_user(db, parts[1].strip(), platform_user_id, platform=adapter.name)
+    user = link_user(db, parts[1].strip(), platform_user_id, platform=adapter.name, bot_id=bot_id)
     if user is None:
         await adapter.send(platform_user_id, "❌ Token không hợp lệ hoặc đã dùng.")
         return

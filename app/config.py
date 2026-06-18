@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     claude_code_oauth_token: str | None = None
     claude_timeout_s: int = 1800
 
+    # --- Deploy verify (sau merge dev) ---
+    # Bật: sau khi merge vào dev, chờ GitHub Action build+deploy xong + curl URL dev (200)
+    # rồi mới mời manager. Tắt = giữ hành vi cũ (merge xong mời manager ngay).
+    dev_verify_enabled: bool = True
+    deploy_poll_interval_s: int = 15      # nhịp poll Actions run
+    deploy_timeout_s: int = 900           # tối đa chờ 1 lần deploy (15 phút)
+    # Bật mặc định cho mọi repo: nếu sau ngần này giây KHÔNG thấy workflow run nào cho commit
+    # merge → coi như repo không có CI deploy → bỏ qua cổng, mời manager ngay (không auto-fix nhầm).
+    deploy_ci_grace_s: int = 90
+    # Số vòng auto-fix tối đa khi deploy/curl lỗi (0 = không auto-fix, chỉ báo lỗi).
+    dev_verify_max_rounds: int = 2
+
     # --- GitHub App (M2) ---
     github_app_id: str | None = None
     github_app_private_key_path: Path | None = None
@@ -53,6 +65,25 @@ class Settings(BaseSettings):
     google_chat_audience: str | None = None
     # True = từ chối 401 khi JWT sai; False = audit (log nhưng cho qua) để debug.
     google_chat_verify_enforce: bool = True
+
+    # --- Web wizard self-service (GitHub OAuth + provisioning) ---
+    # Bật web wizard khi đủ các biến này. URL công khai để dựng OAuth callback + webhook đa bot.
+    public_base_url: str | None = None
+    # OAuth user-to-server của GitHub App (Settings → tab "OAuth credentials").
+    github_oauth_client_id: str | None = None
+    github_oauth_client_secret: str | None = None
+    # Slug của GitHub App (trong URL https://github.com/apps/<slug>) — dựng nút "Cấp quyền repo".
+    github_app_slug: str | None = None
+    # Khoá ký cookie phiên web (itsdangerous-style). Đặt giá trị ngẫu nhiên bền vững.
+    web_session_secret: str = "change-me-web"
+    # Fernet key (urlsafe base64 32-byte) mã hoá token bot BYO khi lưu DB. Sinh bằng
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    bot_token_enc_key: str | None = None
+    # Bật tuỳ chọn "container riêng" trong wizard (cần mount Docker socket — rủi ro bảo mật).
+    dedicated_container_enabled: bool = False
+    # CHỈ DEV: cho phép /dev/login bỏ qua GitHub OAuth (repo giả) để xem/thử wizard cục bộ.
+    # MẶC ĐỊNH False — TUYỆT ĐỐI không bật ở production.
+    web_dev_login: bool = False
 
     # --- Workspace ---
     workspace: Path = Field(default=Path("/workspace"))

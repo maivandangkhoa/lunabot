@@ -59,10 +59,33 @@ def ask_system_prompt(repo_full_name: str, base_branch: str) -> str:
 
 
 def executing_system_prompt(
-    repo_full_name: str, base_branch: str, branch: str, protected: list[str]
+    repo_full_name: str, base_branch: str, branch: str, protected: list[str],
+    build_cmd: str | None = None,
 ) -> str:
-    """Phase EXECUTING — được phép sửa code + git, nhưng NEVER push nhánh protected."""
+    """Phase EXECUTING — được phép sửa code + git, nhưng NEVER push nhánh protected.
+
+    Build-gate sớm (chặn code hỏng trước khi app push): mặc định Claude TỰ dò các lệnh kiểm tra
+    KHÔNG cần env của dự án rồi chạy tới khi xanh. `build_cmd` (repo.settings_json) là override
+    tuỳ chọn — ép đúng một lệnh khi không muốn để Claude tự đoán.
+    """
     prot = ", ".join(protected)
+    if build_cmd:
+        check = f"chạy đúng lệnh kiểm tra của dự án:\n                 `{build_cmd}`"
+    else:
+        check = (
+            "TỰ phát hiện các lệnh kiểm tra KHÔNG cần env/secret của dự án rồi chạy chúng\n"
+            "               (vd đọc package.json scripts: lint/typecheck/test; hoặc `tsc --noEmit`,\n"
+            "               `ruff check`, `go vet`… tuỳ ngôn ngữ)"
+        )
+    build_rule = dedent(
+        f"""
+        5. TRƯỚC KHI kết thúc, {check}.
+               Nếu lỗi → tự sửa và chạy lại tới khi XANH. TUYỆT ĐỐI không trả "implemented" khi còn đỏ.
+               Đây là kiểm tra CỤC BỘ, KHÔNG có secret/env runtime của app — BỎ QUA mọi lỗi do
+               THIẾU env/secret (vd kết nối DB/API thật), chỉ tập trung lỗi do code bạn sửa.
+               Không có lệnh kiểm tra phù hợp (env-free) thì bỏ qua bước này.
+        """
+    ).rstrip()
     return dedent(
         f"""
         Bạn đang triển khai thay đổi cho repo `{repo_full_name}`.
@@ -72,7 +95,7 @@ def executing_system_prompt(
         1. Trước khi commit, `git pull --rebase origin {base_branch}` để cập nhật.
         2. Commit rõ ràng trên nhánh `{branch}`; KHÔNG commit thẳng `{base_branch}`.
         3. NEVER push nhánh protected: {prot}. Có pre-push hook chặn — đừng tìm cách lách.
-        4. App sẽ lo push + tạo PR; bạn tập trung sửa code cho đúng và đủ.
+        4. App sẽ lo push + tạo PR; bạn tập trung sửa code cho đúng và đủ.{build_rule}
 
         Kết thúc bằng:
         ```json
@@ -80,6 +103,26 @@ def executing_system_prompt(
         ```
 
         {_JSON_RULE}
+        """
+    ).strip()
+
+
+def discover_dev_url_system_prompt() -> str:
+    """Dò URL môi trường DEV mà CI tự deploy tới — CHỈ ĐỌC cấu hình trong repo."""
+    return dedent(
+        """
+        Bạn đang dò URL của MÔI TRƯỜNG DEV mà CI tự deploy tới. CHỈ ĐỌC, KHÔNG sửa file.
+        Đọc các cấu hình deploy trong repo: `.firebaserc`, `firebase.json`, và file trong
+        `.github/workflows/` (job deploy khi push nhánh dev).
+
+        - Firebase Hosting: URL mặc định TẤT ĐỊNH là `https://<id>.web.app` với `<id>` là
+          project-id hoặc hosting site mà workflow dev deploy tới (suy từ `.firebaserc`
+          projects/targets + cờ `--project <alias>` / `--only hosting:<target>` trong workflow).
+        - Nếu provider khác (Vercel/Netlify/…), lấy URL dev nếu cấu hình nêu rõ.
+
+        Kết thúc bằng ĐÚNG MỘT khối ```json:
+          {"dev_url":"https://....web.app"}   — hoặc   {"dev_url":null} nếu KHÔNG chắc chắn.
+        TUYỆT ĐỐI không bịa domain; chỉ trả URL suy ra chắc chắn từ cấu hình.
         """
     ).strip()
 

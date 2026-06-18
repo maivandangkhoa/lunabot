@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, Request, Response, status
 from fastapi.responses import JSONResponse
 
+from app import bot_registry
 from app.channels.google_chat import GoogleChatAdapter, verify_google_jwt
 from app.channels.telegram import TelegramAdapter
 from app.config import get_settings
@@ -19,7 +20,8 @@ from app.db import SessionLocal
 from app.dispatcher import handle_channel_update
 from app.github_app import GitHubApp
 from app.poller import run_polling
-from app.recovery import recover_interrupted_requests
+from app.recovery import recover_interrupted_requests, rekick_pending_deploys
+from app.web.routes import router as web_router
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -35,6 +37,9 @@ async def lifespan(_app: FastAPI):
         n = await recover_interrupted_requests(settings)
         if n:
             log.warning("recovery: đã đóng %d request kẹt do restart", n)
+        m = await rekick_pending_deploys(settings)
+        if m:
+            log.info("recovery: tiếp tục kiểm thử deploy cho %d request ở MERGED_DEV", m)
     except Exception:  # noqa: BLE001 — recovery không được làm hỏng startup
         log.exception("recovery khởi động lỗi")
     if settings.telegram_mode == "polling" and settings.telegram_bot_token:
@@ -49,6 +54,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="luna", version="0.0.0", lifespan=lifespan)
+app.include_router(web_router)  # web wizard self-service (/, /login, /wizard, /dashboard…)
 
 
 @app.get("/healthz")
@@ -77,6 +83,42 @@ async def webhook_telegram(
         await github.aclose()
     except Exception:  # noqa: BLE001 — webhook không được để lỗi rò ra Telegram
         log.exception("telegram webhook xử lý lỗi")
+    finally:
+        db.close()
+    return Response(status_code=status.HTTP_200_OK)
+
+
+@app.post("/webhook/telegram/{bot_id}")
+async def webhook_telegram_bot(
+    bot_id: int,
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+) -> Response:
+    """Webhook bot RIÊNG (provision qua web wizard). Route theo bot_id → adapter+tenant đúng.
+
+    Trả 200 cả khi lỗi (Telegram không retry bão). Verify secret theo từng bot.
+    """
+    db = SessionLocal()
+    try:
+        bot = bot_registry.get_bot(db, bot_id)
+        if bot is None or bot.platform != "telegram" or bot.mode != "own":
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+        if bot.webhook_secret and x_telegram_bot_api_secret_token != bot.webhook_secret:
+            return Response(status_code=status.HTTP_403_FORBIDDEN)
+        raw = await request.json()
+        adapter = bot_registry.build_adapter(bot)
+        try:
+            github = GitHubApp.from_settings()
+        except Exception:  # noqa: BLE001 — GitHub chưa cấu hình ⇒ EXECUTING sẽ báo lỗi rõ
+            github = None
+        try:
+            await handle_channel_update(db, adapter, github, raw, bot_id=bot.id)
+        finally:
+            await adapter.aclose()
+            if github is not None:
+                await github.aclose()
+    except Exception:  # noqa: BLE001 — webhook không để lỗi rò ra Telegram
+        log.exception("telegram bot=%s webhook xử lý lỗi", bot_id)
     finally:
         db.close()
     return Response(status_code=status.HTTP_200_OK)

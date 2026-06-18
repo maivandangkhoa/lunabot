@@ -96,6 +96,9 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     plan: Mapped[str] = mapped_column(String(64), default="free")
     chat_platform: Mapped[str] = mapped_column(String(32), default="telegram")
+    # Chủ tenant (người tạo qua web wizard, đăng nhập GitHub OAuth). NULL cho tenant seed cũ.
+    owner_github_login: Mapped[str | None] = mapped_column(String(255))
+    owner_github_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     settings_json: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = _created_at()
 
@@ -106,6 +109,9 @@ class Tenant(Base):
         back_populates="tenant", cascade="all, delete-orphan"
     )
     requests: Mapped[list[Request]] = relationship(
+        back_populates="tenant", cascade="all, delete-orphan"
+    )
+    bots: Mapped[list[Bot]] = relationship(
         back_populates="tenant", cascade="all, delete-orphan"
     )
 
@@ -132,12 +138,49 @@ class Repository(Base):
     )
 
 
+class Bot(Base):
+    """Một bot chat thuộc về 1 tenant — kết quả provisioning qua web wizard.
+
+    `mode="shared"` dùng chung bot Luna toàn cục (user.bot_id để NULL); `mode="own"` là bot
+    riêng do khách tạo (BYO token BotFather), token mã hoá Fernet, route qua webhook /bot_id.
+    """
+
+    __tablename__ = "bots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    platform: Mapped[str] = mapped_column(String(32), default="telegram")
+    mode: Mapped[str] = mapped_column(String(16), default="shared")  # shared | own
+    # Token bot riêng đã MÃ HOÁ (Fernet) — KHÔNG bao giờ lưu/log plaintext. NULL khi mode=shared.
+    token_encrypted: Mapped[str | None] = mapped_column(Text)
+    username: Mapped[str | None] = mapped_column(String(128))
+    webhook_secret: Mapped[str | None] = mapped_column(String(128))
+    deployment_mode: Mapped[str] = mapped_column(
+        String(24), default="shared_instance"  # shared_instance | dedicated_container
+    )
+    container_name: Mapped[str | None] = mapped_column(String(128))
+    display_name: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(
+        String(16), default="active"  # active | provisioning | error
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+    tenant: Mapped[Tenant] = relationship(back_populates="bots")
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    # Bot mà user này liên kết tới. NULL = bot Luna CHUNG toàn cục (tương thích user seed cũ).
+    # Lookup user phải scope theo (bot_id, platform, platform_user_id) để cô lập tenant.
+    bot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bots.id", ondelete="CASCADE"), index=True
     )
     platform: Mapped[str] = mapped_column(String(32), default="telegram")
     # chat_id của user trên platform; null cho tới khi liên kết bằng link_token.
@@ -157,8 +200,11 @@ class User(Base):
     tenant: Mapped[Tenant] = relationship(back_populates="users")
 
     __table_args__ = (
+        # Scope theo bot: cùng 1 tài khoản chat có thể nói với nhiều bot khác tenant.
+        # (bot_id NULL = bot chung; Postgres coi NULL là distinct nên uniqueness toàn cục
+        #  cho bot chung được bảo đảm thêm ở tầng ứng dụng — link_user + lookup scoped.)
         UniqueConstraint(
-            "platform", "platform_user_id", name="uq_platform_user"
+            "bot_id", "platform", "platform_user_id", name="uq_platform_user"
         ),
     )
 

@@ -160,6 +160,42 @@ class GitHubApp:
             installation_id, "DELETE", f"/repos/{repo_full_name}/git/refs/heads/{branch}",
         )
 
+    # ----- REST: Actions (CI/deploy) -----
+    async def list_workflow_runs(
+        self, installation_id: int, repo_full_name: str, *, head_sha: str,
+    ) -> list[dict]:
+        """Các workflow run gắn với commit `head_sha`. Mỗi run có status/conclusion/html_url/name."""
+        data = await self._request(
+            installation_id, "GET", f"/repos/{repo_full_name}/actions/runs",
+            params={"head_sha": head_sha, "per_page": 50},
+        )
+        return data.get("workflow_runs", [])
+
+    async def run_failure_summary(
+        self, installation_id: int, repo_full_name: str, run_id: int,
+    ) -> str:
+        """Tóm tắt step lỗi của 1 run (job + step conclusion=failure) để feed Claude sửa.
+
+        Dùng API jobs thay vì tải zip log (nặng). Best-effort: lỗi gọi API → chuỗi rỗng.
+        """
+        try:
+            data = await self._request(
+                installation_id, "GET",
+                f"/repos/{repo_full_name}/actions/runs/{run_id}/jobs",
+                params={"per_page": 50},
+            )
+        except GitHubAppError:
+            return ""
+        lines: list[str] = []
+        for job in data.get("jobs", []):
+            if job.get("conclusion") in (None, "success", "skipped"):
+                continue
+            bad_steps = [s["name"] for s in job.get("steps", [])
+                         if s.get("conclusion") == "failure"]
+            steps = f" (step lỗi: {', '.join(bad_steps)})" if bad_steps else ""
+            lines.append(f"- job '{job.get('name')}' → {job.get('conclusion')}{steps}")
+        return "\n".join(lines)
+
 
 def _safe_msg(resp: httpx.Response) -> str:
     """Trích message lỗi từ body, cắt ngắn. Body GitHub không chứa token."""

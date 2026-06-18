@@ -38,11 +38,15 @@ def add_repository(
 def create_user(
     db: Session, tenant: Tenant, *, role: UserRole = UserRole.EMPLOYEE,
     display_name: str | None = None, platform: str = "telegram",
+    bot_id: int | None = None,
 ) -> User:
-    """Tạo user chưa liên kết, kèm link_token để gửi cho người dùng."""
+    """Tạo user chưa liên kết, kèm link_token để gửi cho người dùng.
+
+    `bot_id`: bot riêng mà user liên kết tới (None = bot Luna chung). Lookup sau scope theo nó.
+    """
     u = User(
         tenant_id=tenant.id, role=role, display_name=display_name,
-        platform=platform, link_token=secrets.token_urlsafe(16),
+        platform=platform, bot_id=bot_id, link_token=secrets.token_urlsafe(16),
     )
     db.add(u)
     db.flush()
@@ -50,15 +54,19 @@ def create_user(
 
 
 def link_user(db: Session, link_token: str, platform_user_id: str,
-              platform: str | None = None) -> User | None:
+              platform: str | None = None, bot_id: int | None = None) -> User | None:
     """Liên kết platform_user_id vào user qua link_token.
 
     `platform`: kênh user THỰC SỰ dùng để /start (vd "google_chat"). Token vốn không gắn
     kênh, nên bind platform tại đây để khớp lookup — tránh lệch khi admin tạo user sai platform.
+    `bot_id`: bot mà user vừa /start. Token chỉ dùng được trên ĐÚNG bot đã provision cho user
+    (deeplink dẫn tới bot đó) — dùng token trên bot khác ⇒ None (tránh lẫn tenant).
     Vô hiệu hoá token sau khi dùng (chống tái sử dụng). Muốn link lại → cấp token mới.
     """
     u = db.scalars(select(User).where(User.link_token == link_token)).first()
     if u is None:
+        return None
+    if u.bot_id != bot_id:
         return None
     if platform:
         u.platform = platform
@@ -78,7 +86,14 @@ def regenerate_link_token(db: Session, user: User) -> str:
     return user.link_token
 
 
-def get_user_by_platform(db: Session, platform: str, platform_user_id: str) -> User | None:
+def get_user_by_platform(db: Session, platform: str, platform_user_id: str,
+                         bot_id: int | None = None) -> User | None:
+    """Tìm user theo (bot_id, platform, platform_user_id). `bot_id=None` = bot Luna chung
+    (cô lập với các bot riêng — cùng 1 tài khoản chat có thể nói với nhiều bot khác tenant)."""
     return db.scalars(
-        select(User).where(User.platform == platform, User.platform_user_id == platform_user_id)
+        select(User).where(
+            User.platform == platform,
+            User.platform_user_id == platform_user_id,
+            User.bot_id == bot_id,
+        )
     ).first()

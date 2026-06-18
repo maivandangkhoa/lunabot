@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import git_ops, prompts
+from app import git_ops, post_deploy, prompts
 from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
@@ -363,7 +363,8 @@ class Orchestrator:
             prompt = (prompts.fix_request_prompt(fix_feedback) if fix_feedback
                       else prompts.build_request_prompt(req.title, req.body))
             sysp = prompts.executing_system_prompt(
-                repo.repo_full_name, repo.base_branch, branch, [repo.prod_branch])
+                repo.repo_full_name, repo.base_branch, branch, [repo.prod_branch],
+                build_cmd=(repo.settings_json or {}).get("build_cmd"))
             res = await self.claude_run(
                 prompt=prompt, cwd=repo_dir, permission_mode=PermissionMode.BYPASS,
                 session_id=req.claude_session_id, system_prompt=sysp,
@@ -412,32 +413,21 @@ class Orchestrator:
             self.db.commit()
             await self._say(req, requester, f"⚠️ Merge vào {repo.base_branch} lỗi: {exc}")
             return
-        req.dev_merge_sha = (res or {}).get("sha")  # để revert dev nếu manager từ chối
+        req.dev_merge_sha = (res or {}).get("sha")  # để revert dev / poll deploy theo sha này
         self._set_status(req, RequestStatus.MERGED_DEV)
         self.db.commit()
-        self._set_status(req, RequestStatus.AWAIT_MANAGER)
-        self.db.commit()
-        await self._say(req, requester, f"✅ Đã merge vào `{repo.base_branch}`. Đang chờ manager duyệt.")
-        await self._notify_managers(req, repo)
 
-    async def _notify_managers(self, req: Request, repo: Repository) -> None:
-        text = (
-            f"🔔 Yêu cầu #{req.id} '{req.title}' đã sẵn sàng merge `{repo.prod_branch}`.\nPR: {req.pr_url}"
-            "\n\n(Bấm nút, hoặc trả lời: ok để duyệt · từ chối)"
-        )
-        buttons = [[Button("✅ Cho merge", cb("mgr_approve", req.id)),
-                    Button("❌ Từ chối", cb("mgr_reject", req.id))]]
-        # Request đến từ group → đăng yêu cầu duyệt CÔNG KHAI trong group (cả team thấy);
-        # manager bất kỳ trong group bấm là được. Đến từ DM → DM từng manager (group không tồn tại).
-        if req.origin_is_group and req.origin_chat_id:
-            await self.adapter.send(req.origin_chat_id, text, buttons)
-            return
-        managers = self.db.scalars(
-            select(User).where(User.tenant_id == repo.tenant_id, User.role == UserRole.MANAGER,
-                               User.platform_user_id.is_not(None))
-        ).all()
-        for m in managers:
-            await self.adapter.send(m.platform_user_id, text, buttons)
+        # Deploy-gate (opt-in per repo): chờ CI build+deploy + curl trang dev rồi mới mời manager.
+        # Chạy nền (poll lâu) để KHÔNG chặn poller. Repo chưa bật → mời manager ngay như cũ.
+        settings = get_settings()
+        if settings.dev_verify_enabled and post_deploy.dev_verify_configured(repo):
+            await self._say(req, requester,
+                            f"✅ Đã merge vào `{repo.base_branch}`. Em đang chờ build & deploy lên "
+                            "môi trường dev rồi kiểm thử lại, xong em báo nhé…")
+            asyncio.create_task(
+                post_deploy.verify_after_dev_merge(req.id, settings=settings, github=self.github))
+        else:
+            await post_deploy.enter_await_manager(self, req)
 
     async def _merge_to_main(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
