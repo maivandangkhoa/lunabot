@@ -91,6 +91,22 @@ async def test_provision_own_bot_encrypts_and_sets_webhook(db):
 
 
 @pytest.mark.asyncio
+async def test_provision_own_bot_rejects_duplicate(db):
+    """Token/username đã đăng ký (1 Telegram bot = 1 webhook) → chặn, KHÔNG tạo tenant thừa."""
+    s = _settings()
+    kw = dict(owner_github_id=7, owner_github_login="bob", owner_name="Bob",
+              repo_full_name="bob/api", installation_id=111, bot_choice="own",
+              hosting_choice="shared_instance", bot_token="t",
+              adapter_factory=lambda t: FakeBotAdapter(t))
+    await provision(db, s, **kw)
+    from app.models import Tenant
+    n_before = len(db.query(Tenant).all())
+    with pytest.raises(ProvisioningError):
+        await provision(db, s, **kw)            # cùng username "newshopbot" → chặn
+    assert len(db.query(Tenant).all()) == n_before   # không sinh tenant mồ côi
+
+
+@pytest.mark.asyncio
 async def test_provision_own_bot_requires_token(db):
     with pytest.raises(ProvisioningError):
         await provision(

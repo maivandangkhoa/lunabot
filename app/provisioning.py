@@ -15,6 +15,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.telegram import TelegramAdapter
@@ -67,6 +68,22 @@ async def provision(
     factory = adapter_factory or _default_factory
     name = display_name or repo_full_name.split("/")[-1]
 
+    # 0) Bot riêng: validate token + CHẶN TRÙNG trước khi tạo gì (1 token Telegram chỉ 1
+    #    webhook → tạo trùng sẽ ghi đè webhook nhau + loạn link). Lỗi ⇒ chưa tạo tenant/repo.
+    own_username: str | None = None
+    if bot_choice == "own":
+        if not bot_token:
+            raise ProvisioningError("Bot riêng cần token từ BotFather.")
+        if not settings.public_base_url:
+            raise ProvisioningError("Thiếu PUBLIC_BASE_URL — không dựng được webhook cho bot riêng.")
+        own_username = await _validate_own_token(bot_token, factory)
+        dup = db.scalar(select(Bot).where(
+            Bot.platform == "telegram", Bot.mode == "own", Bot.username == own_username))
+        if dup is not None:
+            raise ProvisioningError(
+                f"Bot @{own_username} đã được đăng ký rồi. Dùng lại deeplink cũ, hoặc tạo bot "
+                "MỚI trong @BotFather (token khác) rồi thử lại.")
+
     # 1) Tenant + Repository + chủ sở hữu.
     tenant = create_tenant(db, name=name)
     tenant.owner_github_id = owner_github_id
@@ -86,12 +103,10 @@ async def provision(
     db.add(bot)
     db.flush()
 
-    # 3) Bot riêng: validate token + mã hoá + setWebhook.
+    # 3) Bot riêng: mã hoá token + setWebhook (username đã validate ở bước 0).
     bot_username: str | None = settings.telegram_bot_username  # mặc định = bot chung
     if bot_choice == "own":
-        if not bot_token:
-            raise ProvisioningError("Bot riêng cần token từ BotFather.")
-        bot_username = await _setup_own_bot(bot, bot_token, settings, factory)
+        bot_username = await _setup_own_bot(bot, bot_token, own_username, settings, factory)
 
     # 4) User chủ (admin = kiêm manager, tự duyệt merge main). Bot riêng ⇒ user.bot_id = bot.id.
     user = create_user(db, tenant, role=UserRole.ADMIN, display_name=owner_name,
@@ -113,21 +128,29 @@ async def provision(
     )
 
 
-async def _setup_own_bot(bot: Bot, token: str, settings, factory: AdapterFactory) -> str | None:
-    """getMe (validate + lấy username) → mã hoá token → setWebhook. Trả username."""
-    if not settings.public_base_url:
-        raise ProvisioningError("Thiếu PUBLIC_BASE_URL — không dựng được webhook cho bot riêng.")
+async def _validate_own_token(token: str, factory: AdapterFactory) -> str:
+    """getMe → trả username. Raise nếu token sai (chưa tạo gì nên rollback sạch)."""
     adapter = factory(token)
     try:
         me = await adapter.get_me()
         if not me or not me.get("username"):
             raise ProvisioningError("Token bot không hợp lệ (getMe thất bại). Kiểm tra lại BotFather.")
-        bot.username = me["username"]
-        bot.token_encrypted = encrypt_token(token, settings.bot_token_enc_key)
-        bot.webhook_secret = secrets.token_urlsafe(24)
+        return me["username"]
+    finally:
+        await adapter.aclose()
+
+
+async def _setup_own_bot(bot: Bot, token: str, username: str, settings,
+                         factory: AdapterFactory) -> str:
+    """Gắn username (đã validate) → mã hoá token → setWebhook /webhook/telegram/{id}. Trả username."""
+    bot.username = username
+    bot.token_encrypted = encrypt_token(token, settings.bot_token_enc_key)
+    bot.webhook_secret = secrets.token_urlsafe(24)
+    adapter = factory(token)
+    try:
         from app.bot_registry import register_webhook
         await register_webhook(bot, adapter, settings)
-        return bot.username
+        return username
     finally:
         await adapter.aclose()
 
