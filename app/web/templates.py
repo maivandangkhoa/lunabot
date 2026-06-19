@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from html import escape as esc
 
+from app.web import landing_sections as lp
 from app.web.styles import brand, doc, icon, onboarding, shell
 
 # ── Landing ───────────────────────────────────────────────────────────────────
@@ -35,27 +36,31 @@ def landing(login_url: str, enabled: bool) -> str:
             ("zap", "Zero-setup shared bot"),
             ("users", "Team collaboration"),
         ))
-    body = f"""
-      <div class='ob-col ob-wide' style='text-align:center'>
-        <span class='badge badge-info' style='margin-bottom:22px'>{icon('sparkles')}AI Engineering Platform</span>
-        <h1 class='hero'>AI Maintenance Engineer<br>for your codebase</h1>
-        <p class='muted' style='font-size:18px;max-width:560px;margin:18px auto 0'>
-          Luna nhận yêu cầu bảo trì qua chat, tự phân tích, lập kế hoạch, viết code trên
-          nhánh dev và chỉ merge production khi <b>người duyệt</b> đồng ý.</p>
-        <div style='margin:30px 0 10px'>
-          <a class='btn btn-github btn-lg' href='{esc(login_url)}'>{icon('github')}Tiếp tục với GitHub</a>
+    hero = f"""
+      <div class='ob-wrap' style='padding-bottom:40px'>
+        <div class='ob-col ob-wide' style='text-align:center'>
+          <span class='badge badge-info' style='margin-bottom:22px'>{icon('sparkles')}AI Engineering Platform</span>
+          <h1 class='hero'>AI Maintenance Engineer<br>for your codebase</h1>
+          <p class='muted' style='font-size:18px;max-width:560px;margin:18px auto 0'>
+            Luna nhận yêu cầu bảo trì qua chat, tự phân tích, lập kế hoạch, viết code trên
+            nhánh dev và chỉ merge production khi <b>người duyệt</b> đồng ý.</p>
+          <div style='margin:30px 0 10px'>
+            <a class='btn btn-github btn-lg' href='{esc(login_url)}'>{icon('github')}Tiếp tục với GitHub</a>
+          </div>
+          <p class='hint'>Miễn phí để bắt đầu · Không cần thẻ tín dụng</p>
+          <div style='display:flex;justify-content:center'>{flow}</div>
+          <div class='pills' style='justify-content:center'>{pills}</div>
         </div>
-        <p class='hint'>Miễn phí để bắt đầu · Không cần thẻ tín dụng</p>
-        <div style='display:flex;justify-content:center'>{flow}</div>
-        <div class='pills' style='justify-content:center'>{pills}</div>
       </div>"""
-    return doc_landing(body)
+    return doc_landing(hero + lp.sections(login_url))
 
 
 def doc_landing(body: str) -> str:
-    # Landing không có thanh đăng xuất; chỉ brand ở góc trái.
+    # Landing không có thanh đăng xuất; chỉ brand ở góc trái. Trang cuộn full-width.
     bar = f"<div class='ob-bar'>{brand()}<a class='btn btn-ghost' href='/login'>Đăng nhập</a></div>"
-    return doc("Luna — AI Maintenance Engineer", f"<div class='ob'>{bar}<div class='ob-wrap'>{body}</div></div>")
+    return doc("Luna — AI Maintenance Engineer",
+               f"<div class='ob'>{bar}<main class='lp'>{body}</main></div>",
+               extra_head=lp.LANDING_CSS)
 
 
 # ── Wizard (4 bước, 1 form — JS điều hướng, field POST không đổi) ──────────────

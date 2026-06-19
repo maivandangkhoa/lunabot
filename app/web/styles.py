@@ -258,7 +258,7 @@ def icon(name: str, size: int = 20, cls: str = "") -> str:
             f"stroke-linejoin='round' aria-hidden='true'>{path}</svg>")
 
 
-def doc(title: str, body: str, body_class: str = "") -> str:
+def doc(title: str, body: str, body_class: str = "", extra_head: str = "") -> str:
     return (
         "<!doctype html><html lang='vi'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -266,7 +266,7 @@ def doc(title: str, body: str, body_class: str = "") -> str:
         "<link rel='preconnect' href='https://fonts.googleapis.com'>"
         "<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>"
         "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap' rel='stylesheet'>"
-        f"<style>{CSS}</style></head>"
+        f"<style>{CSS}</style>{extra_head}</head>"
         f"<body class='{esc(body_class)}'>{body}</body></html>"
     )
 
