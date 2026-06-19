@@ -57,7 +57,10 @@ async def landing(request: Request):
     s = get_settings()
     if not _enabled(s):
         return HTMLResponse(tpl.landing("", enabled=False))
-    if _read_session(request, s):
+    data = _read_session(request, s)
+    # CHỈ chuyển sang wizard khi đã đăng nhập THẬT (có token). Session "dở dang" (mới có state
+    # từ /login, chưa qua callback) phải ở lại landing — nếu không sẽ lặp / ⇄ /wizard.
+    if data and data.get("tok"):
         return RedirectResponse("/wizard", status_code=303)
     return HTMLResponse(tpl.landing("/login", enabled=True))
 
