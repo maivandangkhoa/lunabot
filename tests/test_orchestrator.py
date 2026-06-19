@@ -9,7 +9,7 @@ from app.claude_runner import ClaudeResult
 from app.models import ApprovalDecision, Request, RequestStatus, UserRole
 from app.onboarding import add_repository, create_tenant, create_user
 from app.orchestrator import Orchestrator, cb
-from tests.conftest import FakeClaude, claude_json
+from tests.conftest import FakeClaude, FakeGit, claude_json
 
 PLAN = '{"action":"plan","summary":"do x","steps":["a","b"],"risk":"low"}'
 IMPL = '{"action":"implemented","summary":"done","branch":"bot/req-1"}'
@@ -170,16 +170,53 @@ async def test_claude_no_json_relays_and_clarifies(db, fakes, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_claude_hard_error_needs_human(db, fakes, tmp_path):
+async def test_claude_hard_error_is_retriable(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
-    # Claude lỗi hạ tầng (ok=False).
+    # Claude lỗi hạ tầng (ok=False) → CLARIFYING (retriable), không kẹt ANALYZING.
     claude = FakeClaude([ClaudeResult(ok=False, result="❌ Claude lỗi (code 1)", session_id="s1")])
     orch = _orch(db, fakes, claude)
     orch.workspace = tmp_path
 
     req = await orch.create_request(repo, emp, "X", None)
-    assert req.status == RequestStatus.ANALYZING
-    assert any("can thiệp" in s[1] for s in fakes["adapter"].sent)
+    assert req.status == RequestStatus.CLARIFYING
+    assert any("chạy lại" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_repo_prep_failure_is_friendly_and_retriable(db, fakes, tmp_path):
+    """Thiếu nhánh `dev` khi clone → thông báo thân thiện (nêu rõ nhánh) + CLARIFYING; sau khi
+    khách tạo nhánh, nhắn 'chạy lại' → _analyze chạy lại và ra kế hoạch."""
+    from app.git_ops import GitError
+
+    t, repo, emp, mgr = _seed(db)
+
+    class FlakyGit(FakeGit):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        async def ensure_clone(self, *a, **k):
+            self.calls += 1
+            if self.calls == 1:  # lần đầu: chưa có nhánh dev
+                raise GitError(
+                    "git clone lỗi (code 128): fatal: Remote branch dev not found in upstream origin")
+            return None
+
+    fakes["git"] = FlakyGit()
+    claude = FakeClaude([claude_json(PLAN, "s1")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "Thêm X", "chi tiết")
+    assert req.status == RequestStatus.CLARIFYING
+    # Thông báo thân thiện: nêu tên nhánh, KHÔNG phơi stderr thô.
+    msg = next(s[1] for s in fakes["adapter"].sent if "nhánh" in s[1])
+    assert repo.base_branch in msg and "chạy lại" in msg
+    assert "fatal: Remote branch" not in msg
+
+    # Khách tạo nhánh xong → "chạy lại" → clone thành công → ra kế hoạch.
+    await orch.handle_message(req, emp, "chạy lại")
+    assert req.status == RequestStatus.PLAN_REVIEW
 
 
 @pytest.mark.asyncio

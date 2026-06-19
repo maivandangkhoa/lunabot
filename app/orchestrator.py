@@ -61,6 +61,51 @@ def parse_cb(data: str) -> tuple[str, int] | None:
         return None
 
 
+# Từ user gõ để "chạy lại" sau khi tự sửa repo (vd vừa tạo nhánh). Khi request đang
+# CLARIFYING, bất kỳ text nào cũng kích _analyze lại; các từ này được lọc khỏi nội dung
+# "trả lời làm rõ" gửi Claude (chỉ là tín hiệu retry, không phải yêu cầu mới).
+RETRY_WORDS = {
+    "chạy lại", "chay lai", "chạy lại đi", "chay lai di", "thử lại", "thu lai",
+    "retry", "chạy tiếp", "chay tiep", "tiếp tục", "tiep tuc", "tiếp", "tiep",
+}
+
+
+def friendly_repo_error(exc: Exception, repo: Repository, *, retry_hint: str) -> str:
+    """Dịch lỗi chuẩn bị repo (git clone/fetch/token) sang thông báo thân thiện, có hướng xử lý.
+
+    Tránh phơi stderr thô (vd 'fatal: Remote branch dev not found in upstream origin') —
+    nhận diện các trường hợp phổ biến và chỉ rõ việc khách cần làm trên GitHub.
+    """
+    low = str(exc).lower()
+    base, prod = repo.base_branch, repo.prod_branch
+    if "remote branch" in low and "not found" in low:
+        return (
+            f"🌿 Repo {repo.repo_full_name} chưa có nhánh `{base}` để em làm việc.\n\n"
+            f"Quy trình của em: em commit lên nhánh `{base}` cho anh/chị duyệt thử, "
+            f"rồi mới merge vào `{prod}`. Vì vậy repo cần sẵn 2 nhánh này.\n\n"
+            f"Cách tạo nhanh: mở repo trên GitHub → bấm ô chọn nhánh → gõ `{base}` → "
+            f'chọn "Create branch {base} from {prod}".\n\n'
+            f"{retry_hint}"
+        )
+    if any(k in low for k in ("authentication failed", "could not read from remote",
+                              "permission denied", "403")):
+        return (
+            f"🔒 Em chưa truy cập được repo {repo.repo_full_name} — có thể GitHub App "
+            f"chưa được cài (hoặc thiếu quyền) cho repo này.\n\n"
+            f"Anh/chị kiểm tra lại phần cài đặt GitHub App rồi {retry_hint.lower()}"
+        )
+    if "repository not found" in low or "does not exist" in low or "404" in low:
+        return (
+            f"❓ Em không tìm thấy repo {repo.repo_full_name}. Anh/chị kiểm tra lại tên repo "
+            f"và quyền cài đặt GitHub App rồi {retry_hint.lower()}"
+        )
+    # Mặc định: gọn, kèm ít chi tiết để debug nhưng không dài dòng.
+    return (
+        f"⚠️ Em chưa chuẩn bị được repo {repo.repo_full_name} để phân tích.\n"
+        f"Chi tiết: {str(exc)[:300]}\n\n{retry_hint}"
+    )
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -254,7 +299,8 @@ class Orchestrator:
             try:
                 repo_dir = await self._ensure_repo_cloned(repo)
             except Exception as exc:  # noqa: BLE001
-                await self.adapter.send(target, f"⚠️ Không chuẩn bị được repo để trả lời: {exc}")
+                await self.adapter.send(target, friendly_repo_error(
+                    exc, repo, retry_hint="Sửa xong rồi gọi /ask lại nhé."))
                 return
             sysp = prompts.ask_system_prompt(repo.repo_full_name, repo.base_branch)
             res = await self.claude_run(
@@ -279,10 +325,17 @@ class Orchestrator:
         try:
             repo_dir = await self._ensure_repo_cloned(repo)
         except Exception as exc:  # noqa: BLE001
+            # Không để request kẹt ở ANALYZING (user không retry được, lại báo "đang bận").
+            # Chuyển CLARIFYING: khách tự sửa repo (vd tạo nhánh) rồi nhắn "chạy lại" → _analyze lại.
+            self._set_status(req, RequestStatus.CLARIFYING)
             self.db.commit()
-            await self._say(req, requester, f"⚠️ Không chuẩn bị được repo để phân tích: {exc}")
+            await self._say(req, requester, friendly_repo_error(
+                exc, repo, retry_hint='Sửa xong rồi nhắn em "chạy lại" để em tiếp tục nhé.'))
             return
 
+        # "chạy lại"/"thử lại"… chỉ là tín hiệu retry sau khi khách sửa repo — không phải nội
+        # dung làm rõ, lọc bỏ để không lẫn vào prompt gửi Claude.
+        clarifications = [c for c in (clarifications or []) if c.strip().lower() not in RETRY_WORDS]
         img_paths = await self._save_attachments(req, repo_dir, attachments)
         prompt = prompts.build_request_prompt(req.title, req.body, clarifications,
                                               image_paths=img_paths)
@@ -296,8 +349,13 @@ class Orchestrator:
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, ok=res.ok, result=res.result[:500])
 
         if not res.ok:
+            # Lỗi tạm khi chạy Claude → cho retriable thay vì kẹt ANALYZING.
+            self._set_status(req, RequestStatus.CLARIFYING)
             self.db.commit()
-            await self._say(req, requester, f"⚠️ Lỗi phân tích, cần người can thiệp:\n{res.result}")
+            await self._say(req, requester,
+                            "⚠️ Em gặp trục trặc khi phân tích, chưa xong được. "
+                            'Anh/chị nhắn em "chạy lại" để em thử lại nhé.\n'
+                            f"(chi tiết: {res.result[:300]})")
             return
 
         sig = parse_signal(res.result)
