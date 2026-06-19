@@ -134,6 +134,54 @@ LANDING_CSS = """<style>
   border-radius:24px;border:1px solid rgba(99,102,241,.25);padding:56px 28px;margin:0 24px}
 .lp-foot{text-align:center;color:var(--text-3);font-size:13px;padding:36px 24px 56px}
 
+/* Demo "video" player (screencast hoạt hoạ CSS, không cần file ngoài) */
+.demo-wrap{max-width:860px;margin:0 auto}
+.demo-player{position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--border-2);
+  background:#0a0e18;box-shadow:0 50px 110px -40px rgba(0,0,0,.85),0 0 0 1px rgba(255,255,255,.04)}
+.demo-top{display:flex;align-items:center;gap:12px;padding:11px 16px;background:rgba(17,24,39,.92);
+  border-bottom:1px solid var(--border);position:relative;z-index:3}
+.demo-rec{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-2)}
+.demo-rec i{width:8px;height:8px;border-radius:999px;background:var(--danger);display:block;animation:blink 1.4s steps(1,end) infinite}
+@keyframes blink{50%{opacity:.2}}
+.demo-file{margin-left:auto;font-size:12px;color:var(--text-3);font-family:ui-monospace,monospace}
+.demo-stage{position:relative;height:392px;overflow:hidden;cursor:pointer;
+  background:radial-gradient(120% 70% at 50% 0,rgba(99,102,241,.1),transparent 60%)}
+.demo-phase{position:absolute;top:14px;left:14px;z-index:3;height:28px;width:240px}
+.demo-phase span{position:absolute;left:0;top:0;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;
+  padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(11,15,25,.78);
+  border:1px solid var(--border-2);color:var(--text);opacity:0}
+.demo-phase span svg{width:13px;height:13px;color:var(--primary-hover)}
+.demo-phase span:first-child{opacity:1}
+.demo-feed{padding:56px 18px 30px;display:flex;flex-direction:column;gap:9px;will-change:transform}
+.demo-feed .msg{max-width:80%}
+.demo-scrim{position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:linear-gradient(180deg,transparent 60%,rgba(10,14,24,.5))}
+.demo-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:4;
+  width:66px;height:66px;border-radius:999px;display:grid;place-items:center;
+  background:rgba(99,102,241,.95);color:#fff;box-shadow:0 12px 34px -6px var(--primary);transition:opacity .25s ease}
+.demo-play::before{content:"";position:absolute;inset:-12px;border-radius:999px;
+  border:2px solid rgba(99,102,241,.5);animation:ring 2.2s ease-out infinite}
+@keyframes ring{0%{transform:scale(.82);opacity:.85}100%{transform:scale(1.55);opacity:0}}
+.demo-ctrl{display:flex;align-items:center;gap:13px;padding:12px 16px;background:rgba(17,24,39,.92);
+  border-top:1px solid var(--border);position:relative;z-index:3;color:var(--text-2)}
+.demo-ctrl .pp{display:flex}.demo-ctrl .pp .ico-pause{display:none}
+.demo-bar{flex:1;height:5px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden}
+.demo-bar i{display:block;height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,var(--primary),#8B5CF6)}
+.demo-time{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+/* play-state: chỉ chạy khi .playing */
+.demo-feed{transform:translateY(0)}
+.demo-player.playing .demo-feed{animation:scroll 17s ease-in-out infinite}
+.demo-player.playing .demo-bar i{animation:prog 17s linear infinite}
+.demo-player.playing .demo-phase span{animation:cyc 17s infinite}
+.demo-player.playing .demo-play{opacity:0;pointer-events:none}
+.demo-player.playing .demo-ctrl .pp .ico-play{display:none}
+.demo-player.playing .demo-ctrl .pp .ico-pause{display:flex}
+@keyframes scroll{0%,8%{transform:translateY(0)}24%,32%{transform:translateY(-72px)}
+  48%,56%{transform:translateY(-168px)}72%,80%{transform:translateY(-262px)}96%,100%{transform:translateY(-320px)}}
+@keyframes prog{from{width:0}to{width:100%}}
+@keyframes cyc{0%,18%,100%{opacity:0;transform:translateY(-4px)}3%,15%{opacity:1;transform:none}}
+
 @media(max-width:860px){
   .arch{grid-template-columns:1fr}
   .arch-arrow{transform:rotate(90deg);padding:8px 0}
@@ -142,6 +190,11 @@ LANDING_CSS = """<style>
   .iso-points,.chan-grid{grid-template-columns:1fr}
   .lane{flex-direction:column;align-items:stretch;gap:11px}.lane .who{width:auto}
   .lp-title,.split-copy h2{font-size:26px}
+  .demo-stage{height:340px}
+}
+@media(prefers-reduced-motion:reduce){
+  .demo-player.playing .demo-feed,.demo-player.playing .demo-bar i,
+  .demo-player.playing .demo-phase span,.demo-rec i,.demo-play::before{animation:none}
 }
 </style>"""
 
@@ -170,6 +223,75 @@ def _phone() -> str:
         <div class='msg in'><div class='who'>🚀 Luna</div>
           Đã merge <code>main</code> & deploy. Checkout hoạt động trở lại.</div>
       </div></div></div>"""
+
+
+def _demo_video() -> str:
+    phases = [
+        ("send", "Nhận yêu cầu"), ("sparkles", "Đang phân tích"),
+        ("requests", "Trình kế hoạch"), ("branch", "Viết code trên dev"),
+        ("check-circle", "Verify & mở PR"), ("rocket", "Đã deploy"),
+    ]
+    step = 17 / len(phases)
+    chips = "".join(
+        f"<span style='animation-delay:{i * step:.2f}s'>{icon(ic, 13)}{esc(t)}</span>"
+        for i, (ic, t) in enumerate(phases))
+    feed = f"""
+      <div class='msg sys'>Phiên bảo trì · ShopTeam</div>
+      <div class='msg out'>Trang checkout báo lỗi 500 khi bấm thanh toán 😟</div>
+      <div class='msg in'><div class='who'>{icon('sparkles', 11)} Luna</div>
+        Đã nhận. Đang phân tích repo <code>acme/shop</code>…</div>
+      <div class='msg in'><div class='who'>{icon('sparkles', 11)} Luna</div>
+        Nguyên nhân: thiếu null-check ở <code>PaymentService.charge()</code>.
+        <b>Kế hoạch:</b> thêm guard + test hồi quy.
+        <div class='mini'><b class='yes'>✓ Duyệt</b><b class='no'>Sửa lại</b></div></div>
+      <div class='msg out'>✓ Duyệt</div>
+      <div class='msg sys'>⚙️ Đang viết code trên nhánh <b>dev</b></div>
+      <div class='msg in'><div class='who'>{icon('check', 11)} Luna</div>
+        Đã verify ✅ — PR <code>#42</code> sẵn sàng. Duyệt merge production?
+        <div class='mini'><b class='yes'>✓ Duyệt merge</b></div></div>
+      <div class='msg out'>✓ Duyệt merge</div>
+      <div class='msg in'><div class='who'>🚀 Luna</div>
+        Đã merge <code>main</code> & deploy thành công. Checkout hoạt động trở lại 🎉</div>"""
+    return f"""
+    <section class='lp-section'><div class='lp-inner'>
+      <div class='lp-head'>
+        <div class='lp-eyebrow'>{icon('play')} Xem demo</div>
+        <h2 class='lp-title'>Toàn bộ vòng đời trong 17 giây</h2>
+        <p class='lp-sub'>Từ một tin nhắn báo lỗi đến khi bản vá lên production — bấm play để xem
+          Luna chạy hết quy trình, có cổng người duyệt ở mỗi bước.</p>
+      </div>
+      <div class='demo-wrap'>
+        <div class='demo-player' id='demoPlayer'>
+          <div class='demo-top'><span class='demo-rec'><i></i> LIVE DEMO</span>
+            <span class='demo-file'>luna-checkout-fix.mp4</span></div>
+          <div class='demo-stage' id='demoStage'>
+            <div class='demo-phase'>{chips}</div>
+            <div class='demo-feed'>{feed}</div>
+            <div class='demo-scrim'></div>
+            <div class='demo-play' id='demoPlay' role='button' tabindex='0' aria-label='Phát demo'>
+              {icon('play', 26)}</div>
+          </div>
+          <div class='demo-ctrl'>
+            <span class='pp'><span class='ico-play'>{icon('play', 17)}</span><span class='ico-pause'>{icon('pause', 17)}</span></span>
+            <div class='demo-bar'><i></i></div>
+            <span class='demo-time'>0:17</span>
+            {icon('volume', 17)}{icon('maximize', 17)}
+          </div>
+        </div>
+      </div>
+    </div></section>
+    <script>
+    (function(){{
+      var p=document.getElementById('demoPlayer');if(!p)return;
+      var stage=document.getElementById('demoStage'),pp=p.querySelector('.pp');
+      function toggle(on){{p.classList.toggle('playing',on);}}
+      function flip(){{toggle(!p.classList.contains('playing'));}}
+      stage.addEventListener('click',flip);
+      pp.addEventListener('click',function(e){{e.stopPropagation();flip();}});
+      document.getElementById('demoPlay').addEventListener('keydown',function(e){{
+        if(e.key==='Enter'||e.key===' '){{e.preventDefault();toggle(true);}}}});
+    }})();
+    </script>"""
 
 
 def _architecture() -> str:
@@ -324,5 +446,5 @@ def sections(login_url: str) -> str:
       </div>
     </div></section>
     <div class='lp-foot'>🌙 Luna — AI Maintenance Engineer · Bảo trì có kiểm soát, deploy có người duyệt.</div>"""
-    return (_architecture() + _mobile_flow() + _isolation()
+    return (_demo_video() + _architecture() + _mobile_flow() + _isolation()
             + _channels() + _dashboard_preview() + cta)
