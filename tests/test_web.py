@@ -45,7 +45,7 @@ def test_landing_no_redirect_loop_for_tokenless_session(monkeypatch):
     client = TestClient(app)
     client.cookies.set(sess.COOKIE_NAME, sess.dumps({"state": "x"}, "sek"))   # chưa có tok
     r = client.get("/", follow_redirects=False)
-    assert r.status_code == 200 and "Đăng nhập bằng GitHub" in r.text
+    assert r.status_code == 200 and "Tiếp tục với GitHub" in r.text
     # đã login (có tok) → mới chuyển sang wizard
     client.cookies.set(sess.COOKIE_NAME,
                        sess.dumps({"tok": "t", "login": "a", "uid": 1, "name": "A"}, "sek"))
