@@ -19,6 +19,7 @@ from app.db import get_db
 from app.github_oauth import GitHubOAuth, GitHubOAuthError
 from app.models import Bot, Repository, Tenant
 from app.provisioning import ProvisioningError, provision
+from app.web import i18n
 from app.web import session as sess
 from app.web import templates as tpl
 
@@ -51,10 +52,28 @@ async def _form(request: Request) -> dict:
     return {k: v[0] for k, v in parse_qs(raw).items()}
 
 
+def _lang(request: Request) -> None:
+    """Set ngôn ngữ cho request hiện tại: cookie đã chọn > Accept-Language > vi."""
+    i18n.set_lang(i18n.pick(request.cookies.get(i18n.COOKIE),
+                            request.headers.get("accept-language")))
+
+
 # ----- routes -----
+@router.get("/lang/{code}")
+async def set_language(code: str, next: str = "/"):
+    """Lưu ngôn ngữ người dùng chọn vào cookie rồi quay lại trang trước (chỉ path nội bộ)."""
+    lang = i18n.normalize(code)
+    target = next if next.startswith("/") else "/"
+    resp = RedirectResponse(target, status_code=303)
+    resp.set_cookie(i18n.COOKIE, lang, max_age=365 * 24 * 3600, samesite="lax",
+                    secure=get_settings().public_base_url.startswith("https"))
+    return resp
+
+
 @router.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
     s = get_settings()
+    _lang(request)
     if not _enabled(s):
         return HTMLResponse(tpl.landing("", enabled=False))
     data = _read_session(request, s)
@@ -129,6 +148,7 @@ async def setup_callback():
 @router.get("/wizard", response_class=HTMLResponse)
 async def wizard(request: Request):
     s = get_settings()
+    _lang(request)
     data = _read_session(request, s)
     if not data or not data.get("tok"):
         return RedirectResponse("/", status_code=303)
@@ -152,6 +172,7 @@ async def wizard(request: Request):
 @router.post("/wizard/create", response_class=HTMLResponse)
 async def wizard_create(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
+    _lang(request)
     data = _read_session(request, s)
     if not data or not data.get("tok"):
         return RedirectResponse("/", status_code=303)
@@ -197,6 +218,7 @@ def _wizard_err(s, data: dict, msg: str) -> str:
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
+    _lang(request)
     data = _read_session(request, s)
     if not data:
         return RedirectResponse("/", status_code=303)

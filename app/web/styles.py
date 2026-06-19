@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from html import escape as esc
 
+from app.web import i18n
+from app.web.i18n import t
+
 # ── Design tokens + component system ──────────────────────────────────────────
 CSS = """
 :root{
@@ -203,6 +206,14 @@ select.input{appearance:none;cursor:pointer;
 .divider{height:1px;background:var(--border);margin:24px 0}
 .stack-sm > * + *{margin-top:8px}
 
+/* ── Language switcher ── */
+.langsw{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 10px 0 12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text-2)}
+.langsw svg{width:16px;height:16px;color:var(--text-3)}
+.langsw select{appearance:none;background:transparent;border:none;color:var(--text);font:inherit;
+  font-size:14px;font-weight:500;cursor:pointer;padding-right:2px;outline:none}
+.langsw select option{background:var(--surface);color:var(--text)}
+
 /* ── Responsive ── */
 @media(max-width:960px){
   .shell{grid-template-columns:1fr}
@@ -252,6 +263,7 @@ _ICONS = {
     "volume": '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M16 9a3 3 0 0 1 0 6"/><path d="M19.4 6.6a7 7 0 0 1 0 10.8"/>',
     "maximize": '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
     "rocket": '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09Z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2Z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+    "globe": '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
 }
 
 
@@ -263,9 +275,21 @@ def icon(name: str, size: int = 20, cls: str = "") -> str:
             f"stroke-linejoin='round' aria-hidden='true'>{path}</svg>")
 
 
+def lang_switcher() -> str:
+    """Bộ chọn ngôn ngữ — JS điều hướng tới /lang/<code>?next=<đường dẫn hiện tại> rồi reload."""
+    cur = i18n.get_lang()
+    opts = "".join(
+        f"<option value='{code}'{' selected' if code == cur else ''}>{esc(name)}</option>"
+        for code, name in i18n.LANGS.items())
+    onchange = ("location.href='/lang/'+this.value"
+                "+'?next='+encodeURIComponent(location.pathname+location.search)")
+    return (f"<label class='langsw' title='{esc(t('lang.label'))}'>{icon('globe', 16)}"
+            f"<select aria-label='{esc(t('lang.label'))}' onchange=\"{onchange}\">{opts}</select></label>")
+
+
 def doc(title: str, body: str, body_class: str = "", extra_head: str = "") -> str:
     return (
-        "<!doctype html><html lang='vi'><head><meta charset='utf-8'>"
+        f"<!doctype html><html lang='{i18n.get_lang()}'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>{esc(title)}</title>"
         "<link rel='preconnect' href='https://fonts.googleapis.com'>"
@@ -281,32 +305,34 @@ def brand() -> str:
 
 
 def onboarding(title: str, body: str, *, user_name: str | None = None) -> str:
-    right = ""
+    right = lang_switcher()
     if user_name:
-        right = (f"<a class='btn btn-ghost' href='/logout'>{icon('logout', 16)}Đăng xuất</a>")
-    bar = f"<div class='ob-bar'>{brand()}{right}</div>"
+        right += (f"<a class='btn btn-ghost' href='/logout'>{icon('logout', 16)}{t('common.logout')}</a>")
+    bar = (f"<div class='ob-bar'>{brand()}"
+           f"<div style='display:flex;align-items:center;gap:12px'>{right}</div></div>")
     return doc(title, f"<div class='ob'>{bar}<div class='ob-wrap'>{body}</div></div>")
 
 
+# (icon_key, i18n_key, href) — nhãn dịch tại thời điểm render
 _NAV = [
-    ("dashboard", "Dashboard", "/dashboard"),
-    ("bot", "Bots", "/dashboard"),
-    ("repo", "Repositories", "/wizard"),
-    ("requests", "Requests", "/dashboard"),
-    ("activity", "Activity", "/dashboard"),
-    ("settings", "Settings", "/dashboard"),
+    ("dashboard", "nav.dashboard", "/dashboard"),
+    ("bot", "nav.bots", "/dashboard"),
+    ("repo", "nav.repositories", "/wizard"),
+    ("requests", "nav.requests", "/dashboard"),
+    ("activity", "nav.activity", "/dashboard"),
+    ("settings", "nav.settings", "/dashboard"),
 ]
 
 
 def _sidebar(active: str) -> str:
     items = []
-    for key, label, href in _NAV:
+    for key, label_key, href in _NAV:
         cls = "nav-item active" if key == active else "nav-item"
-        items.append(f"<a class='{cls}' href='{href}'>{icon(key)}<span>{label}</span></a>")
+        items.append(f"<a class='{cls}' href='{href}'>{icon(key)}<span>{t(label_key)}</span></a>")
     foot = (f"<div class='sidebar-foot'><a class='nav-item' href='/logout'>"
-            f"{icon('logout')}<span>Đăng xuất</span></a></div>")
+            f"{icon('logout')}<span>{t('common.logout')}</span></a></div>")
     return (f"<aside class='sidebar' id='sidebar'>{brand()}"
-            f"<div class='nav-label'>Workspace</div>{''.join(items)}{foot}</aside>")
+            f"<div class='nav-label'>{t('nav.workspace')}</div>{''.join(items)}{foot}</aside>")
 
 
 def shell(title: str, *, active: str, user_name: str, body: str) -> str:
@@ -315,10 +341,11 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
     topbar = (
         "<header class='topbar'>"
         f"<button class='icon-btn menu-btn' onclick=\"document.getElementById('sidebar').classList.toggle('open')\" "
-        f"aria-label='Menu'>{icon('menu', 18)}</button>"
+        f"aria-label='{esc(t('shell.menu'))}'>{icon('menu', 18)}</button>"
         f"<div class='workspace'><span class='ws-ico'>{icon('moon', 15)}</span>{ws}</div>"
-        f"<div class='search'>{icon('search', 15)}<span>Tìm kiếm…</span></div>"
-        f"<button class='icon-btn' aria-label='Thông báo'>{icon('bell', 18)}</button>"
+        f"<div class='search'>{icon('search', 15)}<span>{t('shell.search')}</span></div>"
+        f"{lang_switcher()}"
+        f"<button class='icon-btn' aria-label='{esc(t('shell.notifications'))}'>{icon('bell', 18)}</button>"
         f"<div class='avatar' title='{ws}'>{initial}</div>"
         "</header>"
     )

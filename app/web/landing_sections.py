@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from html import escape as esc
 
+from app.web.i18n import t
 from app.web.styles import icon
 
 LANDING_CSS = """<style>
@@ -202,20 +203,16 @@ _DEMO_T = 16  # giây/vòng lặp
 def _demo_phone() -> str:
     # (side, inner) — tin nhắn lần lượt hiện ra (mỗi cái 1 keyframe đồng bộ → loop sạch)
     msgs = [
-        ("out", "Trang checkout báo lỗi 500 khi bấm thanh toán 😟"),
-        ("in", f"<div class='who'>{icon('sparkles', 11)} Luna</div>"
-               "Đã nhận — đang phân tích <code>acme/shop</code>…"),
-        ("in", f"<div class='who'>{icon('sparkles', 11)} Luna</div>"
-               "Nguyên nhân: thiếu null-check ở <code>PaymentService.charge()</code>. "
-               "<b>Kế hoạch:</b> thêm guard + test hồi quy."
-               "<div class='mini'><b class='yes'>✓ Duyệt</b><b class='no'>Sửa lại</b></div>"),
-        ("out", "✓ Duyệt"),
-        ("in", f"<div class='who'>{icon('check', 11)} Luna</div>"
-               "Đã sửa trên <b>dev</b>, verify ✅ — PR <code>#42</code>. Duyệt merge production?"
-               "<div class='mini'><b class='yes'>✓ Duyệt merge</b></div>"),
-        ("out", "✓ Duyệt merge"),
-        ("in", "<div class='who'>🚀 Luna</div>"
-               "Đã merge <code>main</code> & deploy. Checkout hoạt động trở lại 🎉"),
+        ("out", t("demo.m1")),
+        ("in", f"<div class='who'>{icon('sparkles', 11)} Luna</div>" + t("demo.m2")),
+        ("in", f"<div class='who'>{icon('sparkles', 11)} Luna</div>" + t("demo.m3")
+               + f"<div class='mini'><b class='yes'>{t('demo.btn.approve')}</b>"
+               + f"<b class='no'>{t('demo.btn.fix')}</b></div>"),
+        ("out", t("demo.btn.approve")),
+        ("in", f"<div class='who'>{icon('check', 11)} Luna</div>" + t("demo.m5")
+               + f"<div class='mini'><b class='yes'>{t('demo.btn.approve_merge')}</b></div>"),
+        ("out", t("demo.btn.approve_merge")),
+        ("in", "<div class='who'>🚀 Luna</div>" + t("demo.m7")),
     ]
     n = len(msgs)
     spread = 79 / (n - 1)  # rải thời điểm hiện từ 5% → 84% của vòng lặp
@@ -231,10 +228,9 @@ def _demo_phone() -> str:
     return f"""
     <section class='lp-section'><div class='lp-inner'>
       <div class='lp-head'>
-        <div class='lp-eyebrow'>{icon('send')} Demo trực tiếp</div>
-        <h2 class='lp-title'>Toàn bộ vòng đời trong vài phút</h2>
-        <p class='lp-sub'>Từ một tin nhắn báo lỗi đến khi bản vá lên production — mọi thứ diễn ra
-          ngay trong khung chat trên điện thoại, có cổng người duyệt ở mỗi bước.</p>
+        <div class='lp-eyebrow'>{icon('send')} {t('demo.eyebrow')}</div>
+        <h2 class='lp-title'>{t('demo.title')}</h2>
+        <p class='lp-sub'>{t('demo.sub')}</p>
       </div>
       <div class='demo-wrap'>
         <div class='iphone'><div class='iscreen'>
@@ -242,7 +238,7 @@ def _demo_phone() -> str:
           <div class='istatus'><span>9:41</span><span class='rt'>{_SIG}{_WIFI}{_BATT}</span></div>
           <div class='ihead'><span class='av'>{icon('moon', 18)}</span>
             <div style='flex:1'><div class='nm'>Luna</div>
-              <div class='st'><i></i> online · ShopTeam</div></div>{icon('send', 16, 'muted')}</div>
+              <div class='st'><i></i> {t('demo.status')}</div></div>{icon('send', 16, 'muted')}</div>
           <div class='ibody'><div class='ifeed'>{''.join(bubbles)}</div></div>
         </div></div>
       </div>
@@ -259,55 +255,49 @@ def _architecture() -> str:
     return f"""
     <section class='lp-section'><div class='lp-inner'>
       <div class='lp-head'>
-        <div class='lp-eyebrow'>{icon('dashboard')} Kiến trúc</div>
-        <h2 class='lp-title'>Một pipeline có cổng người duyệt</h2>
-        <p class='lp-sub'>Luna đứng giữa cuộc trò chuyện của bạn và codebase: điều phối quy trình
-          (FSM), để Claude Code suy nghĩ & viết code, nhưng <b>không bao giờ tự merge production</b>
-          khi chưa có người duyệt.</p>
+        <div class='lp-eyebrow'>{icon('dashboard')} {t('arch.eyebrow')}</div>
+        <h2 class='lp-title'>{t('arch.title')}</h2>
+        <p class='lp-sub'>{t('arch.sub')}</p>
       </div>
       <div class='arch'>
-        {node('requests', 'Bạn & team', 'Gửi yêu cầu bảo trì qua chat sẵn có.', ['Telegram', 'Google Chat'])}
+        {node('requests', t('arch.node1.title'), t('arch.node1.desc'), ['Telegram', 'Google Chat'])}
         {arrow}
-        {node('moon', 'Luna Orchestrator', 'FSM điều phối + Claude Code headless chạy trong sandbox.', ['FSM', 'Claude Code', 'Approval gate'], hl=True)}
+        {node('moon', t('arch.node2.title'), t('arch.node2.desc'), ['FSM', 'Claude Code', t('arch.node2.tag_gate')], hl=True)}
         {arrow}
-        {node('github', 'Repo của bạn', 'Sửa trên dev → PR → chỉ merge main khi được duyệt.', ['GitHub App', 'dev → main'])}
+        {node('github', t('arch.node3.title'), t('arch.node3.desc'), ['GitHub App', 'dev → main'])}
       </div>
     </div></section>"""
 
 
 def _mobile_flow() -> str:
     feats = [
-        ("zap", "Phát hiện → fix → deploy không rời điện thoại",
-         "Báo lỗi bằng một tin nhắn; Luna lo phần còn lại và cập nhật tiến độ ngay trong thread."),
-        ("shield", "Bạn luôn nắm quyền quyết định",
-         "Duyệt kế hoạch và duyệt merge production chỉ bằng một chạm — không có gì lên main sau lưng bạn."),
-        ("check-circle", "Minh bạch từng bước",
-         "Phân tích, kế hoạch, PR, kết quả verify và deploy đều hiện trong cuộc trò chuyện."),
+        ("zap", "mobile.feat1.title", "mobile.feat1.desc"),
+        ("shield", "mobile.feat2.title", "mobile.feat2.desc"),
+        ("check-circle", "mobile.feat3.title", "mobile.feat3.desc"),
     ]
     rows = "".join(
         f"<div class='feat-row'><span class='feat-ico'>{icon(ic, 17)}</span>"
-        f"<div><b>{esc(t)}</b><p>{esc(d)}</p></div></div>" for ic, t, d in feats)
+        f"<div><b>{esc(t(tk))}</b><p>{esc(t(dk))}</p></div></div>" for ic, tk, dk in feats)
     steps = [
-        ("send", "Yêu cầu", "Báo lỗi hoặc đổi tính năng bằng một tin nhắn."),
-        ("sparkles", "Phân tích", "Luna đọc repo, tìm nguyên nhân gốc."),
-        ("requests", "Kế hoạch", "Đề xuất cách sửa — bạn duyệt."),
-        ("branch", "Viết code", "Sửa an toàn trên nhánh dev."),
-        ("check-circle", "Verify & PR", "Chạy kiểm thử rồi mở pull request."),
-        ("shield", "Duyệt merge", "Manager duyệt đưa lên production."),
-        ("rocket", "Deploy", "Bản vá lên production tự động.", True),
+        ("send", "mobile.step1.t", "mobile.step1.d"),
+        ("sparkles", "mobile.step2.t", "mobile.step2.d"),
+        ("requests", "mobile.step3.t", "mobile.step3.d"),
+        ("branch", "mobile.step4.t", "mobile.step4.d"),
+        ("check-circle", "mobile.step5.t", "mobile.step5.d"),
+        ("shield", "mobile.step6.t", "mobile.step6.d"),
+        ("rocket", "mobile.step7.t", "mobile.step7.d", True),
     ]
     timeline = "".join(
         f"<div class='tl-item{' ok' if len(s) > 3 and s[3] else ''}'>"
         f"<span class='tl-dot'>{icon(s[0], 18)}</span>"
-        f"<div class='tl-tx'><b>{esc(s[1])}</b><span>{esc(s[2])}</span></div></div>" for s in steps)
+        f"<div class='tl-tx'><b>{esc(t(s[1]))}</b><span>{esc(t(s[2]))}</span></div></div>" for s in steps)
     return f"""
     <section class='lp-section'><div class='lp-inner'><div class='split'>
       <div class='split-visual'><div class='card'>{timeline}</div></div>
       <div class='split-copy'>
-        <div class='lp-eyebrow'>{icon('zap')} Mobile-first</div>
-        <h2>Bảo trì phần mềm<br>chỉ bằng điện thoại</h2>
-        <p class='lp-sub'>Từ lúc khách báo lỗi đến khi bản vá lên production — toàn bộ vòng đời
-          diễn ra trong một cuộc trò chuyện. Không cần mở laptop, không cần truy cập server.</p>
+        <div class='lp-eyebrow'>{icon('zap')} {t('mobile.eyebrow')}</div>
+        <h2>{t('mobile.title')}</h2>
+        <p class='lp-sub'>{t('mobile.sub')}</p>
         <div class='feat-list'>{rows}</div>
       </div>
     </div></div></section>"""
@@ -323,25 +313,24 @@ def _isolation() -> str:
         f"<div class='lane'><div class='who'><span class='av' style='background:{g}'>{l}</span>"
         f"<span class='nm'>{esc(nm)}<small>{esc(tid)}</small></span></div>"
         f"<div class='wall'><span class='bar'></span>{icon('shield', 16)}"
-        f"<span>tách biệt</span><span class='bar'></span></div>"
+        f"<span>{t('iso.separated')}</span><span class='bar'></span></div>"
         f"<span class='box'>{icon('check', 14)} {esc(repo)}</span></div>"
         for l, g, nm, tid, repo in tenants)
     pts = [
-        ("shield", "Workspace cô lập từng tenant", "Mỗi repo clone riêng tại WORKSPACE/&lt;tenant&gt;/&lt;repo&gt;; khoá theo repo để không bao giờ lẫn dữ liệu."),
-        ("zap", "Token GitHub ngắn hạn", "Dùng installation token TTL ~1h, sinh lại trước mỗi thao tác và không bao giờ ghi log."),
-        ("bot", "Bot & quyền riêng từng khách", "Bot chung hoặc bot riêng của bạn; chỉ requester cùng tenant mới thao tác được request."),
-        ("settings", "Tuỳ chọn container riêng", "Khối lượng nhạy cảm có thể chạy trên container cô lập thật, tách hẳn hạ tầng chung."),
+        ("shield", "iso.pt1.t", "iso.pt1.d"),
+        ("zap", "iso.pt2.t", "iso.pt2.d"),
+        ("bot", "iso.pt3.t", "iso.pt3.d"),
+        ("settings", "iso.pt4.t", "iso.pt4.d"),
     ]
     grid = "".join(
         f"<div class='iso-pt'><span class='pi'>{icon(ic, 17)}</span>"
-        f"<div><b>{t}</b><p>{d}</p></div></div>" for ic, t, d in pts)
+        f"<div><b>{t(tk)}</b><p>{t(dk)}</p></div></div>" for ic, tk, dk in pts)
     return f"""
     <section class='lp-section'><div class='lp-inner'>
       <div class='lp-head'>
-        <div class='lp-eyebrow'>{icon('shield')} Bảo mật đa tenant</div>
-        <h2 class='lp-title'>Dữ liệu mỗi khách hàng được tách biệt</h2>
-        <p class='lp-sub'>Luna là nền tảng multi-tenant: code, bot và quyền của từng doanh nghiệp
-          sống trong vùng cô lập của riêng họ — không bao giờ chạm vào nhau.</p>
+        <div class='lp-eyebrow'>{icon('shield')} {t('iso.eyebrow')}</div>
+        <h2 class='lp-title'>{t('iso.title')}</h2>
+        <p class='lp-sub'>{t('iso.sub')}</p>
       </div>
       <div class='lanes'>{lanes}</div>
       <div class='iso-points'>{grid}</div>
@@ -352,23 +341,22 @@ def _channels() -> str:
     return f"""
     <section class='lp-section'><div class='lp-inner'>
       <div class='lp-head'>
-        <div class='lp-eyebrow'>{icon('send')} Đa kênh</div>
-        <h2 class='lp-title'>Dùng ngay app chat doanh nghiệp đang có</h2>
-        <p class='lp-sub'>Không bắt cả team đổi thói quen. Luna nói chuyện qua kênh bạn đã dùng —
-          hỗ trợ nhóm, thread và cộng tác nhiều người. Một thread = một yêu cầu bảo trì.</p>
+        <div class='lp-eyebrow'>{icon('send')} {t('chan.eyebrow')}</div>
+        <h2 class='lp-title'>{t('chan.title')}</h2>
+        <p class='lp-sub'>{t('chan.sub')}</p>
       </div>
       <div class='chan-grid'>
         <div class='chan'>
           <div class='top'><span class='ci' style='background:#229ED9'>{icon('send', 22)}</span>
             <h3>Telegram</h3></div>
-          <p>Bot Luna chung không cần cài đặt, hoặc bot riêng mang tên & avatar thương hiệu của bạn.</p>
-          <div class='tags'><span>Nhóm</span><span>Bot riêng</span><span>Zero-setup</span></div>
+          <p>{t('chan.tg.desc')}</p>
+          <div class='tags'><span>{t('chan.tg.tag1')}</span><span>{t('chan.tg.tag2')}</span><span>{t('chan.tg.tag3')}</span></div>
         </div>
         <div class='chan'>
           <div class='top'><span class='ci' style='background:linear-gradient(135deg,#34A853,#4285F4)'>{icon('users', 22)}</span>
             <h3>Google Chat</h3></div>
-          <p>Tích hợp thẳng vào Google Workspace — quản lý yêu cầu bảo trì ngay trong Space của team.</p>
-          <div class='tags'><span>Spaces</span><span>Thread</span><span>Workspace</span></div>
+          <p>{t('chan.gc.desc')}</p>
+          <div class='tags'><span>{t('chan.gc.tag1')}</span><span>{t('chan.gc.tag2')}</span><span>{t('chan.gc.tag3')}</span></div>
         </div>
       </div>
     </div></section>"""
@@ -376,9 +364,9 @@ def _channels() -> str:
 
 def _dashboard_preview() -> str:
     rows = [
-        ("Bot bảo trì Shop", "acme/shop · @ShopMaintBot", "Đang chạy", "var(--primary)"),
-        ("API Gateway", "globex/api · Luna chung", "Sẵn sàng", "var(--success)"),
-        ("Billing Service", "initech/billing · Luna chung", "Chờ duyệt", "var(--warning)"),
+        (t("dprev.row1_name"), "acme/shop · @ShopMaintBot", t("dprev.status.running"), "var(--primary)"),
+        ("API Gateway", "globex/api · " + t("common.luna_shared"), t("dprev.status.ready"), "var(--success)"),
+        ("Billing Service", "initech/billing · " + t("common.luna_shared"), t("dprev.status.pending"), "var(--warning)"),
     ]
     body = "".join(
         f"<div class='bp-row'><div class='l'><span class='bi'>{icon('bot', 18)}</span>"
@@ -388,15 +376,15 @@ def _dashboard_preview() -> str:
     return f"""
     <section class='lp-section'><div class='lp-inner'>
       <div class='lp-head'>
-        <div class='lp-eyebrow'>{icon('dashboard')} Dashboard</div>
-        <h2 class='lp-title'>Mọi bot & yêu cầu ở một nơi</h2>
-        <p class='lp-sub'>Theo dõi trạng thái mọi bot và tiến độ từng yêu cầu bảo trì theo thời gian thực.</p>
+        <div class='lp-eyebrow'>{icon('dashboard')} {t('dprev.eyebrow')}</div>
+        <h2 class='lp-title'>{t('dprev.title')}</h2>
+        <p class='lp-sub'>{t('dprev.sub')}</p>
       </div>
       <div class='browser'>
         <div class='browser-bar'><span class='browser-dot'></span><span class='browser-dot'></span>
           <span class='browser-dot'></span><span class='browser-url'>app.luna.dev/dashboard</span></div>
         <div class='browser-body'>
-          <div class='bp-head'><h4>Bots</h4><span class='bp-pill'>＋ Tạo bot mới</span></div>
+          <div class='bp-head'><h4>{t('dprev.bots')}</h4><span class='bp-pill'>{t('dprev.new')}</span></div>
           {body}
         </div>
       </div>
@@ -407,12 +395,11 @@ def sections(login_url: str) -> str:
     cta = f"""
     <section class='lp-section' style='border-bottom:1px solid var(--border)'><div class='lp-inner'>
       <div class='lp-cta'>
-        <h2 class='lp-title'>Sẵn sàng để Luna lo phần bảo trì?</h2>
-        <p class='lp-sub' style='max-width:520px;margin:14px auto 26px'>Kết nối repo trong vài phút và
-          gửi yêu cầu bảo trì đầu tiên ngay từ điện thoại của bạn.</p>
-        <a class='btn btn-github btn-lg' href='{esc(login_url)}'>{icon('github')}Bắt đầu với GitHub</a>
+        <h2 class='lp-title'>{t('cta.title')}</h2>
+        <p class='lp-sub' style='max-width:520px;margin:14px auto 26px'>{t('cta.sub')}</p>
+        <a class='btn btn-github btn-lg' href='{esc(login_url)}'>{icon('github')}{t('cta.btn')}</a>
       </div>
     </div></section>
-    <div class='lp-foot'>🌙 Luna — AI Maintenance Engineer · Bảo trì có kiểm soát, deploy có người duyệt.</div>"""
+    <div class='lp-foot'>{t('foot')}</div>"""
     return (_demo_phone() + _architecture() + _mobile_flow() + _isolation()
             + _channels() + _dashboard_preview() + cta)
