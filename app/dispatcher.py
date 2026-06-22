@@ -24,7 +24,7 @@ from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
-from app.web.i18n import normalize, set_lang, t
+from app.web.i18n import detect, normalize, set_lang, t
 
 log = logging.getLogger("luna.dispatcher")
 
@@ -71,13 +71,18 @@ _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def _sync_user_language(db: Session, user: User, inbound) -> None:
-    """Đặt ngôn ngữ trả lời cho lượt xử lý này theo hồ sơ user; suy & lưu từ client chat
-    (vd Telegram language_code) lần đầu hoặc khi đổi. Chỉ cập nhật khi client khai báo mã
-    hợp lệ và khác hồ sơ hiện tại (tránh đè ngôn ngữ đã biết bằng mặc định)."""
-    code = normalize(inbound.language_code) if inbound.language_code else None
-    if code and user.language != code:
-        user.language = code
-        db.commit()
+    """Đặt ngôn ngữ trả lời theo NỘI DUNG người dùng gõ (heuristic, không gọi API) rồi lưu
+    vào hồ sơ để các lượt sau dùng lại — chỉ tốn lượt phát hiện đầu, sau đó tái dùng.
+
+    Bỏ qua suy đoán với NÚT (callback) và LỆNH (/...) vì không đại diện ngôn ngữ. Khi chưa có
+    tín hiệu chắc chắn: giữ ngôn ngữ đã lưu; chưa có gì thì fallback language_code client → DEFAULT.
+    """
+    text = inbound.text or ""
+    if not inbound.callback_data and not text.startswith("/"):
+        detected = detect(text)
+        if detected and user.language != detected:
+            user.language = detected
+            db.commit()
     set_lang(user.language or inbound.language_code)
 
 

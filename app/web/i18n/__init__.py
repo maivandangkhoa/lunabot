@@ -11,6 +11,7 @@ và `catalog_landing` (landing hero + các section marketing).
 from __future__ import annotations
 
 import contextvars
+import re
 
 from app.web.i18n.catalog_app import TEXTS as _APP
 from app.web.i18n.catalog_bot_admin import TEXTS as _BOT_ADMIN
@@ -37,6 +38,34 @@ def normalize(code: str | None) -> str:
         return DEFAULT
     c = code.strip().lower()[:2]
     return c if c in LANGS else DEFAULT
+
+
+# Phát hiện ngôn ngữ từ NỘI DUNG người dùng gõ (heuristic, không gọi API):
+#   Hangul → ko · dấu Latin (tiếng Việt có dấu) hoặc từ-khoá Việt không dấu → vi · đủ Latin → en.
+_HANGUL = re.compile(r"[가-힣ᄀ-ᇿ㄰-㆏]")
+_VI_DIACRITIC = re.compile(r"[À-ɏḀ-ỿ]")
+# Từ tiếng Việt KHÔNG DẤU đặc trưng (tránh trùng từ tiếng Anh phổ biến) — bắt câu Việt gõ không dấu.
+_VI_WORD = re.compile(
+    r"\b(toi|minh|ban|khong|duoc|sua|loi|giup|gium|nhe|voi|muon|lam|dang|nhap|"
+    r"hinh|trang|chuc|nang|hay|xoa|sai|chay|tinh|loi|nut|man)\b"
+)
+_ASCII_LETTER = re.compile(r"[A-Za-z]")
+
+
+def detect(text: str | None) -> str | None:
+    """Suy ngôn ngữ (vi/en/ko) từ nội dung người dùng gõ. Trả None khi KHÔNG đủ tín hiệu
+    chắc chắn — caller giữ ngôn ngữ đã biết thay vì đoán bừa (vd 'ok', 'y', emoji, số)."""
+    if not text:
+        return None
+    if _HANGUL.search(text):
+        return "ko"
+    if _VI_DIACRITIC.search(text):
+        return "vi"
+    if _VI_WORD.search(text.lower()):
+        return "vi"
+    if len(_ASCII_LETTER.findall(text)) >= 8:   # đủ dài để chắc tiếng Anh (tránh từ ngắn 'ok'/'no')
+        return "en"
+    return None
 
 
 def pick(cookie: str | None, accept_language: str | None) -> str:

@@ -189,7 +189,8 @@ class User(Base):
         Enum(UserRole, name="user_role"), default=UserRole.EMPLOYEE
     )
     # Ngôn ngữ trả lời ưu tiên (ISO 639-1: vi/en/ko). NULL = chưa biết → fallback DEFAULT (vi).
-    # Tự suy từ language_code của client chat (vd Telegram) lần đầu/khi đổi; xem app.web.i18n.
+    # Tự suy từ NỘI DUNG người dùng gõ (heuristic app.web.i18n.detect) lần đầu & cập nhật khi
+    # đổi ngôn ngữ; trước khi có tín hiệu thì tạm theo language_code của client chat.
     language: Mapped[str | None] = mapped_column(String(8))
     display_name: Mapped[str | None] = mapped_column(String(255))
     link_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)

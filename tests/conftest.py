@@ -11,6 +11,15 @@ from app.channels.google_chat import GoogleChatAdapter
 from app.channels.telegram import TelegramAdapter
 from app.claude_runner import ClaudeResult
 from app.db import Base
+from app.web.i18n import DEFAULT, set_lang
+
+
+@pytest.fixture(autouse=True)
+def _reset_lang():
+    """Cô lập ngôn ngữ giữa các test: contextvar i18n persist xuyên test (cùng thread) → reset
+    về DEFAULT (vi) trước mỗi test, để test khớp chuỗi tiếng Việt không lệ thuộc thứ tự chạy."""
+    set_lang(DEFAULT)
+    yield
 
 
 @pytest.fixture
