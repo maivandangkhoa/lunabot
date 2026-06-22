@@ -130,4 +130,13 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "🎉 요청 #{rid} '{title}'은(는) 이미 `{prod}`에 있습니다 (이전 승인과 함께 릴리스됨). "
               "걸려 있지 않도록 이 요청을 닫았습니다.",
     },
+    # ── Cancel stuck (request kẹt do định tuyến thread cũ) ──
+    "cancel_stuck.cancelled": {
+        "vi": "🧹 Yêu cầu #{rid} '{title}' đã bị huỷ do dọn dẹp hệ thống. "
+              "Bạn mở thread mới (hoặc DM bot) để gửi lại yêu cầu nhé.",
+        "en": "🧹 Request #{rid} '{title}' was cancelled during system cleanup. "
+              "Please open a new thread (or DM the bot) to resend your request.",
+        "ko": "🧹 요청 #{rid} '{title}'이(가) 시스템 정리 중 취소되었습니다. "
+              "새 스레드를 열거나 봇에게 DM으로 요청을 다시 보내주세요.",
+    },
 }

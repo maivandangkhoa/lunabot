@@ -79,6 +79,14 @@ def _space_is_group(space_obj: dict) -> bool:
             or space_obj.get("spaceType") in ("SPACE", "GROUP_CHAT"))
 
 
+def _space_of(name: str | None) -> str | None:
+    """'spaces/AAA/threads/T1' → 'spaces/AAA'; 'spaces/AAA' → 'spaces/AAA'; None → None.
+    Đích gửi tin là space (parent của message); thread chỉ là tham số reply."""
+    if not name or not name.startswith("spaces/"):
+        return name
+    return "/".join(name.split("/")[:2])
+
+
 def _extract_callback(raw: dict) -> str | None:
     """Lấy callback_data từ event CARD_CLICKED (hỗ trợ 2 shape API)."""
     params = raw.get("action", {}).get("parameters")
@@ -178,8 +186,6 @@ class GoogleChatAdapter:
     _token: str | None = field(default=None, init=False)
     _token_exp: float = field(default=0.0, init=False)
     _space_cache: dict[str, str] = field(default_factory=dict, init=False)
-    # space → thread gần nhất thấy ở space đó. Để reply nằm cùng thread tin đến (space threaded).
-    _thread_cache: dict[str, str] = field(default_factory=dict, init=False)
 
     @classmethod
     def from_settings(cls, settings=None) -> "GoogleChatAdapter":
@@ -265,13 +271,12 @@ class GoogleChatAdapter:
         space = space_obj.get("name")
         is_group = _space_is_group(space_obj)
         if space and uid:
-            self._space_cache[uid] = space      # nhớ space để reply trong cùng flow
-        if space and thread and is_group:
-            # Chỉ thread trong group (đỡ loãng mạch); DM thì trả lời thẳng cho dễ đọc.
-            self._thread_cache[space] = thread
+            self._space_cache[uid] = space      # nhớ space để resolve DM khi reply
+        # Group: định danh hội thoại = THREAD (1 thread = 1 request); DM: theo space.
+        chat_id = (thread or space) if (is_group and space) else space
         return InboundMessage(
             platform=self.name, platform_user_id=uid, text=text,
-            callback_data=callback, chat_id=space, is_group=is_group,
+            callback_data=callback, chat_id=chat_id, is_group=is_group,
             attachments=attachments, raw=raw,
         )
 
@@ -283,19 +288,18 @@ class GoogleChatAdapter:
         thread = (raw.get("message", {}).get("thread") or {}).get("name")
         if space and uid:
             self._space_cache[uid] = space
-        if space and thread and is_group:
-            # Chỉ thread trong group; DM trả lời thẳng cho dễ đọc.
-            self._thread_cache[space] = thread
+        # Group: định danh hội thoại = THREAD (1 thread = 1 request); DM: theo space.
+        chat_id = (thread or space) if (is_group and space) else space
         if raw.get("type") == "CARD_CLICKED":
             cbdata = _extract_callback(raw)
             return InboundMessage(
                 platform=self.name, platform_user_id=uid, text=cbdata or "",
-                callback_data=cbdata, chat_id=space, is_group=is_group, raw=raw,
+                callback_data=cbdata, chat_id=chat_id, is_group=is_group, raw=raw,
             )
         msg = raw.get("message", {})
         return InboundMessage(
             platform=self.name, platform_user_id=uid,
-            text=msg.get("text", "") or "", callback_data=None, chat_id=space,
+            text=msg.get("text", "") or "", callback_data=None, chat_id=chat_id,
             is_group=is_group, raw=raw,
         )
 
@@ -339,16 +343,19 @@ class GoogleChatAdapter:
         text: str,
         buttons: list[list[Button]] | None = None,
     ) -> dict:
-        """Gửi tin tới `destination` (chunk nếu dài; cards gắn chunk cuối). `destination` là
-        space sẵn (`spaces/...`, vd group/origin) → gửi thẳng; là user (`users/...`) → resolve DM."""
-        space = destination if destination.startswith("spaces/") else await self._resolve_space(destination)
+        """Gửi tin tới `destination` (chunk nếu dài; cards gắn chunk cuối). `destination`:
+        thread (`spaces/AAA/threads/T1`, group origin) → reply đúng thread; space sẵn
+        (`spaces/AAA`) → gửi thẳng; user (`users/...`) → resolve DM."""
+        if destination.startswith("spaces/"):
+            thread = destination if "/threads/" in destination else None
+            space = _space_of(destination)
+        else:
+            thread, space = None, await self._resolve_space(destination)
         if not space:
             log.warning("Không tìm được space cho %s — bỏ gửi.", destination)
             return {}
         headers = await self._headers()
-        # Reply cùng thread tin đến (space threaded). FALLBACK_TO_NEW_THREAD: space flat thì
-        # tham số vô hại, không có thread thì gửi như thường.
-        thread = self._thread_cache.get(space)
+        # Reply đúng thread của hội thoại (origin). FALLBACK_TO_NEW_THREAD an toàn cho space flat.
         params = {"messageReplyOption": "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"} if thread else None
         chunks = [text[i : i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]
         result: dict = {}

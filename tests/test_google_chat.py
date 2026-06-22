@@ -105,8 +105,19 @@ async def test_send_to_space_skips_dm_resolution():
 
 
 @pytest.mark.asyncio
-async def test_send_replies_in_cached_thread():
-    """Tin đến kèm thread → send sau đó reply cùng thread + set messageReplyOption."""
+async def test_group_inbound_chat_id_is_thread():
+    """Group: chat_id = THREAD (1 thread = 1 request), không phải space."""
+    a = GoogleChatAdapter()
+    m = a.parse_inbound({"type": "MESSAGE", "user": {"name": "users/1"},
+                         "space": {"name": "spaces/ROOM1", "type": "ROOM"},
+                         "message": {"text": "@Luna ok", "argumentText": "ok",
+                                     "thread": {"name": "spaces/ROOM1/threads/T1"}}})
+    assert m.is_group and m.chat_id == "spaces/ROOM1/threads/T1"
+
+
+@pytest.mark.asyncio
+async def test_send_to_thread_destination_replies_in_thread():
+    """destination = thread → reply đúng thread đó + set messageReplyOption; post vào space cha."""
     captured = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -114,20 +125,16 @@ async def test_send_replies_in_cached_thread():
         return httpx.Response(200, json={"name": "spaces/ROOM1/messages/1"})
 
     a = _adapter(handler)
-    # tin đến trong thread T1 → điền _thread_cache
-    a.parse_inbound({"type": "MESSAGE", "user": {"name": "users/1"},
-                     "space": {"name": "spaces/ROOM1", "type": "ROOM"},
-                     "message": {"text": "@Luna ok", "argumentText": "ok",
-                                 "thread": {"name": "spaces/ROOM1/threads/T1"}}})
-    await a.send("spaces/ROOM1", "trả lời")
+    await a.send("spaces/ROOM1/threads/T1", "trả lời")
     url, payload = captured[-1]
+    assert "/v1/spaces/ROOM1/messages" in url           # post vào space cha, không phải thread
     assert payload["thread"] == {"name": "spaces/ROOM1/threads/T1"}
     assert "messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" in url
 
 
 @pytest.mark.asyncio
 async def test_send_dm_does_not_thread():
-    """Tin đến trong DM (dù kèm thread) → reply thẳng, không gắn thread cho dễ đọc."""
+    """DM: destination = space (không có /threads/) → reply thẳng, không gắn thread."""
     captured = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -135,10 +142,6 @@ async def test_send_dm_does_not_thread():
         return httpx.Response(200, json={"name": "spaces/DM1/messages/1"})
 
     a = _adapter(handler)
-    a.parse_inbound({"type": "MESSAGE", "user": {"name": "users/1"},
-                     "space": {"name": "spaces/DM1", "type": "DM"},
-                     "message": {"text": "ok",
-                                 "thread": {"name": "spaces/DM1/threads/T1"}}})
     await a.send("spaces/DM1", "trả lời")
     url, payload = captured[-1]
     assert "thread" not in payload
