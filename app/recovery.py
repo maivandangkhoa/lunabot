@@ -29,16 +29,12 @@ from app.models import (
     RequestStatus,
     User,
 )
+from app.web.i18n import set_lang, t
 
 log = logging.getLogger("luna.recovery")
 
 # Trạng thái có tiến trình Claude chạy nền (mất khi restart). CHỜ-user KHÔNG nằm đây.
 _INTERRUPTED = (RequestStatus.NEW, RequestStatus.ANALYZING, RequestStatus.EXECUTING)
-
-_NOTE = (
-    "⚠️ Hệ thống vừa khởi động lại nên yêu cầu #{rid} đang xử lý dở bị gián đoạn. "
-    "Em đã đóng nó — anh/chị gửi lại yêu cầu để em làm lại nhé."
-)
 
 
 def close_interrupted(db: Session) -> list[Request]:
@@ -108,7 +104,8 @@ async def recover_interrupted_requests(
     try:
         reqs = close_interrupted(db)
         for req in reqs:
-            target = req.origin_chat_id or _requester_pid(db, req)
+            requester = db.get(User, req.requester_user_id)
+            target = req.origin_chat_id or (requester.platform_user_id if requester else None)
             if not target:
                 continue
             if req.origin_platform not in cache:
@@ -118,8 +115,9 @@ async def recover_interrupted_requests(
             adapter = cache[req.origin_platform]
             if adapter is None:
                 continue
+            set_lang(requester.language if requester else None)  # trả lời đúng ngôn ngữ requester
             try:
-                await adapter.send(target, _NOTE.format(rid=req.id))
+                await adapter.send(target, t("recovery.interrupted", rid=req.id))
             except Exception:  # noqa: BLE001 — notify best-effort
                 log.exception("recovery: notify request %s lỗi", req.id)
         return len(reqs)

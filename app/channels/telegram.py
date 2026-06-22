@@ -85,6 +85,7 @@ class TelegramAdapter:
                 chat_id=str(chat.get("id", cb["from"]["id"])),
                 is_group=chat.get("type") in _GROUP_TYPES,
                 addressed=True,          # bấm nút luôn là nhắm tới bot
+                language_code=cb["from"].get("language_code"),
                 raw=raw,
             )
         msg = raw.get("message") or raw.get("edited_message") or {}
@@ -103,6 +104,7 @@ class TelegramAdapter:
             chat_id=str(chat.get("id", "")),
             is_group=is_group,
             addressed=(not is_group) or mentioned or is_cmd or replied,
+            language_code=msg.get("from", {}).get("language_code"),
             raw=raw,
         )
 

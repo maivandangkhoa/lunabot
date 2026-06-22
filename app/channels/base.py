@@ -40,6 +40,9 @@ class InboundMessage:
     # True nếu tin nhắm tới bot (DM, @mention, command, reply, hoặc bấm nút). Trong group mà
     # KHÔNG addressed thì dispatcher bỏ qua (tránh biến mọi tin trong group thành request).
     addressed: bool = True
+    # Mã ngôn ngữ client chat khai báo (vd Telegram "en"/"vi"/"ko"); None nếu platform không có.
+    # Dispatcher dùng để suy & lưu User.language → bot trả lời đúng ngôn ngữ người dùng.
+    language_code: str | None = None
     attachments: list[Attachment] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 

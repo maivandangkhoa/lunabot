@@ -34,18 +34,15 @@ from app.models import (
     Request,
     RequestEvent,
     RequestStatus,
+    User,
 )
 from app.recovery import _build_adapter, _requester_pid
+from app.web.i18n import set_lang, t
 
 log = logging.getLogger("luna.reconcile")
 
 # Trạng thái có thể bị 'mồ côi' khi 1 approve cuốn cả dev lên main.
 _PENDING = (RequestStatus.AWAIT_MANAGER, RequestStatus.MERGED_DEV)
-
-_NOTE = (
-    "🎉 Yêu cầu #{rid} '{title}' đã có trên `{prod}` (được release cùng đợt duyệt trước). "
-    "Em đã đóng yêu cầu này để khỏi treo nhé."
-)
 
 
 @dataclass
@@ -151,8 +148,11 @@ async def _notify(
     adapter = cache[req.origin_platform]
     if adapter is None:
         return
+    requester = db.get(User, req.requester_user_id)
+    set_lang(requester.language if requester else None)  # trả lời đúng ngôn ngữ requester
     try:
-        await adapter.send(target, _NOTE.format(rid=req.id, title=req.title, prod=repo.prod_branch))
+        await adapter.send(
+            target, t("reconcile.released", rid=req.id, title=req.title, prod=repo.prod_branch))
     except Exception:  # noqa: BLE001 — notify best-effort
         log.exception("reconcile: notify request %s lỗi", req.id)
 

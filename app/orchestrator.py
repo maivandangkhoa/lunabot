@@ -35,6 +35,7 @@ from app.models import (
     UserRole,
 )
 from app.parsing import Action, parse_signal, strip_json_block
+from app.web.i18n import t
 
 log = logging.getLogger("luna.orchestrator")
 
@@ -79,31 +80,18 @@ def friendly_repo_error(exc: Exception, repo: Repository, *, retry_hint: str) ->
     low = str(exc).lower()
     base, prod = repo.base_branch, repo.prod_branch
     if "remote branch" in low and "not found" in low:
-        return (
-            f"🌿 Repo {repo.repo_full_name} chưa có nhánh `{base}` để em làm việc.\n\n"
-            f"Quy trình của em: em commit lên nhánh `{base}` cho anh/chị duyệt thử, "
-            f"rồi mới merge vào `{prod}`. Vì vậy repo cần sẵn 2 nhánh này.\n\n"
-            f"Cách tạo nhanh: mở repo trên GitHub → bấm ô chọn nhánh → gõ `{base}` → "
-            f'chọn "Create branch {base} from {prod}".\n\n'
-            f"{retry_hint}"
-        )
+        return t("orch.repo_err.no_base_branch", repo=repo.repo_full_name,
+                 base=base, prod=prod, retry_hint=retry_hint)
     if any(k in low for k in ("authentication failed", "could not read from remote",
                               "permission denied", "403")):
-        return (
-            f"🔒 Em chưa truy cập được repo {repo.repo_full_name} — có thể GitHub App "
-            f"chưa được cài (hoặc thiếu quyền) cho repo này.\n\n"
-            f"Anh/chị kiểm tra lại phần cài đặt GitHub App rồi {retry_hint.lower()}"
-        )
+        return t("orch.repo_err.no_access", repo=repo.repo_full_name,
+                 retry_hint_lower=retry_hint.lower())
     if "repository not found" in low or "does not exist" in low or "404" in low:
-        return (
-            f"❓ Em không tìm thấy repo {repo.repo_full_name}. Anh/chị kiểm tra lại tên repo "
-            f"và quyền cài đặt GitHub App rồi {retry_hint.lower()}"
-        )
+        return t("orch.repo_err.not_found", repo=repo.repo_full_name,
+                 retry_hint_lower=retry_hint.lower())
     # Mặc định: gọn, kèm ít chi tiết để debug nhưng không dài dòng.
-    return (
-        f"⚠️ Em chưa chuẩn bị được repo {repo.repo_full_name} để phân tích.\n"
-        f"Chi tiết: {str(exc)[:300]}\n\n{retry_hint}"
-    )
+    return t("orch.repo_err.generic", repo=repo.repo_full_name,
+             detail=str(exc)[:300], retry_hint=retry_hint)
 
 
 class Orchestrator:
@@ -232,11 +220,11 @@ class Orchestrator:
         # Hành động của requester chỉ requester (hoặc manager/admin) mới được thao tác.
         if not is_mgr_action and actor.id != req.requester_user_id \
                 and actor.role not in (UserRole.MANAGER, UserRole.ADMIN):
-            await self.adapter.send(target, f"⚠️ Yêu cầu #{req.id} không phải của anh/chị.")
+            await self.adapter.send(target, t("orch.not_owner", id=req.id))
             return
         # Chống double-click manager (nhiều manager trong group): đã rời AWAIT_MANAGER ⇒ bỏ qua.
         if is_mgr_action and req.status != RequestStatus.AWAIT_MANAGER:
-            await self.adapter.send(target, f"ℹ️ Yêu cầu #{req.id} đã được xử lý.")
+            await self.adapter.send(target, t("orch.already_handled", id=req.id))
             return
 
         self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=actor.id, action=action)
@@ -246,14 +234,12 @@ class Orchestrator:
         elif action == "reject" and req.status == RequestStatus.PLAN_REVIEW:
             self._set_status(req, RequestStatus.CLARIFYING)
             self.db.commit()
-            await self._say(req, self._requester(req),
-                            "Kế hoạch bị từ chối. Anh/chị muốn điều chỉnh gì? (trả lời tin này)")
+            await self._say(req, self._requester(req), t("orch.plan_rejected"))
         elif action == "verify_ok" and req.status == RequestStatus.VERIFY:
             await self._merge_to_dev(req)
         elif action == "verify_fix" and req.status == RequestStatus.VERIFY:
             self.db.commit()
-            await self._say(req, self._requester(req),
-                            "🔧 Cần sửa gì? Trả lời tin này để bot sửa tiếp.")
+            await self._say(req, self._requester(req), t("orch.verify_fix_prompt"))
         elif action == "mgr_approve" and req.status == RequestStatus.AWAIT_MANAGER:
             await self._merge_to_main(req, actor, target)
         elif action == "mgr_reject" and req.status == RequestStatus.AWAIT_MANAGER:
@@ -262,9 +248,9 @@ class Orchestrator:
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
             warns = await cleanup_branch(self, req, revert_dev=False)
-            msg = "❌ Đã huỷ yêu cầu."
+            msg = t("orch.cancelled")
             if warns:
-                msg += "\n⚠️ Dọn dẹp: " + "; ".join(warns)
+                msg += t("orch.cleanup_warn", warns="; ".join(warns))
             await self._say(req, self._requester(req), msg)
 
     async def clear_open_request(self, user: User, *, reply_to: str | None = None) -> None:
@@ -281,13 +267,12 @@ class Orchestrator:
             ).order_by(Request.id.desc())
         ).first()
         if req is None:
-            await self.adapter.send(target, "✨ Không có yêu cầu đang mở. Gửi yêu cầu mới để bắt đầu.")
+            await self.adapter.send(target, t("orch.no_open_request"))
             return
         self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=user.id, action="clear")
         self._set_status(req, RequestStatus.CANCELLED)
         self.db.commit()
-        await self.adapter.send(
-            target, f"🧹 Đã đóng yêu cầu #{req.id}. Gửi yêu cầu mới để bắt đầu session mới.")
+        await self.adapter.send(target, t("orch.cleared", id=req.id))
 
     async def ask(self, repo: Repository, user: User, question: str,
                   *, reply_to: str | None = None) -> None:
@@ -300,7 +285,7 @@ class Orchestrator:
                 repo_dir = await self._ensure_repo_cloned(repo)
             except Exception as exc:  # noqa: BLE001
                 await self.adapter.send(target, friendly_repo_error(
-                    exc, repo, retry_hint="Sửa xong rồi gọi /ask lại nhé."))
+                    exc, repo, retry_hint=t("orch.retry_hint.ask")))
                 return
             sysp = prompts.ask_system_prompt(repo.repo_full_name, repo.base_branch)
             res = await self.claude_run(
@@ -308,9 +293,9 @@ class Orchestrator:
                 permission_mode=PermissionMode.READONLY, system_prompt=sysp,
             )
         if not res.ok:
-            await self.adapter.send(target, f"⚠️ Chưa trả lời được, thử lại sau nhé:\n{res.result[:800]}")
+            await self.adapter.send(target, t("orch.ask_failed", detail=res.result[:800]))
             return
-        await self.adapter.send(target, res.result[:3500] or "(không có nội dung)")
+        await self.adapter.send(target, res.result[:3500] or t("orch.ask_empty"))
 
     # ---------------- phases ----------------
     async def _analyze(self, req: Request, clarifications: list[str] | None = None,
@@ -319,8 +304,7 @@ class Orchestrator:
         requester = self._requester(req)
         self._set_status(req, RequestStatus.ANALYZING)
         self.db.commit()
-        await self._say(req, requester,
-                        "📥 Em đã nhận yêu cầu, chờ em kiểm tra rồi báo lại nhé…")
+        await self._say(req, requester, t("orch.received"))
 
         try:
             repo_dir = await self._ensure_repo_cloned(repo)
@@ -330,7 +314,7 @@ class Orchestrator:
             self._set_status(req, RequestStatus.CLARIFYING)
             self.db.commit()
             await self._say(req, requester, friendly_repo_error(
-                exc, repo, retry_hint='Sửa xong rồi nhắn em "chạy lại" để em tiếp tục nhé.'))
+                exc, repo, retry_hint=t("orch.retry_hint.analyze")))
             return
 
         # "chạy lại"/"thử lại"… chỉ là tín hiệu retry sau khi khách sửa repo — không phải nội
@@ -352,10 +336,7 @@ class Orchestrator:
             # Lỗi tạm khi chạy Claude → cho retriable thay vì kẹt ANALYZING.
             self._set_status(req, RequestStatus.CLARIFYING)
             self.db.commit()
-            await self._say(req, requester,
-                            "⚠️ Em gặp trục trặc khi phân tích, chưa xong được. "
-                            'Anh/chị nhắn em "chạy lại" để em thử lại nhé.\n'
-                            f"(chi tiết: {res.result[:300]})")
+            await self._say(req, requester, t("orch.analyze_failed", detail=res.result[:300]))
             return
 
         sig = parse_signal(res.result)
@@ -368,12 +349,10 @@ class Orchestrator:
                 self.db.commit()
                 await self._say(
                     req, requester,
-                    f"{res.result[:3500]}\n\n———\nAnh/chị muốn em *thực hiện thay đổi gì*? "
-                    "Trả lời cụ thể để em lập kế hoạch.")
+                    t("orch.relay_then_clarify", result=res.result[:3500]))
             else:
                 self.db.commit()
-                await self._say(req, requester,
-                                f"⚠️ Không hiểu phản hồi của Claude ({sig.error}). Cần người can thiệp.")
+                await self._say(req, requester, t("orch.no_signal", error=sig.error))
             return
 
         if sig.action == Action.CLARIFY:
@@ -383,27 +362,26 @@ class Orchestrator:
             # Relay câu TRẢ LỜI Claude viết (phần text trước khối json) — vd khi user chỉ
             # HỎI thông tin thì đây mới là nội dung họ cần; trước đây bị vứt bỏ.
             answer = strip_json_block(res.result)
-            qs = "\n".join(f"❓ {q}" for q in sig.data["questions"])
-            body = f"{answer}\n\n———\n{qs}" if answer else qs
-            await self._say(req, requester, f"{body}\n\n(trả lời tin này)")
+            qs = "\n".join(t("orch.clarify_question", q=q) for q in sig.data["questions"])
+            body = t("orch.clarify_with_answer", answer=answer, qs=qs) if answer else qs
+            await self._say(req, requester, t("orch.clarify_body", body=body))
         elif sig.action == Action.PLAN:
             self._set_status(req, RequestStatus.PLAN_REVIEW)
             self._event(req, EventKind.PLAN, EventDirection.OUT, **sig.data)
             self.db.commit()
             steps = "\n".join(f"{i}. {s}" for i, s in enumerate(sig.data["steps"], 1))
-            text = (f"📋 Kế hoạch (risk: {sig.data.get('risk', '?')}):\n{sig.data['summary']}\n\n{steps}"
-                    "\n\n(Bấm nút, hoặc trả lời: ok để duyệt · sửa · huỷ)")
+            text = t("orch.plan_text", risk=sig.data.get("risk", "?"),
+                     summary=sig.data["summary"], steps=steps)
             await self._say(req, requester, text, buttons=[[
-                Button("✅ Confirm", cb("confirm", req.id)),
-                Button("✏️ Sửa", cb("reject", req.id)),
-                Button("❌ Huỷ", cb("cancel", req.id)),
+                Button(t("orch.btn.confirm"), cb("confirm", req.id)),
+                Button(t("orch.btn.edit"), cb("reject", req.id)),
+                Button(t("orch.btn.cancel"), cb("cancel", req.id)),
             ]])
 
     async def _execute(self, req: Request, fix_feedback: str | None = None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
-        await self._say(req, requester,
-                        "🛠 Em bắt đầu thực hiện thay đổi + tạo PR, xong em báo lại nhé…")
+        await self._say(req, requester, t("orch.executing"))
         async with _repo_locks[repo.id]:
             self._set_status(req, RequestStatus.EXECUTING)
             self.db.commit()
@@ -415,7 +393,7 @@ class Orchestrator:
                 await self.git.prepare_branch(repo_dir, branch, repo.base_branch)
             except Exception as exc:
                 self.db.commit()
-                await self._say(req, requester, f"⚠️ Lỗi chuẩn bị repo: {exc}")
+                await self._say(req, requester, t("orch.prepare_repo_error", detail=str(exc)))
                 return
 
             prompt = (prompts.fix_request_prompt(fix_feedback) if fix_feedback
@@ -430,8 +408,7 @@ class Orchestrator:
             req.claude_session_id = res.session_id
             if not res.ok or not parse_signal(res.result).ok:
                 self.db.commit()
-                await self._say(req, requester,
-                                f"⚠️ Thực thi gặp vấn đề, cần người can thiệp:\n{res.result[:800]}")
+                await self._say(req, requester, t("orch.execute_failed", detail=res.result[:800]))
                 return
 
             try:
@@ -446,22 +423,22 @@ class Orchestrator:
                     req.pr_url = pr.get("html_url")
             except Exception as exc:
                 self.db.commit()
-                await self._say(req, requester, f"⚠️ Lỗi push/PR: {exc}")
+                await self._say(req, requester, t("orch.push_pr_error", detail=str(exc)))
                 return
 
         self._set_status(req, RequestStatus.VERIFY)
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, pr_url=req.pr_url)
         self.db.commit()
         await self._say(req, requester,
-                        f"✅ Đã triển khai. PR: {req.pr_url}\n{parse_signal(res.result).data.get('summary', '')}"
-                        "\n\n(Bấm nút, hoặc trả lời: ok nếu đạt · huỷ)",
+                        t("orch.deployed", pr_url=req.pr_url,
+                          summary=parse_signal(res.result).data.get("summary", "")),
                         buttons=self._verify_buttons(req))
 
     def _verify_buttons(self, req: Request) -> list[list["Button"]]:
         return [[
-            Button("✅ Đạt", cb("verify_ok", req.id)),
-            Button("🔧 Cần sửa", cb("verify_fix", req.id)),
-            Button("❌ Huỷ", cb("cancel", req.id)),
+            Button(t("orch.btn.verify_ok"), cb("verify_ok", req.id)),
+            Button(t("orch.btn.verify_fix"), cb("verify_fix", req.id)),
+            Button(t("orch.btn.cancel"), cb("cancel", req.id)),
         ]]
 
     def _dev_pipeline_holder(self, req: Request) -> Request | None:
@@ -481,8 +458,7 @@ class Orchestrator:
             self.db.commit()  # giữ VERIFY; gửi LẠI nút vì click đã xoá nút (Google Chat)
             await self._say(
                 req, self._requester(req),
-                f"⏳ Yêu cầu #{holder.id} đang chờ manager duyệt merge `main`. Em xử lý "
-                f"#{req.id} sau khi #{holder.id} xong — anh/chị bấm **✅ Đạt** lại lúc đó nhé.",
+                t("orch.dev_holder_wait", holder_id=holder.id, id=req.id),
                 buttons=self._verify_buttons(req))
             return
         repo = self._repo(req)
@@ -492,7 +468,7 @@ class Orchestrator:
                 repo.gh_installation_id, repo.repo_full_name, req.pr_number)
         except Exception as exc:
             self.db.commit()
-            await self._say(req, requester, f"⚠️ Merge vào {repo.base_branch} lỗi: {exc}")
+            await self._say(req, requester, t("orch.merge_dev_error", base=repo.base_branch, detail=str(exc)))
             return
         req.dev_merge_sha = (res or {}).get("sha")  # để revert dev / poll deploy theo sha này
         self._set_status(req, RequestStatus.MERGED_DEV)
@@ -503,8 +479,7 @@ class Orchestrator:
         settings = get_settings()
         if settings.dev_verify_enabled and post_deploy.dev_verify_configured(repo):
             await self._say(req, requester,
-                            f"✅ Đã merge vào `{repo.base_branch}`. Em đang chờ build & deploy lên "
-                            "môi trường dev rồi kiểm thử lại, xong em báo nhé…")
+                            t("orch.merged_dev_waiting_deploy", base=repo.base_branch))
             asyncio.create_task(
                 post_deploy.verify_after_dev_merge(req.id, settings=settings, github=self.github))
         else:
@@ -513,7 +488,7 @@ class Orchestrator:
     async def _merge_to_main(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
             await self.adapter.send(reply_to or approver.platform_user_id,
-                                    "⛔ Chỉ manager được duyệt merge.")
+                                    t("orch.only_manager"))
             return
         repo = self._repo(req)
         try:
@@ -524,7 +499,7 @@ class Orchestrator:
             await self.github.merge_pull_request(repo.gh_installation_id, repo.repo_full_name, pr["number"])
         except Exception as exc:
             self.db.commit()
-            await self._say(req, approver, f"⚠️ Merge `{repo.prod_branch}` lỗi: {exc}")
+            await self._say(req, approver, t("orch.merge_main_error", prod=repo.prod_branch, detail=str(exc)))
             return
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.APPROVED))
@@ -538,12 +513,12 @@ class Orchestrator:
                 await self.github.delete_branch(repo.gh_installation_id, repo.repo_full_name, req.branch_name)
             except Exception as exc:  # noqa: BLE001
                 log.warning("xoá nhánh %s req %s lỗi: %s", req.branch_name, req.id, exc)
-        await self._say(req, self._requester(req), f"🎉 Yêu cầu #{req.id} đã merge `{repo.prod_branch}` và đóng.")
+        await self._say(req, self._requester(req), t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
 
     async def _manager_reject(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
             await self.adapter.send(reply_to or approver.platform_user_id,
-                                    "⛔ Chỉ manager được duyệt merge.")
+                                    t("orch.only_manager"))
             return
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.REJECTED))
@@ -551,8 +526,7 @@ class Orchestrator:
         self.db.commit()
         repo = self._repo(req)
         warns = await cleanup_branch(self, req, revert_dev=True)
-        msg = (f"❌ Manager từ chối merge yêu cầu #{req.id}. "
-               f"Đã hoàn tác `{repo.base_branch}`, đóng PR và xoá nhánh.")
+        msg = t("orch.manager_rejected", id=req.id, base=repo.base_branch)
         if warns:
-            msg += "\n⚠️ Dọn dẹp chưa trọn: " + "; ".join(warns)
+            msg += t("orch.cleanup_partial_warn", warns="; ".join(warns))
         await self._say(req, self._requester(req), msg)

@@ -18,12 +18,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.admin_commands import HELP_TEXT, handle_command, is_command
+from app.admin_commands import handle_command, help_text, is_command
 from app.channels.base import Button, ChannelAdapter
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
+from app.web.i18n import normalize, set_lang, t
 
 log = logging.getLogger("luna.dispatcher")
 
@@ -41,10 +42,12 @@ _W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT
 
 # Cho phép nhắm tường minh "ok #12" → tách số request khỏi câu trước khi khớp từ khoá.
 _REQ_ID_RE = re.compile(r"#(\d+)")
-# action → nhãn nút khi hỏi lại lúc nhập nhằng (nhiều việc cùng khớp 1 từ khoá).
+# action → key i18n nhãn nút khi hỏi lại lúc nhập nhằng (nhiều việc cùng khớp 1 từ khoá).
+# Resolve t() tại use-site (không phải module-load) để theo đúng ngôn ngữ người dùng.
 _ACTION_VERB = {
-    "confirm": "✅ Duyệt KH", "reject": "✏️ Sửa KH", "cancel": "❌ Huỷ",
-    "verify_ok": "✅ Xác nhận đạt", "mgr_approve": "✅ Cho merge", "mgr_reject": "❌ Từ chối merge",
+    "confirm": "disp.verb_confirm", "reject": "disp.verb_reject", "cancel": "disp.verb_cancel",
+    "verify_ok": "disp.verb_verify_ok", "mgr_approve": "disp.verb_mgr_approve",
+    "mgr_reject": "disp.verb_mgr_reject",
 }
 
 
@@ -67,6 +70,17 @@ def _keyword_action(word: str, status: RequestStatus) -> str | None:
 _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
+def _sync_user_language(db: Session, user: User, inbound) -> None:
+    """Đặt ngôn ngữ trả lời cho lượt xử lý này theo hồ sơ user; suy & lưu từ client chat
+    (vd Telegram language_code) lần đầu hoặc khi đổi. Chỉ cập nhật khi client khai báo mã
+    hợp lệ và khác hồ sơ hiện tại (tránh đè ngôn ngữ đã biết bằng mặc định)."""
+    code = normalize(inbound.language_code) if inbound.language_code else None
+    if code and user.language != code:
+        user.language = code
+        db.commit()
+    set_lang(user.language or inbound.language_code)
+
+
 async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, raw: dict,
                                 bot_id: int | None = None) -> None:
     """Parse update; nếu đang bận xử lý tin trước của CÙNG user (Claude đang chạy) thì báo
@@ -82,13 +96,14 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
     # Trong group mà tin KHÔNG nhắm tới bot (không @mention/command/reply) → bỏ qua im lặng.
     if inbound.is_group and not inbound.addressed:
         return
+    # Đặt ngôn ngữ sơ bộ theo client chat (vd Telegram language_code) — đủ cho các tin
+    # trước khi biết user (busy/chưa-link/start). Sau khi tra được user sẽ tinh chỉnh lại.
+    set_lang(inbound.language_code)
     reply_to = inbound.chat_id or inbound.platform_user_id
     lock = _user_locks[f"{bot_id}:{adapter.name}:{inbound.platform_user_id}"]
     if lock.locked():
         log.info("user %s đang bận — bỏ qua tin mới", inbound.platform_user_id)
-        await adapter.send(reply_to,
-                           "⏳ Em đang xử lý việc trước, xong em báo ngay. "
-                           "Gửi lại nội dung này sau khi em xong nhé.")
+        await adapter.send(reply_to, t("disp.busy"))
         return
     async with lock:
         await _dispatch_inbound(db, adapter, github, inbound, bot_id)
@@ -102,19 +117,20 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
     # /start [<token>] — liên kết tài khoản. KHÔNG nhận token trong group (lộ token) → bảo DM.
     if text.startswith("/start"):
         if inbound.is_group:
-            await adapter.send(reply_to,
-                               "🔒 Hãy nhắn riêng (DM) cho bot để liên kết: /start <token>.")
+            await adapter.send(reply_to, t("disp.start_dm_only"))
             return
-        await _handle_start(db, adapter, inbound.platform_user_id, text, bot_id)
+        await _handle_start(db, adapter, inbound.platform_user_id, text, bot_id,
+                            language_code=inbound.language_code)
         return
 
     user = get_user_by_platform(db, adapter.name, inbound.platform_user_id, bot_id)
     if user is None:
         log.warning("chưa liên kết: platform=%r pid=%r text=%r",
                     adapter.name, inbound.platform_user_id, text[:40])
-        await adapter.send(reply_to,
-                           "Anh/chị chưa liên kết tài khoản. Nhắn riêng bot: /start <token> (admin cấp).")
+        await adapter.send(reply_to, t("disp.not_linked"))
         return
+    # Đã biết user → đặt ngôn ngữ theo hồ sơ user (suy & lưu từ client chat nếu có/đổi).
+    _sync_user_language(db, user, inbound)
 
     # Lệnh quản trị (/help, /whoami, /users, /invite, /role, /unlink) — tin text, không callback.
     # CHỈ trong DM: nhiều lệnh (/users, /invite) in token → tránh lộ trong group.
@@ -133,7 +149,7 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
 
     if inbound.callback_data is None and is_command(text):
         if inbound.is_group:
-            await adapter.send(reply_to, "🔒 Lệnh quản trị chỉ dùng khi nhắn riêng (DM) cho bot.")
+            await adapter.send(reply_to, t("disp.admin_dm_only"))
             return
         await handle_command(db, adapter, user, text)
         return
@@ -167,32 +183,27 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         is_owner = user.id == active.requester_user_id
         if inbound.is_group and not is_owner and not is_mgr:
             # Thành viên khác trong thread đã có request → giữ quy tắc 1 thread 1 request.
-            await adapter.send(reply_to,
-                f"🧵 Thread này đang xử lý yêu cầu #{active.id}. Mở thread mới (hoặc DM bot) "
-                "để gửi yêu cầu khác nhé.")
+            await adapter.send(reply_to, t("disp.thread_busy", id=active.id))
             return
         if active.status in _TEXT_ACTIVE:          # CLARIFYING → làm rõ; VERIFY → feedback (chủ/manager)
             await orch.handle_message(active, user, text, attachments=inbound.attachments)
         elif active.status == RequestStatus.PLAN_REVIEW:
-            await adapter.send(reply_to,
-                f"📋 Yêu cầu #{active.id} đang chờ duyệt kế hoạch. Trả lời: ok · sửa · huỷ.")
+            await adapter.send(reply_to, t("disp.plan_pending", id=active.id))
         else:                                       # NEW/ANALYZING/EXECUTING
             await adapter.send(reply_to,
-                f"⏳ Em đang xử lý yêu cầu #{active.id} ({active.status.value}). "
-                "Chờ em xong rồi gửi yêu cầu mới (thread mới) nhé.")
+                t("disp.req_processing", id=active.id, status=active.status.value))
         return
 
     # Không còn request mở → tạo request mới (vào dự án đang chọn).
     chosen, repos = _resolve_active_repo(db, user)
     if not repos:
-        await adapter.send(reply_to, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
+        await adapter.send(reply_to, t("disp.no_repo"))
         return
     if chosen is None:                          # nhiều repo + chưa chọn → bảo chọn
         lines = "\n".join(f"{i}. {r.repo_full_name}" for i, r in enumerate(repos, 1))
-        await adapter.send(reply_to,
-                           f"Tenant có nhiều dự án. Chọn trước bằng /repo <số|tên>:\n{lines}")
+        await adapter.send(reply_to, t("disp.pick_repo", lines=lines))
         return
-    title = text.splitlines()[0][:200] if text else "(ảnh đính kèm)"
+    title = text.splitlines()[0][:200] if text else t("disp.title_image_only")
     await orch.create_request(chosen, user, title=title, body=text, attachments=inbound.attachments,
                               chat_id=inbound.chat_id, platform=adapter.name,
                               is_group=inbound.is_group)
@@ -267,7 +278,7 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
         hit = next((c for c in cands if c[0].id == target_id), None)
         if hit is None:
             await orch.adapter.send(
-                reply_to, f"⚠️ Yêu cầu #{target_id} không đang chờ '{word}' của anh/chị.")
+                reply_to, t("disp.req_not_awaiting", id=target_id, word=word))
             return True
         await orch.handle_callback(hit[0], user, cb(hit[1], hit[0].id), reply_to=reply_to)
         return True
@@ -280,9 +291,8 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
         return True
 
     # Nhập nhằng (>1 việc khớp) → hỏi lại; nút mang đúng cb(action, req.id) đi đường callback.
-    buttons = [[Button(f"{_ACTION_VERB[act]} #{r.id}", cb(act, r.id))] for r, act in cands]
-    await orch.adapter.send(
-        reply_to, "🤔 Anh/chị có nhiều việc đang chờ — chọn việc cần áp dụng:", buttons)
+    buttons = [[Button(t(_ACTION_VERB[act], id=r.id), cb(act, r.id))] for r, act in cands]
+    await orch.adapter.send(reply_to, t("disp.ambiguous"), buttons)
     return True
 
 
@@ -303,43 +313,42 @@ async def _handle_ask(db: Session, orch: Orchestrator, user: User, question: str
                       reply_to: str) -> None:
     """/ask <câu hỏi> — hỏi-đáp CHỈ-ĐỌC về dự án đang chọn, KHÔNG tạo request/PR (không qua FSM)."""
     if not question:
-        await orch.adapter.send(
-            reply_to, "Cú pháp: /ask <câu hỏi về dự án>.\nVd: /ask dự án này dùng DB gì?")
+        await orch.adapter.send(reply_to, t("disp.ask_usage"))
         return
     chosen, repos = _resolve_active_repo(db, user)
     if not repos:
-        await orch.adapter.send(reply_to, "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.")
+        await orch.adapter.send(reply_to, t("disp.no_repo"))
         return
     if chosen is None:
         lines = "\n".join(f"{i}. {r.repo_full_name}" for i, r in enumerate(repos, 1))
-        await orch.adapter.send(
-            reply_to, f"Có nhiều dự án — chọn trước bằng /repo <số|tên> rồi /ask lại:\n{lines}")
+        await orch.adapter.send(reply_to, t("disp.ask_pick_repo", lines=lines))
         return
-    await orch.adapter.send(reply_to, "🔎 Em xem rồi trả lời ngay…")
+    await orch.adapter.send(reply_to, t("disp.ask_thinking"))
     await orch.ask(chosen, user, question, reply_to=reply_to)
 
 
 async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: str, text: str,
-                        bot_id: int | None = None) -> None:
+                        bot_id: int | None = None, *, language_code: str | None = None) -> None:
     parts = text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        await adapter.send(platform_user_id,
-                           "Chào mừng đến luna 🌙\nĐể liên kết: /start <token> (admin cấp cho anh/chị).")
+        await adapter.send(platform_user_id, t("disp.start_welcome"))
         return
     user = link_user(db, parts[1].strip(), platform_user_id, platform=adapter.name, bot_id=bot_id)
     if user is None:
-        await adapter.send(platform_user_id, "❌ Token không hợp lệ hoặc đã dùng.")
+        await adapter.send(platform_user_id, t("disp.start_bad_token"))
         return
+    if language_code:                       # ghi nhận ngôn ngữ client ngay khi liên kết
+        user.language = normalize(language_code)
+        set_lang(user.language)
     try:
         db.commit()
     except IntegrityError:
         # (platform, platform_user_id) đã tồn tại → tài khoản này đã liên kết bằng token khác.
         db.rollback()
-        await adapter.send(platform_user_id, "Tài khoản này đã được liên kết rồi. Bạn có thể gửi yêu cầu luôn.")
+        await adapter.send(platform_user_id, t("disp.start_already_linked"))
         return
     await adapter.send(platform_user_id,
-                       f"✅ Đã liên kết! Vai trò: {user.role.value}. "
-                       f"Gửi yêu cầu bảo trì để bắt đầu.\n\n{HELP_TEXT}")
+                       t("disp.start_linked", role=user.role.value, help=help_text()))
 
 
 # Alias tương thích ngược: tên cũ thời chỉ-Telegram (tests/poller/main vẫn dùng được).

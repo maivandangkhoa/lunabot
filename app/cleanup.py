@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 
 from app.models import Request
+from app.web.i18n import t
 
 log = logging.getLogger("luna.cleanup")
 
@@ -28,7 +29,7 @@ async def cleanup_branch(orch, req: Request, *, revert_dev: bool) -> list[str]:
                 await orch.git.revert_merge(repo_dir, repo.base_branch, req.dev_merge_sha)
         except Exception as exc:  # noqa: BLE001
             log.warning("revert dev req %s lỗi: %s", req.id, exc)
-            warns.append(f"hoàn tác `{repo.base_branch}` thất bại — cần kiểm tra thủ công")
+            warns.append(t("ops.revert_failed", base=repo.base_branch))
     ops = []
     if req.pr_number:
         ops.append(("đóng PR", orch.github.close_pull_request(iid, repo.repo_full_name, req.pr_number)))

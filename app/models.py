@@ -188,6 +188,9 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role"), default=UserRole.EMPLOYEE
     )
+    # Ngôn ngữ trả lời ưu tiên (ISO 639-1: vi/en/ko). NULL = chưa biết → fallback DEFAULT (vi).
+    # Tự suy từ language_code của client chat (vd Telegram) lần đầu/khi đổi; xem app.web.i18n.
+    language: Mapped[str | None] = mapped_column(String(8))
     display_name: Mapped[str | None] = mapped_column(String(255))
     link_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

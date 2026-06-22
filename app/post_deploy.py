@@ -30,6 +30,7 @@ from app.config import Settings, get_settings
 from app.github_app import GitHubApp
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.parsing import parse_signal
+from app.web.i18n import set_lang, t
 
 if TYPE_CHECKING:
     from app.orchestrator import Orchestrator
@@ -155,12 +156,10 @@ async def _http_ok(url: str) -> tuple[bool, str]:
 # ---------------- notify / chuyển trạng thái (tách khỏi orchestrator để file < 500 LOC) ----------------
 async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) -> None:
     """Báo (các) manager: tóm tắt + PR + nút duyệt. Group → đăng công khai; DM → từng manager."""
-    text = (
-        f"🔔 Yêu cầu #{req.id} '{req.title}' đã sẵn sàng merge `{repo.prod_branch}`.\nPR: {req.pr_url}"
-        "\n\n(Bấm nút, hoặc trả lời: ok để duyệt · từ chối)"
-    )
-    buttons = [[Button("✅ Cho merge", f"mgr_approve:{req.id}"),
-                Button("❌ Từ chối", f"mgr_reject:{req.id}")]]
+    text = t("ops.notify_managers", id=req.id, title=req.title,
+             prod=repo.prod_branch, pr=req.pr_url)
+    buttons = [[Button(t("ops.btn.approve_merge"), f"mgr_approve:{req.id}"),
+                Button(t("ops.btn.reject"), f"mgr_reject:{req.id}")]]
     if req.origin_is_group and req.origin_chat_id:
         await orch.adapter.send(req.origin_chat_id, text, buttons)
         return
@@ -177,7 +176,7 @@ async def enter_await_manager(orch: "Orchestrator", req: Request, *, user_msg: s
     repo = orch._repo(req)
     orch._set_status(req, RequestStatus.AWAIT_MANAGER)
     orch.db.commit()
-    msg = user_msg or f"✅ Đã merge vào `{repo.base_branch}`. Đang chờ manager duyệt."
+    msg = user_msg or t("ops.await_manager.default", base=repo.base_branch)
     await orch._say(req, orch._requester(req), msg)
     await notify_managers(orch, req, repo)
 
@@ -198,6 +197,10 @@ async def verify_after_dev_merge(
         req = db.get(Request, req_id)
         if req is None or req.status != RequestStatus.MERGED_DEV:
             return  # đã bị huỷ/đổi state ở nơi khác → bỏ qua
+        # Task nền có context riêng (đặc biệt khi rekick lúc restart) → đặt ngôn ngữ theo requester
+        # để báo deploy đúng ngôn ngữ người dùng, không mặc định về vi.
+        requester = db.get(User, req.requester_user_id)
+        set_lang(requester.language if requester else None)
         repo = db.get(Repository, req.repo_id)
         if github is None:
             github = GitHubApp.from_settings()
@@ -251,10 +254,7 @@ async def _run_verify_loop(orch: "Orchestrator", req: Request, repo: Repository,
                 reason = "" if ok else f"trang dev {dev_url} không trả 2xx ({detail})"
 
         if passed:
-            await enter_await_manager(
-                orch, req,
-                user_msg="✅ Em đã deploy lên môi trường dev và test thấy hoạt động ổn rồi. "
-                         "Đang chờ manager duyệt.")
+            await enter_await_manager(orch, req, user_msg=t("ops.deploy_ok"))
             return
 
         rounds += 1
@@ -262,7 +262,7 @@ async def _run_verify_loop(orch: "Orchestrator", req: Request, repo: Repository,
             await _give_up(orch, req, reason, outcome)
             return
         await orch._say(req, orch._requester(req),
-                        f"🔧 Deploy/kiểm thử dev chưa đạt ({reason}). Em tự sửa lại (lần {rounds})…")
+                        t("ops.deploy_retry", reason=reason, round=rounds))
         new_sha = await _auto_fix_round(orch, req, repo, reason, outcome, rounds)
         if new_sha is None:
             await _give_up(orch, req, reason, outcome, fix_failed=True)
@@ -278,14 +278,13 @@ async def _give_up(orch: "Orchestrator", req: Request, reason: str,
     req.pr_url = None
     orch._set_status(req, RequestStatus.VERIFY)
     orch.db.commit()
-    log_line = f"\nLog: {outcome.run_url}" if outcome.run_url else ""
-    extra = " Em đã thử tự sửa nhưng vẫn chưa được." if fix_failed else ""
+    log_line = t("ops.give_up.log_line", url=outcome.run_url) if outcome.run_url else ""
+    extra = t("ops.give_up.extra_fix_failed") if fix_failed else ""
     await orch._say(
         req, orch._requester(req),
-        f"⚠️ Deploy lên dev chưa đạt: {reason}.{extra}{log_line}\n"
-        "Em CHƯA báo manager. Anh/chị muốn em sửa tiếp (bấm 'Cần sửa' rồi mô tả) hay huỷ?",
-        buttons=[[Button("🔧 Cần sửa", f"verify_fix:{req.id}"),
-                  Button("❌ Huỷ", f"cancel:{req.id}")]])
+        t("ops.give_up", reason=reason, extra=extra, log_line=log_line),
+        buttons=[[Button(t("ops.btn.needs_fix"), f"verify_fix:{req.id}"),
+                  Button(t("ops.btn.cancel"), f"cancel:{req.id}")]])
 
 
 async def _auto_fix_round(orch: "Orchestrator", req: Request, repo: Repository,
