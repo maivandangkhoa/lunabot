@@ -131,6 +131,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "chan.gc.tag1": {"vi": "Spaces", "en": "Spaces", "ko": "Spaces"},
     "chan.gc.tag2": {"vi": "Thread", "en": "Threads", "ko": "스레드"},
     "chan.gc.tag3": {"vi": "Workspace", "en": "Workspace", "ko": "Workspace"},
+    "chan.soon.label": {"vi": "Sắp ra mắt", "en": "Coming soon", "ko": "출시 예정"},
 
     # ── Dashboard preview section ──
     "dprev.eyebrow": {"vi": "Dashboard", "en": "Dashboard", "ko": "대시보드"},

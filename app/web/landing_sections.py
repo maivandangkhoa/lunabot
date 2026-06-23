@@ -109,6 +109,14 @@ LANDING_CSS = """<style>
 .chan .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
 .chan .tags span{font-size:12px;font-weight:500;padding:4px 10px;border-radius:999px;
   background:var(--elevated);border:1px solid var(--border);color:var(--text-2)}
+.chan-soon{max-width:760px;margin:22px auto 0;text-align:center}
+.chan-soon .cs-label{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)}
+.chan-soon .cs-label svg{color:var(--primary)}
+.cs-list{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:14px}
+.cs{display:inline-flex;align-items:center;gap:9px;padding:8px 15px 8px 8px;border-radius:999px;
+  border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;color:var(--text-2)}
+.cs i{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:12px;font-weight:700;font-style:normal;color:#fff}
 
 /* Browser mockup (dashboard preview) */
 .browser{border-radius:16px;border:1px solid var(--border);overflow:hidden;
@@ -366,6 +374,15 @@ def _channels() -> str:
             <h3>Google Chat</h3></div>
           <p>{t('chan.gc.desc')}</p>
           <div class='tags'><span>{t('chan.gc.tag1')}</span><span>{t('chan.gc.tag2')}</span><span>{t('chan.gc.tag3')}</span></div>
+        </div>
+      </div>
+      <div class='chan-soon'>
+        <span class='cs-label'>{icon('zap', 14)} {t('chan.soon.label')}</span>
+        <div class='cs-list'>
+          <span class='cs'><i style='background:#4A154B'>S</i>Slack</span>
+          <span class='cs'><i style='background:#6264A7'>T</i>Microsoft Teams</span>
+          <span class='cs'><i style='background:#FEE500;color:#3A1D1D'>K</i>KakaoTalk</span>
+          <span class='cs'><i style='background:#03C75A'>W</i>Naver Works</span>
         </div>
       </div>
     </div></section>"""
