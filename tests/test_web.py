@@ -35,22 +35,50 @@ def test_wizard_html_escapes_user_input():
     assert "&lt;script&gt;" in html
 
 
-def test_landing_no_redirect_loop_for_tokenless_session(monkeypatch):
-    """Session 'dở dang' (mới có state, chưa login) KHÔNG được redirect → tránh / ⇄ /wizard loop."""
+def _web_settings():
     from app.config import Settings
+    return Settings(_env_file=None, public_base_url="https://x", github_oauth_client_id="c",
+                    github_oauth_client_secret="d", github_app_slug="luna",
+                    web_session_secret="sek")
+
+
+def test_landing_no_redirect_loop_for_tokenless_session(monkeypatch, db):
+    """Session 'dở dang' (state, chưa login) ở lại landing; login mà CHƯA có tenant → wizard."""
+    from app.db import get_db
     from app.web import routes
-    s = Settings(_env_file=None, public_base_url="https://x", github_oauth_client_id="c",
-                 github_oauth_client_secret="d", github_app_slug="luna", web_session_secret="sek")
-    monkeypatch.setattr(routes, "get_settings", lambda: s)
-    client = TestClient(app)
-    client.cookies.set(sess.COOKIE_NAME, sess.dumps({"state": "x"}, "sek"))   # chưa có tok
-    r = client.get("/", follow_redirects=False)
-    assert r.status_code == 200 and "Tiếp tục với GitHub" in r.text
-    # đã login (có tok) → mới chuyển sang wizard
-    client.cookies.set(sess.COOKIE_NAME,
-                       sess.dumps({"tok": "t", "login": "a", "uid": 1, "name": "A"}, "sek"))
-    r2 = client.get("/", follow_redirects=False)
-    assert r2.status_code == 303 and r2.headers["location"] == "/wizard"
+    monkeypatch.setattr(routes, "get_settings", lambda: _web_settings())
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME, sess.dumps({"state": "x"}, "sek"))   # chưa có tok
+        r = client.get("/", follow_redirects=False)
+        assert r.status_code == 200 and "Tiếp tục với GitHub" in r.text
+        # đã login (có tok) nhưng chưa tạo tenant nào → wizard
+        client.cookies.set(sess.COOKIE_NAME,
+                           sess.dumps({"tok": "t", "login": "a", "uid": 1, "name": "A"}, "sek"))
+        r2 = client.get("/", follow_redirects=False)
+        assert r2.status_code == 303 and r2.headers["location"] == "/wizard"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_landing_redirects_existing_tenant_to_dashboard(monkeypatch, db):
+    """Đã login VÀ đã có tenant → vào thẳng /dashboard, không quay lại wizard."""
+    from app.db import get_db
+    from app.models import Tenant
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _web_settings())
+    db.add(Tenant(name="Acme", owner_github_id=7, owner_github_login="owner"))
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME,
+                           sess.dumps({"tok": "t", "login": "owner", "uid": 7, "name": "O"}, "sek"))
+        r = client.get("/", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/dashboard"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 def test_logout_clears_cookie():

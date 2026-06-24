@@ -72,16 +72,16 @@ async def set_language(code: str, next: str = "/"):
 
 
 @router.get("/", response_class=HTMLResponse)
-async def landing(request: Request):
+async def landing(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
     _lang(request)
     if not _enabled(s):
         return HTMLResponse(tpl.landing("", enabled=False))
     data = _read_session(request, s)
-    # CHỈ chuyển sang wizard khi đã đăng nhập THẬT (có token). Session "dở dang" (mới có state
+    # CHỈ chuyển hướng khi đã đăng nhập THẬT (có token). Session "dở dang" (mới có state
     # từ /login, chưa qua callback) phải ở lại landing — nếu không sẽ lặp / ⇄ /wizard.
     if data and data.get("tok"):
-        return RedirectResponse("/wizard", status_code=303)
+        return RedirectResponse(_home(db, data), status_code=303)
     return HTMLResponse(tpl.landing("/login", enabled=True))
 
 
@@ -102,7 +102,8 @@ async def login():
 
 
 @router.get("/oauth/github/callback")
-async def oauth_callback(request: Request, code: str = "", state: str = ""):
+async def oauth_callback(request: Request, code: str = "", state: str = "",
+                         db: Session = Depends(get_db)):
     s = get_settings()
     data = _read_session(request, s)
     if not data or not state or state != data.get("state") or not code:
@@ -116,9 +117,10 @@ async def oauth_callback(request: Request, code: str = "", state: str = ""):
         return RedirectResponse("/", status_code=303)
     finally:
         await oauth.aclose()
-    resp = RedirectResponse("/wizard", status_code=303)
-    _attach_session(resp, {"login": user["login"], "uid": user["id"],
-                           "name": user["name"], "tok": token}, s)
+    new_data = {"login": user["login"], "uid": user["id"],
+                "name": user["name"], "tok": token}
+    resp = RedirectResponse(_home(db, new_data), status_code=303)
+    _attach_session(resp, new_data, s)
     return resp
 
 
@@ -230,6 +232,11 @@ def _tenants(db: Session, data: dict) -> list[Tenant]:
     return list(db.scalars(
         select(Tenant).where(Tenant.owner_github_id == int(data["uid"]))
     ).all())
+
+
+def _home(db: Session, data: dict) -> str:
+    """Đích mặc định sau đăng nhập: đã có tenant → dashboard; chưa có → wizard tạo bot."""
+    return "/dashboard" if _tenants(db, data) else "/wizard"
 
 
 def _fmt(dt) -> str:
