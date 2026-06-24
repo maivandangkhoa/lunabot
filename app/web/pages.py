@@ -333,7 +333,7 @@ def _admin_tenant_row(tn: dict) -> str:
               {icon('users', 13)}{esc(owner)}</div>
           </div>
         </div>
-        <div class='card-row' style='gap:14px;flex:none;flex-wrap:wrap'>
+        <div class='card-row' style='gap:8px 14px;flex-wrap:wrap;min-width:0'>
           <span class='hint' style='margin:0'>{t('admin.col.counts')}: <b>{esc(counts)}</b></span>
           {("".join(_platform_chip(p) for p in tn.get('platforms'))
             if tn.get('platforms') else "<span class='badge badge-muted'>—</span>")}

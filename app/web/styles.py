@@ -158,9 +158,10 @@ select.input{appearance:none;cursor:pointer;
 .main{display:flex;flex-direction:column;min-width:0}
 .topbar{display:flex;align-items:center;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border);
   position:sticky;top:0;background:rgba(11,15,25,.72);backdrop-filter:blur(12px);z-index:5}
-.workspace{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px}
-.workspace .ws-ico{width:26px;height:26px;border-radius:8px;background:var(--elevated);
+.workspace{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;min-width:0}
+.workspace .ws-ico{width:26px;height:26px;border-radius:8px;background:var(--elevated);flex:none;
   border:1px solid var(--border);display:grid;place-items:center;color:var(--text-2)}
+.workspace .ws-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search{flex:1;max-width:420px;display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;
   background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text-3);font-size:14px}
 .icon-btn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--text-2);
@@ -247,6 +248,8 @@ select.input{appearance:none;cursor:pointer;
   .step-name{display:none}
   .card{padding:20px} .content{padding:22px 16px}
   .search{display:none}
+  .topbar{padding:12px 16px;gap:10px}
+  .page-head{flex-wrap:wrap}
 }
 """
 
@@ -384,7 +387,8 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
         "<header class='topbar'>"
         f"<button class='icon-btn menu-btn' onclick=\"document.getElementById('sidebar').classList.toggle('open')\" "
         f"aria-label='{esc(t('shell.menu'))}'>{icon('menu', 18)}</button>"
-        f"<div class='workspace'><span class='ws-ico'>{icon('moon', 15)}</span>{ws}</div>"
+        f"<div class='workspace'><span class='ws-ico'>{icon('moon', 15)}</span>"
+        f"<span class='ws-name'>{ws}</span></div>"
         f"<div class='search'>{icon('search', 15)}<span>{t('shell.search')}</span></div>"
         f"{lang_switcher()}"
         f"<button class='icon-btn' aria-label='{esc(t('shell.notifications'))}'>{icon('bell', 18)}</button>"
