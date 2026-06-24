@@ -100,6 +100,40 @@ async def test_provision_google_chat_rejects_own_bot(db):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ["zalo", "messenger"])
+async def test_provision_shared_only_channels(db, platform):
+    """Zalo/Messenger = bot chung toàn cục (env): ép shared, không token/username, link /start."""
+    s = _settings()
+    res = await provision(
+        db, s, owner_github_id=8, owner_github_login="kim", owner_name="Kim",
+        repo_full_name=f"kim/{platform}", installation_id=222,
+        bot_choice="shared", hosting_choice="shared_instance", platform=platform,
+    )
+    bot = db.get(Bot, res.bot_id)
+    assert bot.platform == platform and bot.mode == "shared" and bot.token_encrypted is None
+    assert res.platform == platform and res.bot_username is None
+    assert res.deeplink == f"/start {res.link_token}"
+    user = db.get(User, res.user_id)
+    assert user.platform == platform and user.bot_id is None and user.role == UserRole.ADMIN
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ["zalo", "messenger"])
+async def test_provision_shared_only_rejects_own(db, platform):
+    """Zalo/Messenger chưa có bot riêng → chọn 'own' phải bị chặn."""
+    s = _settings()
+    from app.models import Tenant
+    n_before = len(db.query(Tenant).all())
+    with pytest.raises(ProvisioningError):
+        await provision(
+            db, s, owner_github_id=8, owner_github_login="kim", owner_name="Kim",
+            repo_full_name=f"kim/{platform}", installation_id=222,
+            bot_choice="own", hosting_choice="shared_instance", platform=platform,
+        )
+    assert len(db.query(Tenant).all()) == n_before
+
+
+@pytest.mark.asyncio
 async def test_provision_own_bot_encrypts_and_sets_webhook(db):
     s = _settings()
     captured = {}

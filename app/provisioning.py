@@ -70,12 +70,13 @@ async def provision(
     factory = adapter_factory or _default_factory
     name = display_name or repo_full_name.split("/")[-1]
 
-    # Google Chat = Workspace add-on DÙNG CHUNG toàn cục (1 app duy nhất, không token/webhook
-    # riêng từng tenant như Telegram) ⇒ chỉ hỗ trợ bot chung. Ép shared, chặn "own".
-    if platform == "google_chat":
+    # Google Chat / Zalo / Messenger = kênh DÙNG CHUNG toàn cục (1 add-on / 1 OA / 1 Page cho
+    # mọi tenant, cấu hình bằng env — không token/webhook riêng từng tenant như Telegram) ⇒
+    # chỉ hỗ trợ bot chung. Ép shared, chặn "own".
+    if platform in ("google_chat", "zalo", "messenger"):
         if bot_choice == "own":
             raise ProvisioningError(
-                "Google Chat chỉ hỗ trợ bot Luna chung — chưa có bot riêng cho kênh này.")
+                f"{platform} chỉ hỗ trợ bot Luna chung — chưa có bot riêng cho kênh này.")
         bot_choice = "shared"
 
     # 0) Bot riêng: validate token + CHẶN TRÙNG trước khi tạo gì (1 token Telegram chỉ 1

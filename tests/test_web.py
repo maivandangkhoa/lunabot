@@ -162,6 +162,17 @@ def test_repo_add_blocks_duplicate(monkeypatch, db):
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_wizard_shows_channels_only_when_enabled():
+    """Kênh Zalo/Messenger/Google Chat chỉ hiện trong wizard khi cờ enabled bật."""
+    plain = tpl.wizard("U", [], "i", "c", dedicated_enabled=False)
+    assert "value='zalo'" not in plain and "value='messenger'" not in plain
+    assert "value='google_chat'" not in plain
+    full = tpl.wizard("U", [], "i", "c", dedicated_enabled=False,
+                      gchat_enabled=True, zalo_enabled=True, messenger_enabled=True)
+    assert "value='zalo'" in full and "value='messenger'" in full
+    assert "value='google_chat'" in full and "value='telegram'" in full
+
+
 def test_wizard_banner_only_when_user_has_workspace():
     """Wizard hiện banner 'đã có workspace → thêm repo' chỉ khi has_workspace=True."""
     plain = tpl.wizard("U", [], "https://i", "c", dedicated_enabled=False)

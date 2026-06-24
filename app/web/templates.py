@@ -90,9 +90,19 @@ def _stepper(steps: list[str]) -> str:
     return f"<div class='stepper'>{''.join(nodes)}</div>"
 
 
+def _pf_choice(value: str, rid: str, ic: str, key: str, checked: bool = False) -> str:
+    """1 radio chọn kênh chat trong wizard."""
+    return (f"<label class='choice'><input type='radio' name='platform' value='{value}' "
+            f"id='{rid}'{' checked' if checked else ''}>"
+            f"<span class='ch-tick'>{icon('check', 13)}</span>"
+            f"<span class='ch-title'>{icon(ic, 16)} {t('wizard.s1.platform.' + key)}</span>"
+            f"<span class='ch-desc'>{t('wizard.s1.platform.' + key + '_desc')}</span></label>")
+
+
 def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
            dedicated_enabled: bool, gchat_enabled: bool = False,
-           error: str | None = None, has_workspace: bool = False) -> str:
+           error: str | None = None, has_workspace: bool = False,
+           zalo_enabled: bool = False, messenger_enabled: bool = False) -> str:
     err = ""
     if error:
         err = (f"<div class='alert alert-danger' style='margin-bottom:18px'>"
@@ -102,20 +112,19 @@ def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
                 f"{icon('info', 18)}<div>{t('wizard.have_ws')} "
                 f"<a href='/repo/add'>{t('repos.add')}</a></div></div>")
 
-    # Chọn kênh chat. Chỉ hiện khi Google Chat được bật; nếu không → ẩn cố định Telegram.
+    # Chọn kênh chat. Telegram luôn có; các kênh "bot chung" (GC/Zalo/Messenger) chỉ hiện khi bật.
+    extra = []
     if gchat_enabled:
-        platform_block = f"""
-            <div class='field'><label>{t('wizard.s1.platform')}</label>
-              <div class='choices'>
-                <label class='choice'><input type='radio' name='platform' value='telegram' id='pf-telegram' checked>
-                  <span class='ch-tick'>{icon('check', 13)}</span>
-                  <span class='ch-title'>{icon('send', 16)} {t('wizard.s1.platform.telegram')}</span>
-                  <span class='ch-desc'>{t('wizard.s1.platform.telegram_desc')}</span></label>
-                <label class='choice'><input type='radio' name='platform' value='google_chat' id='pf-gchat'>
-                  <span class='ch-tick'>{icon('check', 13)}</span>
-                  <span class='ch-title'>{icon('chat', 16)} {t('wizard.s1.platform.gchat')}</span>
-                  <span class='ch-desc'>{t('wizard.s1.platform.gchat_desc')}</span></label>
-              </div></div>"""
+        extra.append(_pf_choice("google_chat", "pf-gchat", "chat", "gchat"))
+    if zalo_enabled:
+        extra.append(_pf_choice("zalo", "pf-zalo", "chat", "zalo"))
+    if messenger_enabled:
+        extra.append(_pf_choice("messenger", "pf-messenger", "chat", "messenger"))
+    if extra:
+        platform_block = (
+            f"<div class='field'><label>{t('wizard.s1.platform')}</label><div class='choices'>"
+            + _pf_choice("telegram", "pf-telegram", "send", "telegram", checked=True)
+            + "".join(extra) + "</div></div>")
     else:
         platform_block = "<input type='hidden' name='platform' value='telegram'>"
 
@@ -178,8 +187,8 @@ def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
                 <span class='ch-title'>{icon('bot', 16)} {t('wizard.s1.own.title')}</span>
                 <span class='ch-desc'>{t('wizard.s1.own.desc')}</span></label>
             </div>
-            <div class='hint' id='gchat-note' style='display:none;margin-top:12px'>
-              {icon('info', 14)} {t('wizard.s1.gchat_note')}</div>
+            <div class='hint' id='shared-note' style='display:none;margin-top:12px'>
+              {icon('info', 14)} {t('wizard.s1.sharedonly_note')}</div>
           </section>
 
           <section class='wstep' data-step='2'>
@@ -232,7 +241,6 @@ def _wizard_js() -> str:
     own = json.dumps(t("wizard.js.own"))
     shared = json.dumps(t("wizard.js.shared"))
     pf_tg = json.dumps(t("wizard.s1.platform.telegram"))
-    pf_gc = json.dumps(t("wizard.s1.platform.gchat"))
     return """
 <script>
 (function(){
@@ -242,17 +250,21 @@ def _wizard_js() -> str:
       submit=document.getElementById('w-submit'),cur=0;
   var ownRadio=document.getElementById('bc-own'),sharedRadio=document.getElementById('bc-shared'),
       tokenField=document.getElementById('token-field');
-  var gcRadio=document.getElementById('pf-gchat'),ownLabel=document.getElementById('bc-own-label'),
-      gcNote=document.getElementById('gchat-note');
-  function isGC(){return gcRadio&&gcRadio.checked;}
+  var ownLabel=document.getElementById('bc-own-label'),
+      sharedNote=document.getElementById('shared-note');
+  function curPlatform(){var r=document.querySelector('input[name=platform]:checked');return r?r.value:'telegram';}
+  // GC/Zalo/Messenger = bot chung toàn cục → chỉ shared, không có bot riêng. Chỉ Telegram mới own.
+  function sharedOnly(){return curPlatform()!=='telegram';}
+  function platformLabel(){var r=document.querySelector('input[name=platform]:checked');
+    if(!r)return __PF_TG__;var l=r.closest('.choice');var ti=l&&l.querySelector('.ch-title');
+    return ti?ti.textContent.trim():r.value;}
   function syncPlatform(){
-    // Google Chat = chỉ bot chung: ép shared, ẩn lựa chọn "bot riêng" + token.
-    if(isGC()){if(ownLabel)ownLabel.style.display='none';if(gcNote)gcNote.style.display='flex';
+    if(sharedOnly()){if(ownLabel)ownLabel.style.display='none';if(sharedNote)sharedNote.style.display='flex';
       sharedRadio.checked=true;}
-    else{if(ownLabel)ownLabel.style.display='';if(gcNote)gcNote.style.display='none';}
+    else{if(ownLabel)ownLabel.style.display='';if(sharedNote)sharedNote.style.display='none';}
     syncToken();
   }
-  function syncToken(){tokenField.style.display=(!isGC()&&ownRadio.checked)?'block':'none';}
+  function syncToken(){tokenField.style.display=(!sharedOnly()&&ownRadio.checked)?'block':'none';}
   [].forEach.call(document.querySelectorAll('input[name=bot_choice]'),function(r){r.addEventListener('change',syncToken);});
   [].forEach.call(document.querySelectorAll('input[name=platform]'),function(r){r.addEventListener('change',syncPlatform);});
   syncPlatform();
@@ -263,8 +275,7 @@ def _wizard_js() -> str:
   function review(){
     var sel=document.getElementById('f-repo');
     document.getElementById('r-repo').textContent=sel.value?sel.options[sel.selectedIndex].text:'—';
-    var pf=isGC()?__PF_GC__:__PF_TG__;
-    document.getElementById('r-bot').textContent=pf+' · '+(ownRadio.checked&&!isGC()?__OWN__:__SHARED__);
+    document.getElementById('r-bot').textContent=platformLabel()+' · '+(ownRadio.checked&&!sharedOnly()?__OWN__:__SHARED__);
     document.getElementById('r-branch').textContent=
       (document.getElementById('f-base').value||'dev')+' → '+(document.getElementById('f-prod').value||'main');
   }
@@ -283,7 +294,7 @@ def _wizard_js() -> str:
   show(0);
 })();
 </script>""".replace("__OWN__", own).replace("__SHARED__", shared) \
-    .replace("__PF_TG__", pf_tg).replace("__PF_GC__", pf_gc)
+    .replace("__PF_TG__", pf_tg)
 
 
 # ── Add repository (vào tenant đã có — KHÔNG provision bot/link mới) ───────────

@@ -182,6 +182,8 @@ async def wizard(request: Request, db: Session = Depends(get_db)):
     return HTMLResponse(tpl.wizard(data.get("name") or data["login"], repos, install_url,
                                    csrf, s.dedicated_container_enabled,
                                    gchat_enabled=s.google_chat_enabled,
+                                   zalo_enabled=s.zalo_enabled,
+                                   messenger_enabled=s.messenger_enabled,
                                    has_workspace=bool(_tenants(db, data))))
 
 
@@ -230,7 +232,9 @@ def _wizard_err(s, data: dict, msg: str) -> str:
     install_url = oauth.install_url(data.get("state", ""))
     return tpl.wizard(data.get("name") or data["login"], [], install_url,
                       data.get("state", ""), s.dedicated_container_enabled,
-                      gchat_enabled=s.google_chat_enabled, error=msg)
+                      gchat_enabled=s.google_chat_enabled,
+                      zalo_enabled=s.zalo_enabled, messenger_enabled=s.messenger_enabled,
+                      error=msg)
 
 
 # ----- app-shell pages (sidebar) -----
