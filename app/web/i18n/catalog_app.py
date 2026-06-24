@@ -196,6 +196,8 @@ TEXTS: dict[str, dict[str, str]] = {
     "team.token": {"vi": "Mã liên kết", "en": "Link token", "ko": "연결 토큰"},
     "team.unlink": {"vi": "Gỡ liên kết", "en": "Unlink", "ko": "연결 해제"},
     "team.unlink_confirm": {"vi": "Gỡ liên kết người dùng này? Họ sẽ phải /start lại bằng mã mới.", "en": "Unlink this user? They will need to /start again with a new token.", "ko": "이 사용자를 연결 해제할까요? 새 토큰으로 다시 /start 해야 합니다."},
+    "team.cancel_invite": {"vi": "Huỷ lời mời", "en": "Cancel invite", "ko": "초대 취소"},
+    "team.cancel_confirm": {"vi": "Huỷ lời mời này? Mã liên kết sẽ không dùng được nữa.", "en": "Cancel this invite? The link token will stop working.", "ko": "이 초대를 취소할까요? 연결 토큰이 더 이상 작동하지 않습니다."},
     "team.no_users": {"vi": "Workspace này chưa có người dùng nào.", "en": "No users in this workspace yet.", "ko": "이 워크스페이스에 아직 사용자가 없습니다."},
     "team.invite_name": {"vi": "Tên thành viên", "en": "Member name", "ko": "멤버 이름"},
     "team.invite_name_ph": {"vi": "vd: Nguyễn Văn A", "en": "e.g. Jane Doe", "ko": "예: 홍길동"},

@@ -117,6 +117,39 @@ def test_unlink_regenerates_token(client, db, s):
     assert u.platform_user_id is None and u.link_token  # gỡ + cấp token mới
 
 
+def test_cancel_invite_deletes_pending_user(client, db, s):
+    tn = _seed(db)
+    u = create_user(db, tn, role=UserRole.EMPLOYEE, display_name="Lala")  # pending (chưa link)
+    db.commit()
+    uid_pk = u.id
+    _login(client)
+    client.post("/users/delete", data={"csrf": _csrf(s=s), "user_id": uid_pk})
+    assert db.get(User, uid_pk) is None
+
+
+def test_cancel_invite_refuses_linked_user(client, db, s):
+    """User đã link KHÔNG xoá qua huỷ-lời-mời (tránh lỗi FK request); phải unlink trước."""
+    tn = _seed(db)
+    u = create_user(db, tn, role=UserRole.EMPLOYEE, display_name="Dan")
+    u.platform_user_id = "555"
+    u.link_token = None
+    db.commit()
+    uid_pk = u.id
+    _login(client)
+    client.post("/users/delete", data={"csrf": _csrf(s=s), "user_id": uid_pk})
+    assert db.get(User, uid_pk) is not None  # vẫn còn
+
+
+def test_cancel_invite_blocks_other_owner(client, db, s):
+    theirs = _seed(db, uid=OTHER_UID, name="Theirs")
+    victim = create_user(db, theirs, role=UserRole.EMPLOYEE, display_name="Victim")  # pending
+    db.commit()
+    uid_pk = victim.id
+    _login(client, uid=OWNER_UID)
+    client.post("/users/delete", data={"csrf": _csrf(s=s), "user_id": uid_pk})
+    assert db.get(User, uid_pk) is not None  # owner khác không xoá được
+
+
 def test_tenant_rename(client, db, s):
     tn = _seed(db)
     db.commit()

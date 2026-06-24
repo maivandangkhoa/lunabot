@@ -206,7 +206,12 @@ def _team_user(u: dict, csrf: str) -> str:
         token = ""
     else:
         status = f"<span class='badge badge-warning'>{t('team.pending')}</span>"
-        action = ""
+        action = (
+            f"<form method='post' action='/users/delete' style='flex:none' "
+            f"onsubmit=\"return confirm('{esc(t('team.cancel_confirm'))}')\">"
+            f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+            f"<input type='hidden' name='user_id' value='{u['id']}'>"
+            f"<button class='btn btn-ghost' style='height:38px'>{t('team.cancel_invite')}</button></form>")
         token = (f"<div class='hint' style='margin-top:8px'>{t('team.token')}: "
                  f"<span class='code'>{esc(u.get('token') or '—')}</span></div>") if u.get("token") else ""
     role_form = (

@@ -134,6 +134,20 @@ async def users_unlink(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/users", status_code=303)
 
 
+@router.post("/users/delete")
+async def users_delete(request: Request, db: Session = Depends(get_db)):
+    """Huỷ lời mời = xoá user PENDING (chưa link). Chỉ user chưa liên kết mới xoá được —
+    user đã link có thể đã tạo request (FK requester_user_id NOT NULL) ⇒ xoá sẽ lỗi; muốn
+    gỡ hẳn thì unlink trước rồi huỷ."""
+    data, form = await _guard(request)
+    if data:
+        target = _owned_user(db, data, _int(form.get("user_id")))
+        if target and target.platform_user_id is None:
+            db.delete(target)
+            db.commit()
+    return RedirectResponse("/users", status_code=303)
+
+
 @router.post("/tenants/rename")
 async def tenants_rename(request: Request, db: Session = Depends(get_db)):
     data, form = await _guard(request)
