@@ -95,7 +95,6 @@ class Tenant(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     plan: Mapped[str] = mapped_column(String(64), default="free")
-    chat_platform: Mapped[str] = mapped_column(String(32), default="telegram")
     # Chủ tenant (người tạo qua web wizard, đăng nhập GitHub OAuth). NULL cho tenant seed cũ.
     owner_github_login: Mapped[str | None] = mapped_column(String(255))
     owner_github_id: Mapped[int | None] = mapped_column(BigInteger, index=True)

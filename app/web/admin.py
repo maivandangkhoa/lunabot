@@ -32,6 +32,16 @@ def _counts(db: Session, model) -> dict[int, int]:
     return {tid: n for tid, n in rows}
 
 
+def _platforms_by_tenant(db: Session) -> dict[int, list[str]]:
+    """{tenant_id: [kênh chat thực]} — suy từ Bot.platform (nguồn sự thật), distinct + đã sort.
+    1 query duy nhất. Thay cho field chết Tenant.chat_platform (luôn = 'telegram')."""
+    out: dict[int, set[str]] = {}
+    rows = db.execute(select(Bot.tenant_id, Bot.platform).distinct()).all()
+    for tid, pf in rows:
+        out.setdefault(tid, set()).add(pf)
+    return {tid: sorted(pfs) for tid, pfs in out.items()}
+
+
 def _admins_by_tenant(db: Session) -> dict[int, list[dict]]:
     """{tenant_id: [admin/manager]} — người quản trị THẬT (role), khác owner (web). ADMIN trước.
     1 query duy nhất rồi gom Python (tránh N+1 theo từng tenant)."""
@@ -61,6 +71,7 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
     users = _counts(db, User)
     reqs = _counts(db, MaintRequest)
     admins = _admins_by_tenant(db)
+    platforms = _platforms_by_tenant(db)
     n_active = db.scalar(
         select(func.count()).select_from(MaintRequest)
         .where(MaintRequest.status.in_(_ACTIVE))
@@ -71,7 +82,7 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
         tenants.append({
             "name": tn.name,
             "owner": ("@" + tn.owner_github_login) if tn.owner_github_login else "—",
-            "plan": tn.plan, "platform": tn.chat_platform,
+            "plan": tn.plan, "platforms": platforms.get(tn.id, []),
             "repos": repos.get(tn.id, 0), "bots": bots.get(tn.id, 0),
             "users": users.get(tn.id, 0), "requests": reqs.get(tn.id, 0),
             "created": _fmt(tn.created_at), "admins": admins.get(tn.id, []),

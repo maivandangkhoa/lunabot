@@ -296,6 +296,21 @@ def _admin_badge(a: dict) -> str:
             f"<span class='dot {dot}'></span>{pf}{esc(a.get('name') or '—')} · {esc(a.get('role') or '')}</span>")
 
 
+# Kênh chat → (nhãn hiển thị, icon). Nguồn: Bot.platform.
+_PLATFORM_META = {
+    "telegram": ("Telegram", "send"),
+    "google_chat": ("Google Chat", "chat"),
+    "zalo": ("Zalo", "globe"),
+    "messenger": ("Messenger", "chat"),
+}
+
+
+def _platform_chip(pf: str) -> str:
+    label, ico = _PLATFORM_META.get(pf, (pf, "globe"))
+    return (f"<span class='badge badge-muted' style='gap:5px'>"
+            f"{icon(ico, 12)}{esc(label)}</span>")
+
+
 def _admin_tenant_row(tn: dict) -> str:
     owner = tn.get("owner") or "—"
     counts = (f"{tn.get('repos', 0)} · {tn.get('bots', 0)} · "
@@ -320,7 +335,8 @@ def _admin_tenant_row(tn: dict) -> str:
         </div>
         <div class='card-row' style='gap:14px;flex:none;flex-wrap:wrap'>
           <span class='hint' style='margin:0'>{t('admin.col.counts')}: <b>{esc(counts)}</b></span>
-          <span class='badge badge-muted'>{esc(tn.get('platform') or '—')}</span>
+          {("".join(_platform_chip(p) for p in tn.get('platforms'))
+            if tn.get('platforms') else "<span class='badge badge-muted'>—</span>")}
           <span class='badge badge-info'>{t('admin.col.plan')}: {esc(tn.get('plan') or 'free')}</span>
           <span class='hint' style='margin:0'>{esc(tn.get('created') or '')}</span>
         </div>

@@ -444,7 +444,7 @@ async def settings(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     tenants = _tenants(db, data)
     account = {"login": data.get("login"), "name": data.get("name")}
-    ws = [{"name": t.name, "plan": t.plan, "platform": t.chat_platform} for t in tenants]
+    ws = [{"name": t.name, "plan": t.plan} for t in tenants]
     return HTMLResponse(pages.settings(data.get("name") or data["login"], account, ws))
 
 

@@ -66,7 +66,7 @@ def _invite_binding(db: Session, tn: Tenant) -> tuple[str, int | None]:
     Bot riêng (own) ⇒ bind bot_id; bot Luna chung ⇒ bot_id=None."""
     bot = db.scalar(select(Bot).where(Bot.tenant_id == tn.id).order_by(Bot.id))
     if bot is None:
-        return tn.chat_platform, None
+        return "telegram", None
     return bot.platform, (bot.id if bot.mode == "own" else None)
 
 
