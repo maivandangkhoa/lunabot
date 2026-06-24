@@ -70,7 +70,12 @@ def install_pre_push_hook(repo_dir: Path, protected: list[str]) -> None:
 async def ensure_clone(
     repo_dir: Path, clone_url: str, base_branch: str, protected: list[str],
 ) -> Path:
-    """Clone nếu chưa có (nhánh base), else fetch cập nhật. Luôn (cài lại) pre-push hook."""
+    """Clone nếu chưa có (nhánh base), else fetch + đưa working tree về base mới nhất.
+
+    Bản clone được tái dùng xuyên nhiều request, và base có thể bị nguồn khác push lên.
+    `fetch` chỉ cập nhật ref nên working tree còn cũ → phase đọc (analyze/ask) sẽ thấy code
+    lỗi thời. Vì thế reset cứng về `origin/base` để mọi phase luôn nhìn code mới nhất. An
+    toàn: caller EXECUTING gọi `prepare_branch` ngay sau (dựng lại nhánh làm việc từ base)."""
     repo_dir = Path(repo_dir)
     if not (repo_dir / ".git").exists():
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +83,8 @@ async def ensure_clone(
     else:
         await run_git(["remote", "set-url", "origin", clone_url], cwd=repo_dir)
         await run_git(["fetch", "origin", base_branch], cwd=repo_dir)
+        await run_git(["checkout", base_branch], cwd=repo_dir, check=False)
+        await run_git(["reset", "--hard", f"origin/{base_branch}"], cwd=repo_dir)
     install_pre_push_hook(repo_dir, protected)
     return repo_dir
 

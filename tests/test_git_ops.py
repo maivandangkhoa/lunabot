@@ -61,6 +61,27 @@ async def test_clone_branch_commit_push(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ensure_clone_refreshes_worktree_on_reclone(tmp_path):
+    """Bản clone tái dùng phải thấy code mới khi nguồn khác push lên base (không chỉ fetch ref)."""
+    remote = await _seed_remote(tmp_path)
+    repo_dir = tmp_path / "ws_refresh"
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    assert not (repo_dir / "new.txt").exists()
+
+    # Nguồn khác đẩy commit mới lên dev qua 1 clone độc lập.
+    other = tmp_path / "other"
+    await run_git(["clone", "--branch", "dev", str(remote), str(other)])
+    await _config_identity(other)
+    (other / "new.txt").write_text("from elsewhere\n")
+    await commit_all(other, "feat: external change")
+    await push_branch(other, "dev")
+
+    # Gọi lại ensure_clone trên bản cũ → working tree phải có file mới.
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    assert (repo_dir / "new.txt").read_text() == "from elsewhere\n"
+
+
+@pytest.mark.asyncio
 async def test_commit_all_noop_when_clean(tmp_path):
     remote = await _seed_remote(tmp_path)
     repo_dir = tmp_path / "ws2"
