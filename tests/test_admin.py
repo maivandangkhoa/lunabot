@@ -94,6 +94,21 @@ async def test_invite_creates_user_with_token(db, fakes):
 
 
 @pytest.mark.asyncio
+async def test_invite_inherits_inviter_channel(db, fakes):
+    """User được mời kế thừa platform + bot_id của admin mời (không mặc định telegram)."""
+    t = create_tenant(db, "Acme")
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Boss",
+                        platform="google_chat", bot_id=7)
+    admin.platform_user_id = "users/admin"
+    db.commit()
+    await handle_command(db, fakes["adapter"], admin, "/invite employee Bob")
+    created = db.query(User).filter(User.display_name == "Bob").first()
+    assert created is not None
+    assert created.platform == "google_chat"  # không phải mặc định "telegram"
+    assert created.bot_id == 7                 # cùng bot với admin mời
+
+
+@pytest.mark.asyncio
 async def test_role_and_unlink(db, fakes):
     t = create_tenant(db, "Acme")
     admin = _admin(db, t)

@@ -73,7 +73,7 @@ async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text:
     if cmd == "/users":
         await _list_users(db, send, user.tenant_id)
     elif cmd == "/invite":
-        await _invite(db, send, user.tenant_id, parts)
+        await _invite(db, send, user, parts)
     elif cmd == "/addrepo":
         await _add_repo(db, send, user.tenant_id, parts)
     elif cmd == "/role":
@@ -148,14 +148,16 @@ async def _list_users(db, send, tenant_id):
     await send(t("admin.users_header", body="\n".join(lines)) if lines else t("admin.users_empty"))
 
 
-async def _invite(db, send, tenant_id, parts):
+async def _invite(db, send, inviter: User, parts):
     if len(parts) < 3 or _role(parts[1]) is None:
         await send(t("admin.invite_usage"))
         return
-    from app.models import Tenant
-    tenant = db.get(Tenant, tenant_id)
+    tenant = db.get(Tenant, inviter.tenant_id)
     name = " ".join(parts[2:])
-    u = create_user(db, tenant, role=_role(parts[1]), display_name=name)
+    # Kế thừa kênh của admin mời: user mới sẽ /start qua đúng bot này (platform + bot_id).
+    # Tránh tạo mặc định "telegram" rồi phải rebind khi tenant thuần Google Chat.
+    u = create_user(db, tenant, role=_role(parts[1]), display_name=name,
+                    platform=inviter.platform, bot_id=inviter.bot_id)
     db.commit()
     await send(t("admin.invite_created", role=u.role.value, name=name, id=u.id, token=u.link_token))
 
