@@ -163,11 +163,18 @@ async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) 
     if req.origin_is_group and req.origin_chat_id:
         await orch.adapter.send(req.origin_chat_id, text, buttons)
         return
-    managers = orch.db.scalars(
-        select(User).where(User.tenant_id == repo.tenant_id, User.role == UserRole.MANAGER,
+    # MANAGER + ADMIN: cả hai role đều có quyền duyệt merge (xem _merge_to_main), nên cả hai
+    # đều phải được mời. Tenant chỉ-có-admin (không có manager) trước đây bị silent fail.
+    approvers = orch.db.scalars(
+        select(User).where(User.tenant_id == repo.tenant_id,
+                           User.role.in_((UserRole.MANAGER, UserRole.ADMIN)),
                            User.platform_user_id.is_not(None))
     ).all()
-    for m in managers:
+    if not approvers:
+        log.warning("request %s vào AWAIT_MANAGER nhưng tenant %s không có manager/admin đã link "
+                    "chat để mời duyệt", req.id, repo.tenant_id)
+        return
+    for m in approvers:
         await orch.adapter.send(m.platform_user_id, text, buttons)
 
 

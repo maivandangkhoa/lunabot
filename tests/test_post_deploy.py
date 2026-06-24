@@ -100,6 +100,26 @@ async def test_ci_green_and_curl_ok_invites_manager(db, fakes):
 
 
 @pytest.mark.asyncio
+async def test_admin_only_tenant_is_invited(db, fakes):
+    """Tenant không có manager nhưng có admin → admin được mời (admin cũng có quyền duyệt)."""
+    t = create_tenant(db, "AdminCo")
+    repo = add_repository(db, t, "adminco/widgets", 12345)
+    repo.settings_json = {"dev_url": "https://sotaman-dev.test"}
+    emp = create_user(db, t, role=UserRole.EMPLOYEE, display_name="Bob")
+    emp.platform_user_id = "emp-1"
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Root")
+    admin.platform_user_id = "admin-1"
+    db.commit()
+    req = _merged_req(db, t, repo, emp)
+    gh = DeployGitHub([[_run("success")]])
+
+    await _verify(db, req, gh, fakes)
+
+    assert req.status == RequestStatus.AWAIT_MANAGER
+    assert any(s[0] == "admin-1" for s in fakes["adapter"].sent)  # admin được mời duyệt
+
+
+@pytest.mark.asyncio
 async def test_curl_fails_does_not_invite_manager(db, fakes, monkeypatch):
     t, repo, emp, mgr = _seed(db)
     req = _merged_req(db, t, repo, emp)
