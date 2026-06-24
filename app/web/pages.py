@@ -40,7 +40,22 @@ def _status_chip(status: str | None) -> str:
     return f"<span class='status'><span class='dot {status_dot(status)}'></span>{label}</span>"
 
 
-def _req_row(r: dict) -> str:
+def _approve_actions(r: dict, csrf: str) -> str:
+    """2 nút Duyệt / Từ chối cho request đang AWAIT_MANAGER (chỉ render khi có csrf = trang
+    Requests của chủ workspace). Mỗi nút = 1 form POST kèm confirm."""
+    rid = esc(str(r.get("id")))
+    def _form(action: str, label_key: str, confirm_key: str, cls: str) -> str:
+        return (
+            f"<form method='post' action='/requests/{rid}/{action}' style='flex:none' "
+            f"onsubmit=\"return confirm('{esc(t(confirm_key))}')\">"
+            f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+            f"<button class='btn {cls}' style='height:36px'>{t(label_key)}</button></form>")
+    return (f"<div class='card-row' style='gap:8px;flex:none'>"
+            f"{_form('approve', 'reqs.approve', 'reqs.approve_confirm', 'btn-primary')}"
+            f"{_form('reject', 'reqs.reject', 'reqs.reject_confirm', 'btn-ghost')}</div>")
+
+
+def _req_row(r: dict, csrf: str | None = None) -> str:
     pr = ""
     if r.get("pr_url"):
         num = f"#{esc(str(r['pr_number']))} " if r.get("pr_number") else ""
@@ -49,13 +64,15 @@ def _req_row(r: dict) -> str:
     meta = f"{icon('repo', 13)}{esc(r.get('repo') or '—')}"
     if r.get("updated"):
         meta += f" · {esc(r['updated'])}"
+    actions = (_approve_actions(r, csrf)
+               if csrf and r.get("status") == "await_manager" and r.get("id") else "")
     return f"""
-      <div class='card card-tight card-row' style='justify-content:space-between'>
+      <div class='card card-tight card-row' style='justify-content:space-between;flex-wrap:wrap;gap:12px'>
         <div style='min-width:0'>
           <div style='font-weight:600;font-size:15px'>{esc(r.get('title') or '—')}</div>
           <div class='hint' style='margin:4px 0 0;display:flex;gap:8px;align-items:center'>{meta}</div>
         </div>
-        <div style='display:flex;align-items:center;gap:16px;flex:none'>{pr}{_status_chip(r.get('status'))}</div>
+        <div class='card-row' style='gap:16px;flex:none'>{pr}{_status_chip(r.get('status'))}{actions}</div>
       </div>"""
 
 
@@ -113,10 +130,10 @@ def repositories(user_name: str, rows: list[dict]) -> str:
 
 
 # ── Requests ──────────────────────────────────────────────────────────────────
-def requests(user_name: str, rows: list[dict]) -> str:
+def requests(user_name: str, rows: list[dict], csrf: str = "") -> str:
     head = _head("reqs.title", "reqs.subtitle")
     if rows:
-        body = "<div class='stack-sm'>" + "".join(_req_row(r) for r in rows) + "</div>"
+        body = "<div class='stack-sm'>" + "".join(_req_row(r, csrf) for r in rows) + "</div>"
     else:
         body = _empty("requests", t("reqs.empty.title"), t("reqs.empty.desc"))
     return shell(t("title.requests"), active="requests", user_name=user_name, body=head + body)

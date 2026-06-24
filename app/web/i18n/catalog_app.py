@@ -167,6 +167,10 @@ TEXTS: dict[str, dict[str, str]] = {
     "reqs.empty.title": {"vi": "Chưa có yêu cầu nào", "en": "No requests yet", "ko": "아직 요청이 없습니다"},
     "reqs.empty.desc": {"vi": "Yêu cầu xuất hiện ở đây khi người dùng nhắn cho bot qua chat.", "en": "Requests appear here when users message a bot over chat.", "ko": "사용자가 채팅으로 봇에 메시지를 보내면 여기에 표시됩니다."},
     "reqs.view_pr": {"vi": "Xem PR", "en": "View PR", "ko": "PR 보기"},
+    "reqs.approve": {"vi": "Duyệt & merge", "en": "Approve & merge", "ko": "승인 & 병합"},
+    "reqs.reject": {"vi": "Từ chối", "en": "Reject", "ko": "거부"},
+    "reqs.approve_confirm": {"vi": "Duyệt và merge vào nhánh production? Hành động này không hoàn tác được.", "en": "Approve and merge to the production branch? This cannot be undone.", "ko": "프로덕션 브랜치로 승인하고 병합할까요? 되돌릴 수 없습니다."},
+    "reqs.reject_confirm": {"vi": "Từ chối yêu cầu này? Thay đổi trên nhánh dev sẽ được revert.", "en": "Reject this request? Changes on the dev branch will be reverted.", "ko": "이 요청을 거부할까요? dev 브랜치의 변경 사항이 되돌려집니다."},
 
     # ── Activity ──
     "act.title": {"vi": "Hoạt động", "en": "Activity", "ko": "활동"},

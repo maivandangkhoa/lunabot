@@ -7,9 +7,6 @@ mỗi file ≤500 LOC; dùng lại helper phiên (_auth/_tenants/_form) từ rou
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
@@ -20,16 +17,9 @@ from app.db import get_db
 from app.models import Bot, Tenant, User, UserRole
 from app.onboarding import create_user, regenerate_link_token
 from app.web import pages
-from app.web.routes import _auth, _form, _tenants
+from app.web.routes import _auth, _csrf, _form, _tenants
 
 router = APIRouter(tags=["web-team"])
-
-
-def _csrf(data: dict, s) -> str:
-    """Token CSRF ổn định cho phiên: HMAC(secret, uid). Không cần ghi lại session — hợp lệ
-    cho mọi phiên đã đăng nhập."""
-    raw = f"csrf:{data.get('uid')}".encode()
-    return hmac.new(s.web_session_secret.encode(), raw, hashlib.sha256).hexdigest()[:32]
 
 
 def _int(v) -> int | None:

@@ -5,6 +5,8 @@ Cố tình KHÔNG thêm dep: form parse thủ công (urllib) thay python-multipa
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import secrets
 from urllib.parse import parse_qs
@@ -56,6 +58,13 @@ def _attach_session(resp, data: dict, s) -> None:
 async def _form(request: Request) -> dict:
     raw = (await request.body()).decode()
     return {k: v[0] for k, v in parse_qs(raw).items()}
+
+
+def _csrf(data: dict, s) -> str:
+    """Token CSRF ổn định cho phiên: HMAC(secret, uid). Không cần ghi lại session — hợp lệ
+    cho mọi phiên đã đăng nhập. Dùng chung cho team.py / approvals.py."""
+    raw = f"csrf:{data.get('uid')}".encode()
+    return hmac.new(s.web_session_secret.encode(), raw, hashlib.sha256).hexdigest()[:32]
 
 
 def _lang(request: Request) -> None:
@@ -300,8 +309,9 @@ def _request_rows(db: Session, tenant_ids: list[int], limit: int | None = None) 
          .order_by(MaintRequest.updated_at.desc()))
     if limit:
         q = q.limit(limit)
-    return [{"title": r.title, "status": r.status.value, "repo": names.get(r.repo_id, "—"),
-             "updated": _fmt(r.updated_at), "pr_url": r.pr_url, "pr_number": r.pr_number}
+    return [{"id": r.id, "title": r.title, "status": r.status.value,
+             "repo": names.get(r.repo_id, "—"), "updated": _fmt(r.updated_at),
+             "pr_url": r.pr_url, "pr_number": r.pr_number}
             for r in db.scalars(q).all()]
 
 
@@ -415,7 +425,8 @@ async def requests(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     ids = [t.id for t in _tenants(db, data)]
     rows = _request_rows(db, ids)
-    return HTMLResponse(pages.requests(data.get("name") or data["login"], rows))
+    csrf = _csrf(data, get_settings())
+    return HTMLResponse(pages.requests(data.get("name") or data["login"], rows, csrf))
 
 
 @router.get("/activity", response_class=HTMLResponse)
