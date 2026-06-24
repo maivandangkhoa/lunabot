@@ -201,13 +201,61 @@ def _event_row(e: dict) -> str:
       </div>"""
 
 
-def activity(user_name: str, rows: list[dict]) -> str:
+# giá trị lọc khớp app/web/activity.py (kind = EventKind, status = RequestStatus)
+_TIME_OPTS = ["all", "24h", "7d", "30d"]
+_KIND_OPTS = ["msg", "clarify", "plan", "confirm", "verify", "approve", "system"]
+_STATUS_OPTS = ["new", "analyzing", "clarifying", "plan_review", "executing", "verify",
+                "merged_dev", "await_manager", "merged_main", "closed", "cancelled"]
+
+
+def _filter_select(name: str, current: str, opts: list[tuple[str, str]]) -> str:
+    body = "".join(
+        f"<option value='{esc(v)}'{' selected' if v == current else ''}>{esc(lbl)}</option>"
+        for v, lbl in opts)
+    return (f"<select class='input' name='{name}' onchange='this.form.submit()' "
+            f"style='height:38px;width:auto;padding-right:36px'>{body}</select>")
+
+
+def _filter_bar(f: dict, csrf: str) -> str:
+    """Thanh lọc (GET, auto-submit khi đổi) + nút Xoá log (POST, kèm bộ lọc hiện tại)."""
+    times = [(v, t("act.filter.all") if v == "all" else t(f"act.filter.time.{v}"))
+             for v in _TIME_OPTS]
+    kinds = [("all", t("act.filter.all"))] + [(v, t(f"act.filter.kind.{v}")) for v in _KIND_OPTS]
+    statuses = [("all", t("act.filter.all"))] + [
+        (v, v.replace("_", " ").capitalize()) for v in _STATUS_OPTS]
+    filters = (
+        f"<form method='get' action='/activity' style='display:flex;gap:8px;flex-wrap:wrap'>"
+        f"{_filter_select('time', f.get('time', 'all'), times)}"
+        f"{_filter_select('kind', f.get('kind', 'all'), kinds)}"
+        f"{_filter_select('status', f.get('status', 'all'), statuses)}"
+        f"<noscript><button class='btn btn-secondary' style='height:38px'>"
+        f"{t('act.filter.apply')}</button></noscript></form>")
+    clear = (
+        f"<form method='post' action='/activity/clear' style='flex:none' "
+        f"{confirm_attrs(t('act.clear_confirm'), t('act.clear_ok'), variant='danger')}>"
+        f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+        f"<input type='hidden' name='time' value='{esc(f.get('time', 'all'))}'>"
+        f"<input type='hidden' name='kind' value='{esc(f.get('kind', 'all'))}'>"
+        f"<input type='hidden' name='status' value='{esc(f.get('status', 'all'))}'>"
+        f"<button class='btn btn-ghost' style='height:38px'>{icon('trash', 15)}"
+        f"{t('act.clear_btn')}</button></form>")
+    return (f"<div class='card-row' style='justify-content:space-between;align-items:flex-start;"
+            f"flex-wrap:wrap;gap:10px;margin-bottom:16px'>{filters}{clear}</div>")
+
+
+def activity(user_name: str, rows: list[dict], filters: dict | None = None,
+             csrf: str = "") -> str:
+    f = filters or {"time": "all", "kind": "all", "status": "all"}
     head = _head("act.title", "act.subtitle")
+    bar = _filter_bar(f, csrf)
     if rows:
         body = "<div class='stack-sm'>" + "".join(_event_row(e) for e in rows) + "</div>"
+    elif any(f.get(k, "all") != "all" for k in ("time", "kind", "status")):
+        body = _empty("activity", t("act.empty_filtered.title"), t("act.empty_filtered.desc"))
     else:
         body = _empty("activity", t("act.empty.title"), t("act.empty.desc"))
-    return shell(t("title.activity"), active="activity", user_name=user_name, body=head + body)
+    return shell(t("title.activity"), active="activity", user_name=user_name,
+                 body=head + bar + body)
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

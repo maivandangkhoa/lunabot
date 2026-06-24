@@ -28,6 +28,7 @@ from app.dispatcher import handle_channel_update
 from app.github_app import GitHubApp
 from app.poller import run_polling
 from app.recovery import recover_interrupted_requests, rekick_pending_deploys
+from app.web.activity import router as web_activity_router
 from app.web.admin import router as web_admin_router
 from app.web.approvals import router as web_approvals_router
 from app.web.routes import router as web_router
@@ -67,6 +68,7 @@ app = FastAPI(title="luna", version="0.0.0", lifespan=lifespan)
 app.include_router(web_router)  # web wizard self-service (/, /login, /wizard, /dashboard…)
 app.include_router(web_team_router)  # quản lý người dùng + workspace (/users, /tenants/rename)
 app.include_router(web_approvals_router)  # duyệt/từ chối merge production qua web (/requests/{id}/…)
+app.include_router(web_activity_router)  # dòng sự kiện + bộ lọc & xoá log (/activity, /activity/clear)
 app.include_router(web_admin_router)  # super admin nền tảng — xem mọi tenant (/admin)
 
 

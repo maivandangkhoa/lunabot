@@ -20,7 +20,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.github_oauth import GitHubOAuth, GitHubOAuthError
 from app.models import (
-    Bot, PlatformAdmin, Repository, Request as MaintRequest, RequestEvent, Tenant,
+    Bot, PlatformAdmin, Repository, Request as MaintRequest, Tenant,
 )
 from app.onboarding import add_repository
 from app.provisioning import ProvisioningError, provision
@@ -427,26 +427,6 @@ async def requests(request: Request, db: Session = Depends(get_db)):
     rows = _request_rows(db, ids)
     csrf = _csrf(data, get_settings())
     return HTMLResponse(pages.requests(data.get("name") or data["login"], rows, csrf))
-
-
-@router.get("/activity", response_class=HTMLResponse)
-async def activity(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request, db)
-    if not data:
-        return RedirectResponse("/", status_code=303)
-    ids = [t.id for t in _tenants(db, data)]
-    rows: list[dict] = []
-    if ids:
-        evs = db.execute(
-            select(RequestEvent, MaintRequest.title)
-            .join(MaintRequest, RequestEvent.request_id == MaintRequest.id)
-            .where(MaintRequest.tenant_id.in_(ids))
-            .order_by(RequestEvent.created_at.desc()).limit(40)
-        ).all()
-        rows = [{"title": title, "kind": ev.kind.value, "direction": ev.direction.value,
-                 "payload": ev.payload_json or {}, "when": _fmt(ev.created_at)}
-                for ev, title in evs]
-    return HTMLResponse(pages.activity(data.get("name") or data["login"], rows))
 
 
 @router.get("/settings", response_class=HTMLResponse)

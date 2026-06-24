@@ -202,6 +202,25 @@ TEXTS: dict[str, dict[str, str]] = {
     "act.confirm.cancel": {"vi": "Huỷ yêu cầu", "en": "Cancelled request", "ko": "요청 취소"},
     "act.confirm.clear": {"vi": "Đặt lại hội thoại", "en": "Reset conversation", "ko": "대화 초기화"},
 
+    # filters + clear log
+    "act.filter.all": {"vi": "Tất cả", "en": "All", "ko": "전체"},
+    "act.filter.apply": {"vi": "Lọc", "en": "Apply", "ko": "적용"},
+    "act.filter.time.24h": {"vi": "24 giờ qua", "en": "Last 24 hours", "ko": "지난 24시간"},
+    "act.filter.time.7d": {"vi": "7 ngày qua", "en": "Last 7 days", "ko": "지난 7일"},
+    "act.filter.time.30d": {"vi": "30 ngày qua", "en": "Last 30 days", "ko": "지난 30일"},
+    "act.filter.kind.msg": {"vi": "Tin nhắn", "en": "Messages", "ko": "메시지"},
+    "act.filter.kind.clarify": {"vi": "Hỏi làm rõ", "en": "Clarifications", "ko": "추가 정보 요청"},
+    "act.filter.kind.plan": {"vi": "Kế hoạch", "en": "Plans", "ko": "계획"},
+    "act.filter.kind.confirm": {"vi": "Phản hồi người dùng", "en": "User responses", "ko": "사용자 응답"},
+    "act.filter.kind.verify": {"vi": "Kiểm thử", "en": "Verification", "ko": "검증"},
+    "act.filter.kind.approve": {"vi": "Duyệt", "en": "Approvals", "ko": "승인"},
+    "act.filter.kind.system": {"vi": "Hệ thống / Bot", "en": "System / Bot", "ko": "시스템 / 봇"},
+    "act.clear_btn": {"vi": "Xoá log", "en": "Clear log", "ko": "로그 삭제"},
+    "act.clear_ok": {"vi": "Xoá", "en": "Delete", "ko": "삭제"},
+    "act.clear_confirm": {"vi": "Xoá vĩnh viễn các sự kiện khớp bộ lọc hiện tại? Yêu cầu và bot không bị ảnh hưởng.", "en": "Permanently delete the events matching the current filter? Requests and bots are unaffected.", "ko": "현재 필터에 해당하는 이벤트를 영구 삭제할까요? 요청과 봇에는 영향이 없습니다."},
+    "act.empty_filtered.title": {"vi": "Không có sự kiện khớp", "en": "No matching events", "ko": "일치하는 이벤트 없음"},
+    "act.empty_filtered.desc": {"vi": "Thử nới lỏng bộ lọc thời gian hoặc loại sự kiện.", "en": "Try relaxing the time or type filter.", "ko": "시간 또는 유형 필터를 완화해 보세요."},
+
     # ── Settings ──
     "set.title": {"vi": "Cài đặt", "en": "Settings", "ko": "설정"},
     "set.subtitle": {"vi": "Tài khoản và không gian làm việc của bạn.", "en": "Your account and workspaces.", "ko": "계정 및 워크스페이스입니다."},
