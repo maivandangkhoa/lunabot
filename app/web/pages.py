@@ -9,7 +9,7 @@ from __future__ import annotations
 from html import escape as esc
 
 from app.web.i18n import t
-from app.web.styles import icon, shell, status_dot
+from app.web.styles import confirm_attrs, icon, shell, status_dot
 
 
 def _empty(ico: str, title: str, desc: str, cta_href: str = "", cta: str = "") -> str:
@@ -44,15 +44,15 @@ def _approve_actions(r: dict, csrf: str) -> str:
     """2 nút Duyệt / Từ chối cho request đang AWAIT_MANAGER (chỉ render khi có csrf = trang
     Requests của chủ workspace). Mỗi nút = 1 form POST kèm confirm."""
     rid = esc(str(r.get("id")))
-    def _form(action: str, label_key: str, confirm_key: str, cls: str) -> str:
+    def _form(action: str, label_key: str, confirm_key: str, cls: str, variant: str) -> str:
         return (
             f"<form method='post' action='/requests/{rid}/{action}' style='flex:none' "
-            f"onsubmit=\"return confirm('{esc(t(confirm_key))}')\">"
+            f"{confirm_attrs(t(confirm_key), t(label_key), variant=variant)}>"
             f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
             f"<button class='btn {cls}' style='height:36px'>{t(label_key)}</button></form>")
     return (f"<div class='card-row' style='gap:8px;flex:none'>"
-            f"{_form('approve', 'reqs.approve', 'reqs.approve_confirm', 'btn-primary')}"
-            f"{_form('reject', 'reqs.reject', 'reqs.reject_confirm', 'btn-ghost')}</div>")
+            f"{_form('approve', 'reqs.approve', 'reqs.approve_confirm', 'btn-primary', 'primary')}"
+            f"{_form('reject', 'reqs.reject', 'reqs.reject_confirm', 'btn-ghost', 'danger')}</div>")
 
 
 def _req_row(r: dict, csrf: str | None = None) -> str:
@@ -263,7 +263,7 @@ def _team_user(u: dict, csrf: str) -> str:
         status = f"<span class='badge badge-success'>{t('team.linked')}</span>"
         action = (
             f"<form method='post' action='/users/unlink' style='flex:none' "
-            f"onsubmit=\"return confirm('{esc(t('team.unlink_confirm'))}')\">"
+            f"{confirm_attrs(t('team.unlink_confirm'), t('team.unlink'))}>"
             f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
             f"<input type='hidden' name='user_id' value='{u['id']}'>"
             f"<button class='btn btn-ghost' style='height:38px'>{t('team.unlink')}</button></form>")
@@ -272,7 +272,7 @@ def _team_user(u: dict, csrf: str) -> str:
         status = f"<span class='badge badge-warning'>{t('team.pending')}</span>"
         action = (
             f"<form method='post' action='/users/delete' style='flex:none' "
-            f"onsubmit=\"return confirm('{esc(t('team.cancel_confirm'))}')\">"
+            f"{confirm_attrs(t('team.cancel_confirm'), t('team.cancel_invite'))}>"
             f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
             f"<input type='hidden' name='user_id' value='{u['id']}'>"
             f"<button class='btn btn-ghost' style='height:38px'>{t('team.cancel_invite')}</button></form>")

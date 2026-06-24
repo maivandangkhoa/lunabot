@@ -12,6 +12,8 @@ TEXTS: dict[str, dict[str, str]] = {
     "common.recommended": {"vi": "Khuyến nghị", "en": "Recommended", "ko": "추천"},
     "common.back": {"vi": "Quay lại", "en": "Back", "ko": "이전"},
     "common.next": {"vi": "Tiếp tục", "en": "Continue", "ko": "계속"},
+    "common.confirm": {"vi": "Xác nhận", "en": "Confirm", "ko": "확인"},
+    "common.cancel": {"vi": "Huỷ", "en": "Cancel", "ko": "취소"},
     "common.luna_shared": {"vi": "Luna chung", "en": "Shared Luna", "ko": "공용 Luna"},
     "lang.label": {"vi": "Ngôn ngữ", "en": "Language", "ko": "언어"},
 

@@ -388,16 +388,16 @@ def _bot_card(r: dict) -> str:
     username = ('@' + esc(r['username'])) if r['username'] else t("common.luna_shared")
     dot = status_dot(r.get('status'))
     return f"""
-      <div class='card card-tight card-row' style='justify-content:space-between'>
-        <div class='card-row'>
-          <span class='ws-ico' style='width:40px;height:40px'>{icon('bot', 20)}</span>
-          <div>
+      <div class='card card-tight card-row' style='justify-content:space-between;flex-wrap:wrap;gap:12px'>
+        <div class='card-row' style='min-width:0'>
+          <span class='ws-ico' style='width:40px;height:40px;flex:none'>{icon('bot', 20)}</span>
+          <div style='min-width:0'>
             <div style='font-weight:600;font-size:15px'>{esc(r['name'])}</div>
-            <div class='hint' style='margin:2px 0 0;display:flex;gap:8px;align-items:center'>
-              {icon('repo', 13)}{esc(r['repo'])} · {username}</div>
+            <div class='hint' style='margin:2px 0 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap'>
+              {icon('repo', 13)}<span style='word-break:break-all'>{esc(r['repo'])}</span> · {username}</div>
           </div>
         </div>
-        <div style='display:flex;align-items:center;gap:14px'>
+        <div style='display:flex;align-items:center;gap:14px;flex-wrap:wrap'>
           <span class='badge badge-muted'>{esc(r['mode'])} · {esc(r['deployment'])}</span>
           <span class='status'><span class='dot {dot}'></span>{esc(r['status'])}</span>
         </div>

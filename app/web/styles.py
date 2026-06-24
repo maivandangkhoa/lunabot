@@ -73,6 +73,8 @@ h1,h2,h3{line-height:1.2;letter-spacing:-.02em;font-weight:700}
 .btn[disabled]{opacity:.5;cursor:not-allowed}
 .btn-github{background:#fff;color:#0B0F19}
 .btn-github:hover{background:#e8e8ee}
+.btn-danger{background:var(--danger);color:#fff;box-shadow:0 8px 20px -8px var(--danger)}
+.btn-danger:hover{background:#F0594F}
 
 /* ── Cards & surfaces ── */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
@@ -136,6 +138,21 @@ select.input{appearance:none;cursor:pointer;
 .alert-success{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.35);color:#6EE7B7}
 .alert-info{background:rgba(99,102,241,.1);border-color:rgba(99,102,241,.35);color:#A5B4FC}
 .alert-info a{color:inherit;font-weight:600;text-decoration:underline}
+
+/* ── Confirm modal ── */
+.modal-ov{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
+  padding:20px;background:rgba(7,10,18,.66);backdrop-filter:blur(5px);animation:fade .14s ease}
+.modal-ov.open{display:flex}
+.modal{width:100%;max-width:432px;background:var(--surface);border:1px solid var(--border-2);
+  border-radius:var(--radius);box-shadow:var(--shadow);padding:26px;animation:pop .16s ease}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+.modal .m-ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;margin-bottom:16px}
+.modal .m-ico.danger{background:rgba(239,68,68,.14);color:#FCA5A5;border:1px solid rgba(239,68,68,.4)}
+.modal .m-ico.primary{background:var(--primary-soft);color:#C7D2FE;border:1px solid rgba(99,102,241,.4)}
+.modal .m-title{font-size:19px;font-weight:600}
+.modal .m-msg{color:var(--text-2);font-size:14px;line-height:1.55;margin-top:9px}
+.modal .m-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}
+.modal .m-actions .btn{height:42px}
 
 /* ── App shell ── */
 .shell{display:grid;grid-template-columns:var(--sidebar-w) 1fr;min-height:100vh;position:relative;z-index:1}
@@ -326,6 +343,47 @@ def lang_switcher() -> str:
             f"<select aria-label='{esc(t('lang.label'))}' onchange=\"{onchange}\">{opts}</select></label>")
 
 
+def confirm_attrs(msg: str, ok_label: str, *, variant: str = "danger",
+                  title: str | None = None) -> str:
+    """Sinh các attribute cho <form> để mở confirm modal đồng bộ style site thay cho
+    confirm() native. Đặt cùng `lunaConfirm` (chèn bởi shell). Giá trị qua data-* nên
+    esc() đủ an toàn (không cần escape chuỗi JS). `variant`: 'danger' | 'primary'."""
+    title = title or t("common.confirm")
+    return (
+        f"data-confirm='{esc(msg)}' data-confirm-title='{esc(title)}' "
+        f"data-confirm-ok='{esc(ok_label)}' data-confirm-cancel='{esc(t('common.cancel'))}' "
+        f"data-confirm-variant='{esc(variant)}' onsubmit='return lunaConfirm(this)'")
+
+
+def _confirm_modal() -> str:
+    """Markup + JS cho confirm modal dùng chung (chèn 1 lần trong shell). Form gọi
+    confirm_attrs() để cấu hình; JS đọc data-* rồi submit khi user xác nhận."""
+    js = (
+        "function lunaConfirm(f){var d=f.dataset,o=document.getElementById('luna-modal'),"
+        "v=d.confirmVariant==='primary'?'primary':'danger';"
+        "o.querySelector('.m-ico').className='m-ico '+v;"
+        "o.querySelector('.m-title').textContent=d.confirmTitle;"
+        "o.querySelector('.m-msg').textContent=d.confirm;"
+        "o.querySelector('.m-cancel').textContent=d.confirmCancel;"
+        "var k=o.querySelector('.m-ok');k.textContent=d.confirmOk;"
+        "k.className='btn m-ok '+(v==='primary'?'btn-primary':'btn-danger');"
+        "k.onclick=function(){o.classList.remove('open');f.submit();};"
+        "o.classList.add('open');setTimeout(function(){k.focus();},0);return false;}"
+        "(function(){var o=document.getElementById('luna-modal');function c(){o.classList.remove('open');}"
+        "o.querySelector('.m-cancel').onclick=c;"
+        "o.addEventListener('click',function(e){if(e.target===o)c();});"
+        "document.addEventListener('keydown',function(e){if(e.key==='Escape')c();});})();")
+    return (
+        "<div class='modal-ov' id='luna-modal' role='dialog' aria-modal='true'>"
+        "<div class='modal'>"
+        f"<div class='m-ico danger'>{icon('alert', 22)}</div>"
+        "<h3 class='m-title'></h3><p class='m-msg'></p>"
+        "<div class='m-actions'>"
+        "<button type='button' class='btn btn-secondary m-cancel'></button>"
+        "<button type='button' class='btn btn-danger m-ok'></button>"
+        f"</div></div></div><script>{js}</script>")
+
+
 def doc(title: str, body: str, body_class: str = "", extra_head: str = "") -> str:
     return (
         f"<!doctype html><html lang='{i18n.get_lang()}'><head><meta charset='utf-8'>"
@@ -398,4 +456,5 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
     return doc(title, (
         f"<div class='shell'>{_sidebar(active)}"
         f"<div class='main'>{topbar}<div class='content'>{body}</div></div></div>"
+        f"{_confirm_modal()}"
     ))
