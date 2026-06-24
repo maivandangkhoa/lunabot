@@ -179,6 +179,17 @@ async def _list_repos(s, data: dict) -> tuple[list[dict], str]:
     return repos, install_url
 
 
+async def _verify_repo_grant(s, data: dict, repo_full_name: str, installation_id: int) -> bool:
+    """Bảo mật multi-tenant: xác nhận user THỰC SỰ có quyền trên (repo, installation) bằng
+    token OAuth của họ — KHÔNG tin cặp `repo|installation_id` echo từ form (client sửa được).
+    Nếu bỏ kiểm: attacker gắn private repo + installation_id của tenant KHÁC vào tenant mình
+    rồi clone (App JWT mint token cho mọi installation) ⇒ đọc source tenant khác."""
+    repos, _ = await _list_repos(s, data)
+    return any(r.get("full_name") == repo_full_name
+               and int(r.get("installation_id")) == installation_id
+               for r in repos)
+
+
 @router.get("/wizard", response_class=HTMLResponse)
 async def wizard(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
@@ -208,9 +219,11 @@ async def wizard_create(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/wizard", status_code=303)
 
     repo_val = form.get("repo", "")
-    if "|" not in repo_val:
+    if "|" not in repo_val or not repo_val.rsplit("|", 1)[1].isdigit():
         return HTMLResponse(_wizard_err(s, data, "Chưa chọn repo hợp lệ."))
     repo_full_name, inst = repo_val.rsplit("|", 1)
+    if not await _verify_repo_grant(s, data, repo_full_name, int(inst)):
+        return HTMLResponse(_wizard_err(s, data, "Repo không thuộc quyền truy cập của bạn."))
     bot_choice = form.get("bot_choice", "shared")
     platform = form.get("platform", "telegram")
     try:
@@ -406,6 +419,8 @@ async def repo_add_create(request: Request, db: Session = Depends(get_db)):
             Repository.repo_full_name == repo_full_name))
         if exists is not None:
             err = t("repoadd.err.exists", name=repo_full_name)
+        elif not await _verify_repo_grant(s, data, repo_full_name, int(inst)):
+            err = t("repoadd.err.repo")
         else:
             add_repository(db, tenant, repo_full_name, int(inst),
                            base_branch=(form.get("base_branch") or "dev").strip(),

@@ -162,6 +162,55 @@ def test_repo_add_blocks_duplicate(monkeypatch, db):
         app.dependency_overrides.pop(get_db, None)
 
 
+def test_repo_add_rejects_forged_installation(monkeypatch, db):
+    """Cross-tenant guard: repo/installation_id KHÔNG nằm trong danh sách user có quyền
+    (kể cả repo name thật nhưng installation_id sai) → từ chối, không tạo bản ghi."""
+    from app.db import get_db
+    from app.models import Repository, Tenant
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _dev_settings())
+    t = Tenant(name="Acme", owner_github_id=7, owner_github_login="owner")
+    db.add(t)
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME, _dev_cookie())
+        # repo name thật (demo-org/shop) nhưng installation_id của tenant khác (42 ∉ _DEV_REPOS)
+        r = client.post("/repo/add", follow_redirects=False, data={
+            "csrf": "", "tenant_id": str(t.id), "repo": "demo-org/shop|42"})
+        assert r.status_code == 200                            # render lại kèm lỗi
+        assert db.query(Repository).count() == 0
+        # repo hoàn toàn không thuộc quyền user
+        r2 = client.post("/repo/add", follow_redirects=False, data={
+            "csrf": "", "tenant_id": str(t.id), "repo": "victim-org/private|99"})
+        assert r2.status_code == 200
+        assert db.query(Repository).count() == 0
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_wizard_create_rejects_forged_installation(monkeypatch, db):
+    """Cross-tenant guard ở wizard: cặp repo|installation_id giả mạo → không provision."""
+    from app.db import get_db
+    from app.models import Repository, Tenant
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _dev_settings())
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        cookie = sess.dumps({"tok": "dev", "login": "owner", "uid": 7, "name": "O",
+                             "state": "x"}, "sek")
+        client.cookies.set(sess.COOKIE_NAME, cookie)
+        r = client.post("/wizard/create", follow_redirects=False, data={
+            "csrf": "x", "repo": "victim-org/private|99", "bot_choice": "shared",
+            "platform": "telegram"})
+        assert r.status_code == 200                            # render lại kèm lỗi, không provision
+        assert db.query(Tenant).count() == 0 and db.query(Repository).count() == 0
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_wizard_shows_channels_only_when_enabled():
     """Kênh Zalo/Messenger/Google Chat chỉ hiện trong wizard khi cờ enabled bật."""
     plain = tpl.wizard("U", [], "i", "c", dedicated_enabled=False)
