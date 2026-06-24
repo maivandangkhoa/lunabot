@@ -9,8 +9,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Header, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Header, Query, Request, Response, status
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app import bot_registry
 from app.channels.google_chat import (
@@ -19,6 +19,7 @@ from app.channels.google_chat import (
     is_button_click,
     verify_google_jwt,
 )
+from app.channels.messenger import MessengerAdapter
 from app.channels.zalo import ZaloAdapter
 from app.channels.telegram import TelegramAdapter
 from app.config import get_settings
@@ -303,6 +304,67 @@ async def webhook_zalo_bot(
         log.exception("zalo bot=%s webhook lỗi", bot_id)
     finally:
         db.close()
+    return Response(status_code=status.HTTP_200_OK)
+
+
+async def _process_messenger(raw: dict) -> None:
+    """Xử lý nền 1 'messaging' event Messenger (Claude lâu nên KHÔNG block webhook)."""
+    db = SessionLocal()
+    adapter = MessengerAdapter.from_settings(settings)
+    try:
+        github = GitHubApp.from_settings()
+    except Exception:  # noqa: BLE001
+        github = None
+    try:
+        await handle_channel_update(db, adapter, github, raw)
+    except Exception:  # noqa: BLE001
+        log.exception("messenger xử lý lỗi")
+    finally:
+        await adapter.aclose()
+        if github is not None:
+            await github.aclose()
+        db.close()
+
+
+@app.get("/webhook/messenger")
+async def webhook_messenger_verify(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+) -> Response:
+    """Messenger webhook registration: GET hub.challenge → trả challenge thô khi verify_token khớp."""
+    if not settings.messenger_enabled:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    if hub_mode == "subscribe" and hub_verify_token == settings.messenger_verify_token:
+        return PlainTextResponse(hub_challenge or "")
+    return Response(status_code=status.HTTP_403_FORBIDDEN)
+
+
+@app.post("/webhook/messenger")
+async def webhook_messenger(
+    request: Request,
+    x_hub_signature_256: str | None = Header(default=None),
+) -> Response:
+    """Messenger webhook. Ack 200 ngay; 1 POST gộp nhiều event → tách entry[].messaging[]."""
+    if not settings.messenger_enabled:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    body = await request.body()
+    if settings.messenger_app_secret and x_hub_signature_256:
+        tmp = MessengerAdapter.from_settings(settings)
+        if not tmp.verify_signature(body, x_hub_signature_256):
+            log.warning("messenger: signature không hợp lệ")
+            if settings.messenger_verify_enforce:
+                return Response(status_code=status.HTTP_403_FORBIDDEN)
+    import json as _json
+    try:
+        data = _json.loads(body)
+    except Exception:  # noqa: BLE001
+        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+    for entry in data.get("entry", []):
+        for ev in entry.get("messaging", []):
+            task = asyncio.create_task(_process_messenger(ev))
+            _bg_tasks.add(task)
+            task.add_done_callback(_bg_tasks.discard)
     return Response(status_code=status.HTTP_200_OK)
 
 
