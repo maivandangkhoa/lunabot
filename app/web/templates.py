@@ -162,17 +162,20 @@ def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
           <section class='wstep' data-step='1'>
             <h2 class='section-title'>{t('wizard.s1.title')}</h2>
             <p class='muted small' style='margin:6px 0 16px'>{t('wizard.s1.desc')}</p>
+            {platform_block}
             <div class='choices'>
               <label class='choice'><input type='radio' name='bot_choice' value='shared' id='bc-shared' checked>
                 <span class='ch-tick'>{icon('check', 13)}</span>
                 <span class='ch-title'>{icon('zap', 16)} {t('wizard.s1.shared.title')}
                   <span class='badge badge-info' style='margin-left:auto'>{t('common.recommended')}</span></span>
                 <span class='ch-desc'>{t('wizard.s1.shared.desc')}</span></label>
-              <label class='choice'><input type='radio' name='bot_choice' value='own' id='bc-own'>
+              <label class='choice' id='bc-own-label'><input type='radio' name='bot_choice' value='own' id='bc-own'>
                 <span class='ch-tick'>{icon('check', 13)}</span>
                 <span class='ch-title'>{icon('bot', 16)} {t('wizard.s1.own.title')}</span>
                 <span class='ch-desc'>{t('wizard.s1.own.desc')}</span></label>
             </div>
+            <div class='hint' id='gchat-note' style='display:none;margin-top:12px'>
+              {icon('info', 14)} {t('wizard.s1.gchat_note')}</div>
           </section>
 
           <section class='wstep' data-step='2'>
@@ -224,6 +227,8 @@ def _wizard_js() -> str:
     # Nhãn review (cột phải step Xác nhận) dịch phía server rồi nhúng vào JS dạng chuỗi JSON.
     own = json.dumps(t("wizard.js.own"))
     shared = json.dumps(t("wizard.js.shared"))
+    pf_tg = json.dumps(t("wizard.s1.platform.telegram"))
+    pf_gc = json.dumps(t("wizard.s1.platform.gchat"))
     return """
 <script>
 (function(){
@@ -231,10 +236,22 @@ def _wizard_js() -> str:
   var nodes=[].slice.call(document.querySelectorAll('.step-node'));
   var back=document.getElementById('w-back'),next=document.getElementById('w-next'),
       submit=document.getElementById('w-submit'),cur=0;
-  var ownRadio=document.getElementById('bc-own'),tokenField=document.getElementById('token-field');
-  function syncToken(){tokenField.style.display=ownRadio.checked?'block':'none';}
+  var ownRadio=document.getElementById('bc-own'),sharedRadio=document.getElementById('bc-shared'),
+      tokenField=document.getElementById('token-field');
+  var gcRadio=document.getElementById('pf-gchat'),ownLabel=document.getElementById('bc-own-label'),
+      gcNote=document.getElementById('gchat-note');
+  function isGC(){return gcRadio&&gcRadio.checked;}
+  function syncPlatform(){
+    // Google Chat = chỉ bot chung: ép shared, ẩn lựa chọn "bot riêng" + token.
+    if(isGC()){if(ownLabel)ownLabel.style.display='none';if(gcNote)gcNote.style.display='flex';
+      sharedRadio.checked=true;}
+    else{if(ownLabel)ownLabel.style.display='';if(gcNote)gcNote.style.display='none';}
+    syncToken();
+  }
+  function syncToken(){tokenField.style.display=(!isGC()&&ownRadio.checked)?'block':'none';}
   [].forEach.call(document.querySelectorAll('input[name=bot_choice]'),function(r){r.addEventListener('change',syncToken);});
-  syncToken();
+  [].forEach.call(document.querySelectorAll('input[name=platform]'),function(r){r.addEventListener('change',syncPlatform);});
+  syncPlatform();
   function valid(i){
     if(i===0){var s=document.getElementById('f-repo');if(!s.value){s.focus();return false;}}
     return true;
@@ -242,7 +259,8 @@ def _wizard_js() -> str:
   function review(){
     var sel=document.getElementById('f-repo');
     document.getElementById('r-repo').textContent=sel.value?sel.options[sel.selectedIndex].text:'—';
-    document.getElementById('r-bot').textContent=ownRadio.checked?__OWN__:__SHARED__;
+    var pf=isGC()?__PF_GC__:__PF_TG__;
+    document.getElementById('r-bot').textContent=pf+' · '+(ownRadio.checked&&!isGC()?__OWN__:__SHARED__);
     document.getElementById('r-branch').textContent=
       (document.getElementById('f-base').value||'dev')+' → '+(document.getElementById('f-prod').value||'main');
   }
@@ -260,7 +278,8 @@ def _wizard_js() -> str:
   back.addEventListener('click',function(){show(Math.max(cur-1,0));});
   show(0);
 })();
-</script>""".replace("__OWN__", own).replace("__SHARED__", shared)
+</script>""".replace("__OWN__", own).replace("__SHARED__", shared) \
+    .replace("__PF_TG__", pf_tg).replace("__PF_GC__", pf_gc)
 
 
 # ── Done ──────────────────────────────────────────────────────────────────────
@@ -270,7 +289,9 @@ def done(result, repo_full_name: str) -> str:
         cta = (f"<a class='btn btn-primary btn-lg btn-block' href='{esc(deeplink)}'>"
                f"{icon('send', 18)}{t('done.open_telegram')}</a>")
     else:
-        cta = (f"<div class='alert alert-success'>{icon('send', 18)}<div>{t('done.shared_msg')}"
+        # Bot chung không có deeplink riêng → hướng dẫn /start. Google Chat dùng thông điệp riêng.
+        msg = t("done.gchat_msg") if result.platform == "google_chat" else t("done.shared_msg")
+        cta = (f"<div class='alert alert-success'>{icon('send', 18)}<div>{msg}"
                f"<span class='code'>{esc(deeplink)}</span></div></div>")
     bot_label = ('@' + esc(result.bot_username)) if result.bot_username else t("common.luna_shared")
     body = f"""

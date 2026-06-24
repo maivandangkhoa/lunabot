@@ -42,6 +42,7 @@ class ProvisionResult:
     bot_username: str | None
     deeplink: str
     mode: str
+    platform: str = "telegram"
 
 
 def _default_factory(token: str) -> TelegramAdapter:
@@ -59,6 +60,7 @@ async def provision(
     installation_id: int,
     bot_choice: str,                 # "shared" | "own"
     hosting_choice: str,             # "shared_instance" | "dedicated_container"
+    platform: str = "telegram",      # "telegram" | "google_chat"
     display_name: str | None = None,
     bot_token: str | None = None,    # bắt buộc khi bot_choice="own"
     base_branch: str = "dev",
@@ -67,6 +69,14 @@ async def provision(
 ) -> ProvisionResult:
     factory = adapter_factory or _default_factory
     name = display_name or repo_full_name.split("/")[-1]
+
+    # Google Chat = Workspace add-on DÙNG CHUNG toàn cục (1 app duy nhất, không token/webhook
+    # riêng từng tenant như Telegram) ⇒ chỉ hỗ trợ bot chung. Ép shared, chặn "own".
+    if platform == "google_chat":
+        if bot_choice == "own":
+            raise ProvisioningError(
+                "Google Chat chỉ hỗ trợ bot Luna chung — chưa có bot riêng cho kênh này.")
+        bot_choice = "shared"
 
     # 0) Bot riêng: validate token + CHẶN TRÙNG trước khi tạo gì (1 token Telegram chỉ 1
     #    webhook → tạo trùng sẽ ghi đè webhook nhau + loạn link). Lỗi ⇒ chưa tạo tenant/repo.
@@ -91,26 +101,30 @@ async def provision(
     repo = add_repository(db, tenant, repo_full_name, installation_id,
                           base_branch=base_branch, prod_branch=prod_branch)
 
-    # 2) Bot row.
+    # 2) Bot row. Container riêng chỉ áp dụng cho Telegram (GC là add-on dùng chung).
     dep_mode = ("dedicated_container"
-                if hosting_choice == "dedicated_container" and settings.dedicated_container_enabled
+                if (platform == "telegram"
+                    and hosting_choice == "dedicated_container"
+                    and settings.dedicated_container_enabled)
                 else "shared_instance")
     bot = Bot(
-        tenant_id=tenant.id, platform="telegram", mode=bot_choice,
+        tenant_id=tenant.id, platform=platform, mode=bot_choice,
         deployment_mode=dep_mode, display_name=name,
         status="provisioning" if dep_mode == "dedicated_container" else "active",
     )
     db.add(bot)
     db.flush()
 
-    # 3) Bot riêng: mã hoá token + setWebhook (username đã validate ở bước 0).
-    bot_username: str | None = settings.telegram_bot_username  # mặc định = bot chung
+    # 3) Telegram bot riêng: mã hoá token + setWebhook (username đã validate ở bước 0).
+    #    Google Chat / Telegram chung: không có username/deeplink riêng (link thủ công /start).
+    bot_username: str | None = (
+        settings.telegram_bot_username if platform == "telegram" else None)
     if bot_choice == "own":
         bot_username = await _setup_own_bot(bot, bot_token, own_username, settings, factory)
 
     # 4) User chủ (admin = kiêm manager, tự duyệt merge main). Bot riêng ⇒ user.bot_id = bot.id.
     user = create_user(db, tenant, role=UserRole.ADMIN, display_name=owner_name,
-                       platform="telegram", bot_id=(bot.id if bot_choice == "own" else None))
+                       platform=platform, bot_id=(bot.id if bot_choice == "own" else None))
     user.active_repo_id = repo.id
 
     db.commit()
@@ -124,7 +138,7 @@ async def provision(
     return ProvisionResult(
         tenant_id=tenant.id, repo_id=repo.id, bot_id=bot.id, user_id=user.id,
         link_token=user.link_token, bot_username=bot_username, deeplink=deeplink,
-        mode=bot_choice,
+        mode=bot_choice, platform=platform,
     )
 
 

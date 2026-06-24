@@ -66,6 +66,40 @@ async def test_provision_shared_bot(db):
 
 
 @pytest.mark.asyncio
+async def test_provision_google_chat_shared(db):
+    """Google Chat = bot chung toàn cục: platform=google_chat, không token/username/deeplink t.me."""
+    s = _settings()
+    res = await provision(
+        db, s, owner_github_id=8, owner_github_login="kim", owner_name="Kim",
+        repo_full_name="kim/site", installation_id=222,
+        bot_choice="shared", hosting_choice="shared_instance", platform="google_chat",
+    )
+    bot = db.get(Bot, res.bot_id)
+    assert bot.platform == "google_chat" and bot.mode == "shared"
+    assert bot.token_encrypted is None
+    assert res.platform == "google_chat"
+    assert res.bot_username is None
+    assert res.deeplink == f"/start {res.link_token}"   # GC: link thủ công, không t.me
+    user = db.get(User, res.user_id)
+    assert user.platform == "google_chat" and user.bot_id is None and user.role == UserRole.ADMIN
+
+
+@pytest.mark.asyncio
+async def test_provision_google_chat_rejects_own_bot(db):
+    """Google Chat chưa có bot riêng → chọn 'own' phải bị chặn (không tạo tenant thừa)."""
+    s = _settings()
+    from app.models import Tenant
+    n_before = len(db.query(Tenant).all())
+    with pytest.raises(ProvisioningError):
+        await provision(
+            db, s, owner_github_id=8, owner_github_login="kim", owner_name="Kim",
+            repo_full_name="kim/site", installation_id=222,
+            bot_choice="own", hosting_choice="shared_instance", platform="google_chat",
+        )
+    assert len(db.query(Tenant).all()) == n_before
+
+
+@pytest.mark.asyncio
 async def test_provision_own_bot_encrypts_and_sets_webhook(db):
     s = _settings()
     captured = {}
