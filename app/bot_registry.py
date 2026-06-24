@@ -13,6 +13,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.channels.telegram import TelegramAdapter
+from app.channels.zalo import ZaloAdapter
 from app.config import get_settings
 from app.models import Bot
 from app.token_crypto import decrypt_token
@@ -32,16 +33,39 @@ def bot_token(bot: Bot, settings=None) -> str:
     return decrypt_token(bot.token_encrypted, s.bot_token_enc_key)
 
 
-def build_adapter(bot: Bot, settings=None) -> TelegramAdapter:
-    """Dựng TelegramAdapter cho 1 bot riêng (token giải mã + username để nhận @mention group)."""
-    if bot.platform != "telegram":
-        raise ValueError(f"Bot #{bot.id} platform={bot.platform} chưa hỗ trợ route đa bot.")
-    return TelegramAdapter(token=bot_token(bot, settings), bot_username=bot.username)
+def build_adapter(bot: Bot, settings=None) -> TelegramAdapter | ZaloAdapter:
+    """Dựng adapter phù hợp cho 1 bot riêng (token giải mã từ DB)."""
+    if bot.platform == "telegram":
+        return TelegramAdapter(token=bot_token(bot, settings), bot_username=bot.username)
+    if bot.platform == "zalo":
+        return _build_zalo_adapter(bot, settings)
+    raise ValueError(f"Bot #{bot.id} platform={bot.platform} chưa hỗ trợ route đa bot.")
+
+
+def _build_zalo_adapter(bot: Bot, settings=None) -> ZaloAdapter:
+    """Dựng ZaloAdapter từ Bot row (mode=own). Token lưu dạng JSON mã hoá Fernet."""
+    import json
+    s = settings or get_settings()
+    raw = decrypt_token(bot.token_encrypted or "", s.bot_token_enc_key)
+    try:
+        creds = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        raise ValueError(f"Bot #{bot.id}: token Zalo không đúng định dạng JSON.") from None
+    return ZaloAdapter(
+        app_id=creds.get("app_id", ""),
+        app_secret=creds.get("app_secret", ""),
+        access_token=creds.get("access_token", ""),
+        refresh_token=creds.get("refresh_token"),
+        oa_id=creds.get("oa_id"),
+        name="zalo",
+    )
 
 
 def webhook_url(bot: Bot, settings=None) -> str:
     s = settings or get_settings()
     base = (s.public_base_url or "").rstrip("/")
+    if bot.platform == "zalo":
+        return f"{base}/webhook/zalo/{bot.id}"
     return f"{base}/webhook/telegram/{bot.id}"
 
 

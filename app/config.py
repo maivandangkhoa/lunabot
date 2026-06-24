@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     # True = từ chối 401 khi JWT sai; False = audit (log nhưng cho qua) để debug.
     google_chat_verify_enforce: bool = True
 
+    # --- Zalo OA (shared instance — cấu hình bằng env, không qua wizard) ---
+    zalo_enabled: bool = False
+    zalo_app_id: str | None = None
+    zalo_app_secret: str | None = None
+    zalo_oa_access_token: str | None = None
+    zalo_oa_refresh_token: str | None = None
+    zalo_oa_id: str | None = None
+    # True = từ chối 403 khi signature sai; False = audit (log) để debug.
+    zalo_verify_enforce: bool = True
+
     # --- Web wizard self-service (GitHub OAuth + provisioning) ---
     # Bật web wizard khi đủ các biến này. URL công khai để dựng OAuth callback + webhook đa bot.
     public_base_url: str | None = None

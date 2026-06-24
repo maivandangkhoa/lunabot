@@ -19,6 +19,7 @@ from app.channels.google_chat import (
     is_button_click,
     verify_google_jwt,
 )
+from app.channels.zalo import ZaloAdapter
 from app.channels.telegram import TelegramAdapter
 from app.config import get_settings
 from app.db import SessionLocal
@@ -195,6 +196,114 @@ async def webhook_google_chat(
             status_code=status.HTTP_200_OK,
         )
     return JSONResponse(content={}, status_code=status.HTTP_200_OK)
+
+
+async def _process_zalo(raw: dict, bot_id: int | None = None) -> None:
+    """Xử lý nền 1 event Zalo (Claude lâu nên KHÔNG block response webhook)."""
+    db = SessionLocal()
+    if bot_id is not None:
+        bot = bot_registry.get_bot(db, bot_id)
+        if bot is None or bot.platform != "zalo":
+            db.close()
+            return
+        adapter = bot_registry.build_adapter(bot)
+    else:
+        adapter = ZaloAdapter.from_settings(settings)
+    try:
+        github = GitHubApp.from_settings()
+    except Exception:  # noqa: BLE001
+        github = None
+    try:
+        await handle_channel_update(db, adapter, github, raw,
+                                    bot_id=bot_id)
+    except Exception:  # noqa: BLE001
+        log.exception("zalo xử lý lỗi")
+    finally:
+        await adapter.aclose()
+        if github is not None:
+            await github.aclose()
+        db.close()
+
+
+@app.get("/webhook/zalo")
+async def webhook_zalo_verify(challenge: str | None = None) -> Response:
+    """Zalo OA webhook registration: GET với ?challenge=<token> → trả {"challenge": token}."""
+    if not settings.zalo_enabled:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    if challenge:
+        from fastapi.responses import JSONResponse as _J
+        return _J(content={"challenge": challenge})
+    return Response(status_code=status.HTTP_200_OK)
+
+
+@app.post("/webhook/zalo")
+async def webhook_zalo(
+    request: Request,
+    x_zoa_signature: str | None = Header(default=None),
+) -> Response:
+    """Zalo OA shared webhook. Ack 200 ngay, xử lý nền."""
+    if not settings.zalo_enabled:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    body = await request.body()
+    if settings.zalo_app_secret and x_zoa_signature:
+        adapter_tmp = ZaloAdapter.from_settings(settings)
+        if not adapter_tmp.verify_signature(body, x_zoa_signature):
+            log.warning("zalo: signature không hợp lệ")
+            if settings.zalo_verify_enforce:
+                return Response(status_code=status.HTTP_403_FORBIDDEN)
+    import json as _json
+    try:
+        raw = _json.loads(body)
+    except Exception:  # noqa: BLE001
+        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+    task = asyncio.create_task(_process_zalo(raw))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return Response(status_code=status.HTTP_200_OK)
+
+
+@app.get("/webhook/zalo/{bot_id}")
+async def webhook_zalo_bot_verify(bot_id: int, challenge: str | None = None) -> Response:
+    """Webhook registration cho Zalo bot riêng (own mode)."""
+    if challenge:
+        from fastapi.responses import JSONResponse as _J
+        return _J(content={"challenge": challenge})
+    return Response(status_code=status.HTTP_200_OK)
+
+
+@app.post("/webhook/zalo/{bot_id}")
+async def webhook_zalo_bot(
+    bot_id: int,
+    request: Request,
+    x_zoa_signature: str | None = Header(default=None),
+) -> Response:
+    """Webhook Zalo bot riêng. Ack 200 ngay, xử lý nền."""
+    db = SessionLocal()
+    try:
+        bot = bot_registry.get_bot(db, bot_id)
+        if bot is None or bot.platform != "zalo" or bot.mode != "own":
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+        body = await request.body()
+        if bot.webhook_secret and x_zoa_signature:
+            from app.token_crypto import decrypt_token
+            app_secret = decrypt_token(bot.webhook_secret, settings.bot_token_enc_key)
+            tmp = ZaloAdapter(app_id="", app_secret=app_secret, access_token="")
+            if not tmp.verify_signature(body, x_zoa_signature):
+                log.warning("zalo bot=%s: signature không hợp lệ", bot_id)
+                return Response(status_code=status.HTTP_403_FORBIDDEN)
+        import json as _json
+        try:
+            raw = _json.loads(body)
+        except Exception:  # noqa: BLE001
+            return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        task = asyncio.create_task(_process_zalo(raw, bot_id=bot_id))
+        _bg_tasks.add(task)
+        task.add_done_callback(_bg_tasks.discard)
+    except Exception:  # noqa: BLE001
+        log.exception("zalo bot=%s webhook lỗi", bot_id)
+    finally:
+        db.close()
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @app.post("/webhook/github")
