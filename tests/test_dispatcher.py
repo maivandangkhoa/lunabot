@@ -288,6 +288,22 @@ async def test_admin_command_blocked_in_group(db, fakes):
 
 
 @pytest.mark.asyncio
+async def test_safe_command_allowed_in_group(db, fakes):
+    """Lệnh chỉ-đọc (/whoami) chạy được trong group và trả lời ngay trong thread."""
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "@LunaBot /whoami", -100))
+    # Không bị chặn DM-only, và reply về group (-100) chứ không DM riêng.
+    assert not any("nhắn riêng" in s[1].lower() for s in fakes["adapter"].sent)
+    assert any(s[0] == "-100" for s in fakes["adapter"].sent)
+    assert any(str(u.id) in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
 async def test_callback_answered_and_routed(db, fakes, monkeypatch):
     t = create_tenant(db, "Acme")
     repo = add_repository(db, t, "acme/widgets", 123)

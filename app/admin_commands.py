@@ -43,10 +43,13 @@ def _role(s: str) -> UserRole | None:
         return None
 
 
-async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text: str) -> None:
+async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text: str,
+                         reply_to: str | None = None) -> None:
     parts = text.split()
     cmd = parts[0].lower()
-    send = lambda t: adapter.send(user.platform_user_id, t)  # noqa: E731
+    # Mặc định trả về DM của user; group cho lệnh chỉ-đọc thì trả ngay trong thread (reply_to).
+    target = reply_to or user.platform_user_id
+    send = lambda t: adapter.send(target, t)  # noqa: E731
 
     if cmd in ("/help", "/start"):
         await send(help_text())

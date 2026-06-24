@@ -30,6 +30,9 @@ log = logging.getLogger("luna.dispatcher")
 
 _TEXT_ACTIVE = (RequestStatus.CLARIFYING, RequestStatus.VERIFY)
 _W_CLEAR = {"/clear", "/new", "/reset"}     # huỷ request đang mở → mở session mới
+# Lệnh chỉ-đọc, không in token → an toàn dùng trong group (trả lời ngay trong thread).
+# Các lệnh in token / sửa dữ liệu (/users, /invite, /role, /unlink, /addrepo) vẫn DM-only.
+_W_GROUP_SAFE = {"/whoami", "/help", "/repos", "/repo"}
 
 # Từ khoá text thay cho bấm nút (kênh add-on như Google Chat không route click về endpoint).
 _W_CONFIRM = {"ok", "confirm", "duyệt", "duyet", "đồng ý", "dong y", "yes", "y", "ừ", "u"}
@@ -153,10 +156,11 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         return
 
     if inbound.callback_data is None and is_command(text):
-        if inbound.is_group:
+        if inbound.is_group and _cmd0 not in _W_GROUP_SAFE:
             await adapter.send(reply_to, t("disp.admin_dm_only"))
             return
-        await handle_command(db, adapter, user, text)
+        # Group: lệnh chỉ-đọc trả lời ngay trong thread; DM: như cũ (reply_to = chính user).
+        await handle_command(db, adapter, user, text, reply_to=reply_to)
         return
 
     orch = Orchestrator(db, adapter, github=github)

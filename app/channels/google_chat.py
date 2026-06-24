@@ -270,8 +270,10 @@ class GoogleChatAdapter:
             space_obj = chat["addedToSpacePayload"].get("space", {})
         space = space_obj.get("name")
         is_group = _space_is_group(space_obj)
-        if space and uid:
-            self._space_cache[uid] = space      # nhớ space để resolve DM khi reply
+        # CHỈ cache space của DM (1:1). Cache map user→DM space để resolve khi reply riêng;
+        # nếu nhét cả space group vào đây, lần sau DM bot sẽ resolve nhầm về group.
+        if space and uid and not is_group:
+            self._space_cache[uid] = space
         # Group: định danh hội thoại = THREAD (1 thread = 1 request); DM: theo space.
         chat_id = (thread or space) if (is_group and space) else space
         return InboundMessage(
@@ -286,7 +288,8 @@ class GoogleChatAdapter:
         space = space_obj.get("name")
         is_group = _space_is_group(space_obj)
         thread = (raw.get("message", {}).get("thread") or {}).get("name")
-        if space and uid:
+        # CHỈ cache space của DM (xem _parse_addon) — tránh resolve nhầm DM về group.
+        if space and uid and not is_group:
             self._space_cache[uid] = space
         # Group: định danh hội thoại = THREAD (1 thread = 1 request); DM: theo space.
         chat_id = (thread or space) if (is_group and space) else space

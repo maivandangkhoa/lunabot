@@ -105,6 +105,31 @@ async def test_send_to_space_skips_dm_resolution():
 
 
 @pytest.mark.asyncio
+async def test_group_inbound_does_not_pollute_dm_cache():
+    """Chat trong group KHÔNG được cache space group cho user → DM sau đó không bị
+    trả nhầm vào group. send(users/..) phải resolve qua findDirectMessage ra DM thật."""
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        if req.url.path == "/v1/spaces:findDirectMessage":
+            return httpx.Response(200, json={"name": "spaces/DM1"})
+        return httpx.Response(200, json={"name": "spaces/DM1/messages/1"})
+
+    a = _adapter(handler)
+    # 1) User nhắn trong group ROOM1.
+    a.parse_inbound({"type": "MESSAGE", "user": {"name": "users/111"},
+                     "space": {"name": "spaces/ROOM1", "type": "ROOM"},
+                     "message": {"text": "@Luna ok", "argumentText": "ok"}})
+    assert "users/111" not in a._space_cache       # group space KHÔNG bị cache
+    # 2) Bot trả lời DM riêng cho user → phải ra DM1, không phải ROOM1.
+    await a.send("users/111", "reply")
+    assert "/v1/spaces:findDirectMessage" in calls
+    assert "/v1/spaces/ROOM1/messages" not in calls
+    assert "/v1/spaces/DM1/messages" in calls
+
+
+@pytest.mark.asyncio
 async def test_group_inbound_chat_id_is_thread():
     """Group: chat_id = THREAD (1 thread = 1 request), không phải space."""
     a = GoogleChatAdapter()
