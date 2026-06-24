@@ -433,7 +433,8 @@ async def activity(request: Request, db: Session = Depends(get_db)):
             .order_by(RequestEvent.created_at.desc()).limit(40)
         ).all()
         rows = [{"title": title, "kind": ev.kind.value, "direction": ev.direction.value,
-                 "when": _fmt(ev.created_at)} for ev, title in evs]
+                 "payload": ev.payload_json or {}, "when": _fmt(ev.created_at)}
+                for ev, title in evs]
     return HTMLResponse(pages.activity(data.get("name") or data["login"], rows))
 
 

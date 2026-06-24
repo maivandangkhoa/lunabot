@@ -173,6 +173,28 @@ TEXTS: dict[str, dict[str, str]] = {
     "act.subtitle": {"vi": "Dòng sự kiện mới nhất xuyên suốt các yêu cầu.", "en": "The latest stream of events across all requests.", "ko": "모든 요청에 걸친 최신 이벤트 스트림입니다."},
     "act.empty.title": {"vi": "Chưa có hoạt động", "en": "No activity yet", "ko": "아직 활동이 없습니다"},
     "act.empty.desc": {"vi": "Sự kiện sẽ xuất hiện khi bot của bạn bắt đầu xử lý yêu cầu.", "en": "Events will show up once your bots start handling requests.", "ko": "봇이 요청을 처리하기 시작하면 이벤트가 표시됩니다."},
+    # Nhãn loại sự kiện (Activity feed)
+    "act.ev.new_request": {"vi": "Yêu cầu mới", "en": "New request", "ko": "새 요청"},
+    "act.ev.user_msg": {"vi": "Tin nhắn từ người dùng", "en": "User message", "ko": "사용자 메시지"},
+    "act.ev.images": {"vi": "Đã gửi hình ảnh", "en": "Images sent", "ko": "이미지 전송됨"},
+    "act.ev.clarify": {"vi": "Bot hỏi làm rõ", "en": "Bot asked to clarify", "ko": "봇이 추가 정보 요청"},
+    "act.ev.plan": {"vi": "Bot trình kế hoạch", "en": "Bot proposed a plan", "ko": "봇이 계획 제안"},
+    "act.ev.verify": {"vi": "Kiểm thử", "en": "Verification", "ko": "검증"},
+    "act.ev.approve": {"vi": "Đã duyệt", "en": "Approved", "ko": "승인됨"},
+    "act.ev.exec": {"vi": "Kết quả thực thi", "en": "Execution result", "ko": "실행 결과"},
+    "act.ev.pr": {"vi": "Đã tạo Pull Request", "en": "Pull Request created", "ko": "풀 리퀘스트 생성됨"},
+    "act.ev.system": {"vi": "Bot phản hồi", "en": "Bot reply", "ko": "봇 응답"},
+    "act.ev.confirm": {"vi": "Người dùng phản hồi", "en": "User responded", "ko": "사용자 응답"},
+    "act.ev.generic": {"vi": "Sự kiện", "en": "Event", "ko": "이벤트"},
+    # Nhãn hành động xác nhận (CONFIRM)
+    "act.confirm.confirm": {"vi": "Đồng ý kế hoạch", "en": "Approved the plan", "ko": "계획 승인"},
+    "act.confirm.reject": {"vi": "Yêu cầu sửa kế hoạch", "en": "Requested plan changes", "ko": "계획 수정 요청"},
+    "act.confirm.verify_ok": {"vi": "Xác nhận đạt", "en": "Verified OK", "ko": "검증 완료"},
+    "act.confirm.verify_fix": {"vi": "Yêu cầu sửa thêm", "en": "Requested more fixes", "ko": "추가 수정 요청"},
+    "act.confirm.mgr_approve": {"vi": "Manager duyệt merge", "en": "Manager approved merge", "ko": "관리자 병합 승인"},
+    "act.confirm.mgr_reject": {"vi": "Manager từ chối", "en": "Manager rejected", "ko": "관리자 거부"},
+    "act.confirm.cancel": {"vi": "Huỷ yêu cầu", "en": "Cancelled request", "ko": "요청 취소"},
+    "act.confirm.clear": {"vi": "Đặt lại hội thoại", "en": "Reset conversation", "ko": "대화 초기화"},
 
     # ── Settings ──
     "set.title": {"vi": "Cài đặt", "en": "Settings", "ko": "설정"},

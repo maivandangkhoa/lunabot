@@ -123,16 +123,63 @@ def requests(user_name: str, rows: list[dict]) -> str:
 
 
 # ── Activity ──────────────────────────────────────────────────────────────────
+def _event_label(kind: str, payload: dict) -> str:
+    """Nhãn người-đọc cho 1 sự kiện (theo kind + payload), thay vì lặp tiêu đề request."""
+    p = payload or {}
+    if kind == "confirm":
+        key = f"act.confirm.{p.get('action')}"
+        s = t(key)
+        return s if s != key else t("act.ev.confirm")
+    if kind == "msg":
+        if "title" in p:
+            return t("act.ev.new_request")
+        if "images" in p:
+            return t("act.ev.images")
+        return t("act.ev.user_msg")
+    if kind == "system":
+        if p.get("pr_url"):
+            return t("act.ev.pr")
+        if "result" in p or "ok" in p:
+            return t("act.ev.exec")
+        return t("act.ev.system")
+    return t(f"act.ev.{kind}") if t(f"act.ev.{kind}") != f"act.ev.{kind}" else t("act.ev.generic")
+
+
+def _event_snippet(kind: str, payload: dict) -> str:
+    """Trích nội dung ngắn từ payload để mỗi dòng kể được chuyện (không lặp tiêu đề)."""
+    p = payload or {}
+    if kind == "msg":
+        return p.get("text") or ""  # bỏ qua 'title' (đã hiện ở dòng meta)
+    if kind == "clarify":
+        qs = p.get("questions")
+        return " · ".join(qs) if isinstance(qs, list) else (qs or "")
+    if kind == "plan":
+        return p.get("summary") or ""
+    if kind == "system":
+        if p.get("pr_url"):
+            return p["pr_url"]
+        return (p.get("result") if "result" in p else p.get("payload")) or ""
+    return ""
+
+
 def _event_row(e: dict) -> str:
+    kind = e.get("kind") or ""
+    payload = e.get("payload") or {}
     ico = "send" if e.get("direction") == "out" else "requests"
-    kind = esc((e.get("kind") or "").replace("_", " "))
-    when = f" · {esc(e['when'])}" if e.get("when") else ""
+    label = esc(_event_label(kind, payload))
+    snippet = _event_snippet(kind, payload).strip()
+    if len(snippet) > 140:
+        snippet = snippet[:140].rstrip() + "…"
+    snip_html = (f"<div style='font-size:13px;color:var(--text-2);margin:3px 0 0;overflow:hidden;"
+                 f"text-overflow:ellipsis;white-space:nowrap'>{esc(snippet)}</div>" if snippet else "")
+    meta = " · ".join(x for x in (esc(e.get("title") or "—"), esc(e.get("when") or "")) if x)
     return f"""
       <div class='card card-tight card-row'>
         <span class='ws-ico' style='width:36px;height:36px;flex:none'>{icon(ico, 16)}</span>
         <div style='min-width:0'>
-          <div style='font-weight:600;font-size:14px'>{esc(e.get('title') or '—')}</div>
-          <div class='hint' style='margin:2px 0 0'>{kind}{when}</div>
+          <div style='font-weight:600;font-size:14px'>{label}</div>
+          {snip_html}
+          <div class='hint' style='margin:3px 0 0'>{meta}</div>
         </div>
       </div>"""
 
