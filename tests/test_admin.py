@@ -5,6 +5,7 @@ from app.admin_commands import handle_command
 from app.dispatcher import handle_telegram_update
 from app.models import Repository, User, UserRole
 from app.onboarding import (
+    AlreadyLinkedError,
     add_repository,
     create_tenant,
     create_user,
@@ -30,6 +31,36 @@ def test_link_clears_token(db):
     assert linked.link_token is None  # token vô hiệu sau khi dùng
     # Dùng lại token cũ → không link được nữa.
     assert link_user(db, tok, "chat-x") is None
+
+
+def test_shared_bot_account_links_only_one_tenant(db):
+    """Bot chung (bot_id=NULL): cùng 1 tài khoản chat KHÔNG link được vào tenant thứ 2.
+
+    Unique constraint của Postgres bỏ qua hàng có bot_id NULL ⇒ phải chặn ở tầng app.
+    """
+    t1 = create_tenant(db, "Acme")
+    u1 = create_user(db, t1, role=UserRole.ADMIN)
+    assert link_user(db, u1.link_token, "chat-7").tenant_id == t1.id
+
+    t2 = create_tenant(db, "Globex")
+    u2 = create_user(db, t2, role=UserRole.ADMIN)
+    # Cùng "chat-7" định link sang tenant khác (cùng bot chung) → từ chối, không tạo trùng.
+    with pytest.raises(AlreadyLinkedError):
+        link_user(db, u2.link_token, "chat-7")
+    # Vẫn route về tenant gốc, token tenant 2 chưa bị tiêu (link lại được sau khi đổi tài khoản).
+    assert get_user_by_platform(db, "telegram", "chat-7").tenant_id == t1.id
+    assert u2.link_token is not None
+
+
+def test_own_bot_same_account_links_multiple_tenants(db):
+    """Bot riêng: mỗi bot_id khác nhau ⇒ cùng tài khoản chat làm admin nhiều tenant (cô lập)."""
+    t1 = create_tenant(db, "Acme")
+    u1 = create_user(db, t1, role=UserRole.ADMIN, bot_id=11)
+    t2 = create_tenant(db, "Globex")
+    u2 = create_user(db, t2, role=UserRole.ADMIN, bot_id=22)
+    assert link_user(db, u1.link_token, "chat-7", bot_id=11).tenant_id == t1.id
+    # Cùng "chat-7" nhưng bot khác → KHÔNG bị chặn (scope theo bot_id).
+    assert link_user(db, u2.link_token, "chat-7", bot_id=22).tenant_id == t2.id
 
 
 @pytest.mark.asyncio

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.admin_commands import handle_command, help_text, is_command
 from app.channels.base import Button, ChannelAdapter
 from app.models import Repository, Request, RequestStatus, User, UserRole
-from app.onboarding import get_user_by_platform, link_user
+from app.onboarding import AlreadyLinkedError, get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
 from app.web.i18n import detect, normalize, set_lang, t
@@ -338,7 +338,12 @@ async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: 
     if len(parts) < 2 or not parts[1].strip():
         await adapter.send(platform_user_id, t("disp.start_welcome"))
         return
-    user = link_user(db, parts[1].strip(), platform_user_id, platform=adapter.name, bot_id=bot_id)
+    try:
+        user = link_user(db, parts[1].strip(), platform_user_id, platform=adapter.name, bot_id=bot_id)
+    except AlreadyLinkedError:
+        # Tài khoản này đã thuộc 1 tenant khác trên cùng bot → không link chồng (route nhập nhằng).
+        await adapter.send(platform_user_id, t("disp.start_already_linked"))
+        return
     if user is None:
         await adapter.send(platform_user_id, t("disp.start_bad_token"))
         return

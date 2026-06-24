@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 from app.models import Repository, Tenant, User, UserRole
 
 
+class AlreadyLinkedError(RuntimeError):
+    """Tài khoản chat này đã liên kết với 1 user khác (cùng bot) — không link chồng."""
+
+
 def create_tenant(db: Session, name: str, *, plan: str = "free") -> Tenant:
     t = Tenant(name=name, plan=plan)
     db.add(t)
@@ -68,6 +72,22 @@ def link_user(db: Session, link_token: str, platform_user_id: str,
         return None
     if u.bot_id != bot_id:
         return None
+    # Bot chung (bot_id=NULL): Postgres coi NULL distinct ⇒ unique constraint KHÔNG chặn trùng
+    # (bot_id, platform, platform_user_id). Chặn ở tầng app: 1 tài khoản chat trên 1 bot chỉ
+    # thuộc 1 tenant — nếu danh tính này đã gắn user khác ⇒ từ chối (tránh route nhập nhằng).
+    lookup_platform = platform or u.platform
+    dup = db.scalars(
+        select(User).where(
+            User.bot_id == bot_id,
+            User.platform == lookup_platform,
+            User.platform_user_id == platform_user_id,
+            User.id != u.id,
+        )
+    ).first()
+    if dup is not None:
+        raise AlreadyLinkedError(
+            f"platform_user_id={platform_user_id} đã liên kết user #{dup.id} (tenant {dup.tenant_id})"
+        )
     if platform:
         u.platform = platform
     u.platform_user_id = platform_user_id
