@@ -301,3 +301,20 @@ class Approval(Base):
     created_at: Mapped[datetime] = _created_at()
 
     request: Mapped[Request] = relationship(back_populates="approvals")
+
+
+class PlatformAdmin(Base):
+    """Super admin của nền tảng — danh tính theo GitHub (giống danh tính đăng nhập web).
+
+    KHÔNG đặt cờ trên `users` vì bảng đó là chat-user theo tenant (không có GitHub id).
+    Danh tính web thực sự là `github_id` (session OAuth) ⇒ bảng riêng khoá theo nó.
+    Có 1 dòng = là super admin; quản trị toàn hệ thống (xem mọi tenant). Seed dòng đầu
+    bằng `python -m app.grant_admin <github_login|github_id>`.
+    """
+
+    __tablename__ = "platform_admins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    github_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
+    github_login: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = _created_at()

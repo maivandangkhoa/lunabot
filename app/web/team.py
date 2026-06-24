@@ -72,7 +72,7 @@ def _invite_binding(db: Session, tn: Tenant) -> tuple[str, int | None]:
 
 @router.get("/users", response_class=HTMLResponse)
 async def users(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     workspaces = []

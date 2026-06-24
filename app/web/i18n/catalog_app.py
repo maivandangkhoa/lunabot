@@ -24,6 +24,8 @@ TEXTS: dict[str, dict[str, str]] = {
     "nav.activity": {"vi": "Hoạt động", "en": "Activity", "ko": "활동"},
     "nav.users": {"vi": "Người dùng", "en": "Team", "ko": "팀"},
     "nav.settings": {"vi": "Cài đặt", "en": "Settings", "ko": "설정"},
+    "nav.platform": {"vi": "Nền tảng", "en": "Platform", "ko": "플랫폼"},
+    "nav.admin": {"vi": "Quản trị tenant", "en": "Tenants admin", "ko": "테넌트 관리"},
     "shell.search": {"vi": "Tìm kiếm…", "en": "Search…", "ko": "검색…"},
     "shell.notifications": {"vi": "Thông báo", "en": "Notifications", "ko": "알림"},
     "shell.menu": {"vi": "Menu", "en": "Menu", "ko": "메뉴"},
@@ -140,6 +142,19 @@ TEXTS: dict[str, dict[str, str]] = {
     "repos.installed": {"vi": "Đã cài đặt", "en": "Installed", "ko": "설치됨"},
     "repos.not_installed": {"vi": "Chưa cài GitHub App", "en": "GitHub App not installed", "ko": "GitHub App 미설치"},
     "repos.bots": {"vi": "{n} bot", "en": "{n} bot(s)", "ko": "봇 {n}개"},
+    "repos.add": {"vi": "Thêm repo", "en": "Add repo", "ko": "저장소 추가"},
+
+    # ── Add repository (vào tenant đã có — KHÔNG tạo bot/link mới) ──
+    "title.repo_add": {"vi": "Luna — Thêm repository", "en": "Luna — Add repository", "ko": "Luna — 저장소 추가"},
+    "repoadd.title": {"vi": "Thêm repository", "en": "Add repository", "ko": "저장소 추가"},
+    "repoadd.subtitle": {"vi": "Gắn thêm repo vào workspace có sẵn — dùng lại bot & liên kết chat hiện tại, không tạo bot mới.", "en": "Attach another repo to an existing workspace — reuses your current bot & chat link, no new bot.", "ko": "기존 워크스페이스에 저장소를 추가합니다 — 현재 봇과 채팅 연결을 재사용하며 새 봇을 만들지 않습니다."},
+    "repoadd.tenant": {"vi": "Workspace", "en": "Workspace", "ko": "워크스페이스"},
+    "repoadd.select": {"vi": "Chọn repository", "en": "Select repository", "ko": "저장소 선택"},
+    "repoadd.btn": {"vi": "Thêm repository", "en": "Add repository", "ko": "저장소 추가"},
+    "repoadd.err.tenant": {"vi": "Workspace không hợp lệ.", "en": "Invalid workspace.", "ko": "유효하지 않은 워크스페이스입니다."},
+    "repoadd.err.repo": {"vi": "Chưa chọn repo hợp lệ.", "en": "No valid repository selected.", "ko": "유효한 저장소를 선택하지 않았습니다."},
+    "repoadd.err.exists": {"vi": "Repo {name} đã có trong workspace này.", "en": "Repo {name} is already in this workspace.", "ko": "{name} 저장소가 이미 이 워크스페이스에 있습니다."},
+    "wizard.have_ws": {"vi": "Bạn đã có workspace. Trang này tạo bot/workspace MỚI — chỉ muốn thêm repo vào workspace cũ?", "en": "You already have a workspace. This page creates a NEW bot/workspace — just want to add a repo to an existing one?", "ko": "이미 워크스페이스가 있습니다. 이 페이지는 새 봇/워크스페이스를 만듭니다 — 기존 워크스페이스에 저장소만 추가하시겠어요?"},
 
     # ── Requests ──
     "reqs.title": {"vi": "Yêu cầu", "en": "Requests", "ko": "요청"},
@@ -188,4 +203,23 @@ TEXTS: dict[str, dict[str, str]] = {
     "team.invite_btn": {"vi": "Mời", "en": "Invite", "ko": "초대"},
     "team.empty.title": {"vi": "Chưa có workspace nào", "en": "No workspaces yet", "ko": "아직 워크스페이스가 없습니다"},
     "team.empty.desc": {"vi": "Tạo bot đầu tiên để có workspace, rồi mời thành viên vào đây.", "en": "Create your first bot to get a workspace, then invite members here.", "ko": "첫 봇을 만들어 워크스페이스를 생성한 뒤 멤버를 초대하세요."},
+
+    # ── Platform admin (super admin — xem mọi tenant) ──
+    "title.admin": {"vi": "Luna — Quản trị tenant", "en": "Luna — Tenants admin", "ko": "Luna — 테넌트 관리"},
+    "admin.title": {"vi": "Quản trị tenant", "en": "Tenants admin", "ko": "테넌트 관리"},
+    "admin.subtitle": {"vi": "Toàn cảnh nền tảng — mọi tenant và thống kê hệ thống.", "en": "Platform-wide view — every tenant and system stats.", "ko": "플랫폼 전체 보기 — 모든 테넌트와 시스템 통계."},
+    "admin.stat.tenants": {"vi": "Tenant", "en": "Tenants", "ko": "테넌트"},
+    "admin.stat.bots": {"vi": "Bot", "en": "Bots", "ko": "봇"},
+    "admin.stat.repos": {"vi": "Kho mã", "en": "Repositories", "ko": "저장소"},
+    "admin.stat.users": {"vi": "Người dùng", "en": "Users", "ko": "사용자"},
+    "admin.stat.requests": {"vi": "Yêu cầu", "en": "Requests", "ko": "요청"},
+    "admin.stat.active": {"vi": "Đang xử lý", "en": "In progress", "ko": "진행 중"},
+    "admin.tenants": {"vi": "Tất cả tenant", "en": "All tenants", "ko": "모든 테넌트"},
+    "admin.col.owner": {"vi": "Chủ sở hữu", "en": "Owner", "ko": "소유자"},
+    "admin.col.plan": {"vi": "Gói", "en": "Plan", "ko": "요금제"},
+    "admin.col.platform": {"vi": "Kênh", "en": "Channel", "ko": "채널"},
+    "admin.col.counts": {"vi": "Repo / Bot / User / Yêu cầu", "en": "Repos / Bots / Users / Requests", "ko": "저장소 / 봇 / 사용자 / 요청"},
+    "admin.col.created": {"vi": "Ngày tạo", "en": "Created", "ko": "생성일"},
+    "admin.empty.title": {"vi": "Chưa có tenant nào", "en": "No tenants yet", "ko": "아직 테넌트가 없습니다"},
+    "admin.empty.desc": {"vi": "Tenant sẽ xuất hiện ở đây khi khách tạo bot qua wizard.", "en": "Tenants appear here once customers create bots via the wizard.", "ko": "고객이 마법사로 봇을 만들면 여기에 테넌트가 표시됩니다."},
 }

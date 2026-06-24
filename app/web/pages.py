@@ -103,12 +103,12 @@ def _repo_card(r: dict) -> str:
 
 
 def repositories(user_name: str, rows: list[dict]) -> str:
-    head = _head("repos.title", "repos.subtitle", "/wizard", "repos.connect")
+    head = _head("repos.title", "repos.subtitle", "/repo/add", "repos.add")
     if rows:
         body = "<div class='stack-sm'>" + "".join(_repo_card(r) for r in rows) + "</div>"
     else:
         body = _empty("repo", t("repos.empty.title"), t("repos.empty.desc"),
-                      "/wizard", t("repos.connect"))
+                      "/repo/add", t("repos.add"))
     return shell(t("title.repositories"), active="repo", user_name=user_name, body=head + body)
 
 
@@ -279,3 +279,50 @@ def team(user_name: str, workspaces: list[dict], csrf: str) -> str:
     else:
         body = _empty("users", t("team.empty.title"), t("team.empty.desc"), "/wizard", t("dash.new"))
     return shell(t("title.users"), active="users", user_name=user_name, body=head + body)
+
+
+# ── Platform admin (super admin — read-only: mọi tenant + thống kê) ────────────
+def _admin_tenant_row(tn: dict) -> str:
+    owner = tn.get("owner") or "—"
+    counts = (f"{tn.get('repos', 0)} · {tn.get('bots', 0)} · "
+              f"{tn.get('users', 0)} · {tn.get('requests', 0)}")
+    return f"""
+      <div class='card card-tight card-row' style='justify-content:space-between;gap:12px;flex-wrap:wrap'>
+        <div class='card-row' style='min-width:0'>
+          <span class='ws-ico' style='width:40px;height:40px;flex:none'>{icon('moon', 18)}</span>
+          <div style='min-width:0'>
+            <div style='font-weight:600;font-size:15px'>{esc(tn.get('name') or '—')}</div>
+            <div class='hint' style='margin:2px 0 0;display:flex;gap:8px;align-items:center'>
+              {icon('users', 13)}{esc(owner)}</div>
+          </div>
+        </div>
+        <div class='card-row' style='gap:14px;flex:none;flex-wrap:wrap'>
+          <span class='hint' style='margin:0'>{t('admin.col.counts')}: <b>{esc(counts)}</b></span>
+          <span class='badge badge-muted'>{esc(tn.get('platform') or '—')}</span>
+          <span class='badge badge-info'>{t('admin.col.plan')}: {esc(tn.get('plan') or 'free')}</span>
+          <span class='hint' style='margin:0'>{esc(tn.get('created') or '')}</span>
+        </div>
+      </div>"""
+
+
+def admin(user_name: str, stats: dict, tenants: list[dict]) -> str:
+    cells = [
+        ("layers", "admin.stat.tenants", stats.get("tenants", 0)),
+        ("bot", "admin.stat.bots", stats.get("bots", 0)),
+        ("repo", "admin.stat.repos", stats.get("repos", 0)),
+        ("users", "admin.stat.users", stats.get("users", 0)),
+        ("requests", "admin.stat.requests", stats.get("requests", 0)),
+        ("activity", "admin.stat.active", stats.get("active", 0)),
+    ]
+    grid = "<div class='stats'>" + "".join(
+        f"<div class='card stat'><div class='stat-num'>{int(n)}</div>"
+        f"<div class='stat-lbl'>{icon(ico, 15)}{t(key)}</div></div>"
+        for ico, key, n in cells
+    ) + "</div>"
+    if tenants:
+        body = (f"<h2 class='section-title' style='margin:6px 0 14px'>{t('admin.tenants')}</h2>"
+                "<div class='stack-sm'>" + "".join(_admin_tenant_row(tn) for tn in tenants) + "</div>")
+    else:
+        body = _empty("layers", t("admin.empty.title"), t("admin.empty.desc"))
+    head = _head("admin.title", "admin.subtitle")
+    return shell(t("title.admin"), active="admin", user_name=user_name, body=head + grid + body)

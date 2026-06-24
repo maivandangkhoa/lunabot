@@ -81,6 +81,110 @@ def test_landing_redirects_existing_tenant_to_dashboard(monkeypatch, db):
         app.dependency_overrides.pop(get_db, None)
 
 
+def _dev_settings():
+    """Settings với web_dev_login=True ⇒ /repo/add liệt kê repo giả, không gọi GitHub."""
+    from app.config import Settings
+    return Settings(_env_file=None, public_base_url="https://x", github_oauth_client_id="c",
+                    github_oauth_client_secret="d", github_app_slug="luna",
+                    web_session_secret="sek", web_dev_login=True)
+
+
+def _dev_cookie(uid: int = 7, login: str = "owner"):
+    return sess.dumps({"tok": "dev", "login": login, "uid": uid, "name": "O"}, "sek")
+
+
+def test_repo_add_attaches_to_existing_tenant(monkeypatch, db):
+    """POST /repo/add gắn repo vào tenant có sẵn — KHÔNG đẻ bot/user/link mới."""
+    from app.db import get_db
+    from app.models import Bot, Repository, Tenant, User
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _dev_settings())
+    t = Tenant(name="Acme", owner_github_id=7, owner_github_login="owner")
+    db.add(t)
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME, _dev_cookie())
+        r = client.post("/repo/add", follow_redirects=False, data={
+            "csrf": "", "tenant_id": str(t.id),
+            "repo": "demo-org/shop|1", "base_branch": "dev", "prod_branch": "main"})
+        assert r.status_code == 303 and r.headers["location"] == "/repositories"
+        repos = db.query(Repository).filter_by(tenant_id=t.id).all()
+        assert [x.repo_full_name for x in repos] == ["demo-org/shop"]
+        assert repos[0].gh_installation_id == 1
+        assert db.query(Bot).count() == 0 and db.query(User).count() == 0  # không provision
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_repo_add_rejects_other_users_tenant(monkeypatch, db):
+    """Không cho thêm repo vào tenant của người khác (guard ownership)."""
+    from app.db import get_db
+    from app.models import Repository, Tenant
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _dev_settings())
+    victim = Tenant(name="Victim", owner_github_id=999, owner_github_login="other")
+    db.add(victim)
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME, _dev_cookie())   # uid=7, KHÔNG sở hữu victim
+        r = client.post("/repo/add", follow_redirects=False, data={
+            "csrf": "", "tenant_id": str(victim.id), "repo": "demo-org/shop|1"})
+        assert r.status_code == 200                            # render lại kèm lỗi, không redirect
+        assert db.query(Repository).count() == 0
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_repo_add_blocks_duplicate(monkeypatch, db):
+    """Repo đã có trong tenant → báo lỗi, không tạo bản ghi trùng."""
+    from app.db import get_db
+    from app.models import Repository, Tenant
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _dev_settings())
+    t = Tenant(name="Acme", owner_github_id=7, owner_github_login="owner")
+    db.add(t)
+    db.flush()
+    db.add(Repository(tenant_id=t.id, repo_full_name="demo-org/shop", gh_installation_id=1))
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME, _dev_cookie())
+        r = client.post("/repo/add", follow_redirects=False, data={
+            "csrf": "", "tenant_id": str(t.id), "repo": "demo-org/shop|1"})
+        assert r.status_code == 200
+        assert db.query(Repository).filter_by(tenant_id=t.id).count() == 1   # vẫn 1
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_wizard_banner_only_when_user_has_workspace():
+    """Wizard hiện banner 'đã có workspace → thêm repo' chỉ khi has_workspace=True."""
+    plain = tpl.wizard("U", [], "https://i", "c", dedicated_enabled=False)
+    assert "/repo/add" not in plain
+    with_ws = tpl.wizard("U", [], "https://i", "c", dedicated_enabled=False, has_workspace=True)
+    assert "/repo/add" in with_ws and "alert-info" in with_ws
+
+
+def test_repo_add_redirects_when_no_tenant(monkeypatch, db):
+    """User chưa có tenant vào /repo/add → đẩy về /wizard (phải tạo bot trước)."""
+    from app.db import get_db
+    from app.web import routes
+    monkeypatch.setattr(routes, "get_settings", lambda: _dev_settings())
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        client.cookies.set(sess.COOKIE_NAME, _dev_cookie())
+        r = client.get("/repo/add", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/wizard"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
 def test_logout_clears_cookie():
     client = TestClient(app)
     resp = client.get("/logout", follow_redirects=False)

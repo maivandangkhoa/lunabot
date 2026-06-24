@@ -17,11 +17,16 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.github_oauth import GitHubOAuth, GitHubOAuthError
-from app.models import Bot, Repository, Request as MaintRequest, RequestEvent, Tenant
+from app.models import (
+    Bot, PlatformAdmin, Repository, Request as MaintRequest, RequestEvent, Tenant,
+)
+from app.onboarding import add_repository
 from app.provisioning import ProvisioningError, provision
 from app.web import i18n
 from app.web import pages
+from app.web.i18n import t
 from app.web import session as sess
+from app.web import styles as st
 from app.web import templates as tpl
 
 log = logging.getLogger("luna.web")
@@ -148,29 +153,36 @@ async def setup_callback():
     return RedirectResponse("/wizard", status_code=303)
 
 
+async def _list_repos(s, data: dict) -> tuple[list[dict], str]:
+    """Liệt kê repo user có thể truy cập + link cài/đổi quyền GitHub App. Dùng chung cho
+    wizard (tạo bot) và trang thêm repo. DEV (web_dev_login): repo giả, không gọi GitHub."""
+    if s.web_dev_login and data.get("tok") == "dev":
+        return _DEV_REPOS, "#"
+    oauth = GitHubOAuth.from_settings(s)
+    try:
+        repos = await oauth.accessible_repos(data["tok"])
+        install_url = oauth.install_url(data.get("state", ""))
+    except GitHubOAuthError as exc:
+        log.warning("liệt kê repo lỗi: %s", exc)
+        repos, install_url = [], oauth.install_url("")
+    finally:
+        await oauth.aclose()
+    return repos, install_url
+
+
 @router.get("/wizard", response_class=HTMLResponse)
-async def wizard(request: Request):
+async def wizard(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
     _lang(request)
     data = _read_session(request, s)
     if not data or not data.get("tok"):
         return RedirectResponse("/", status_code=303)
-    if s.web_dev_login and data.get("tok") == "dev":   # DEV: repo giả, không gọi GitHub
-        repos, install_url = _DEV_REPOS, "#"
-    else:
-        oauth = GitHubOAuth.from_settings(s)
-        try:
-            repos = await oauth.accessible_repos(data["tok"])
-            install_url = oauth.install_url(data.get("state", ""))
-        except GitHubOAuthError as exc:
-            log.warning("liệt kê repo lỗi: %s", exc)
-            repos, install_url = [], oauth.install_url("")
-        finally:
-            await oauth.aclose()
+    repos, install_url = await _list_repos(s, data)
     csrf = data.get("state", "")
     return HTMLResponse(tpl.wizard(data.get("name") or data["login"], repos, install_url,
                                    csrf, s.dedicated_container_enabled,
-                                   gchat_enabled=s.google_chat_enabled))
+                                   gchat_enabled=s.google_chat_enabled,
+                                   has_workspace=bool(_tenants(db, data))))
 
 
 @router.post("/wizard/create", response_class=HTMLResponse)
@@ -222,10 +234,23 @@ def _wizard_err(s, data: dict, msg: str) -> str:
 
 
 # ----- app-shell pages (sidebar) -----
-def _auth(request: Request) -> dict | None:
-    """Set ngôn ngữ + đọc session. None ⇒ caller redirect về '/'."""
+def is_super_admin(db: Session, data: dict | None) -> bool:
+    """Super admin nền tảng = có dòng platform_admins khớp github_id (uid trong session)."""
+    if not data or data.get("uid") is None:
+        return False
+    return db.scalar(
+        select(PlatformAdmin.id).where(PlatformAdmin.github_id == int(data["uid"]))
+    ) is not None
+
+
+def _auth(request: Request, db: Session | None = None) -> dict | None:
+    """Set ngôn ngữ + đọc session. None ⇒ caller redirect về '/'. Khi truyền db, set cờ
+    hiển thị mục Platform admin trên sidebar (chỉ super admin mới thấy)."""
     _lang(request)
-    return _read_session(request, get_settings())
+    data = _read_session(request, get_settings())
+    if db is not None:
+        st.set_admin_nav(is_super_admin(db, data))
+    return data
 
 
 def _tenants(db: Session, data: dict) -> list[Tenant]:
@@ -278,7 +303,7 @@ def _request_rows(db: Session, tenant_ids: list[int], limit: int | None = None) 
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     tenants = _tenants(db, data)
@@ -297,7 +322,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/bots", response_class=HTMLResponse)
 async def bots(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     rows = _bot_rows(db, _tenants(db, data))
@@ -306,7 +331,7 @@ async def bots(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/repositories", response_class=HTMLResponse)
 async def repositories(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     tenants = _tenants(db, data)
@@ -321,9 +346,67 @@ async def repositories(request: Request, db: Session = Depends(get_db)):
     return HTMLResponse(pages.repositories(data.get("name") or data["login"], rows))
 
 
+def _tenant_dicts(tenants: list[Tenant]) -> list[dict]:
+    return [{"id": t.id, "name": t.name} for t in tenants]
+
+
+@router.get("/repo/add", response_class=HTMLResponse)
+async def repo_add(request: Request, tenant: str = "", db: Session = Depends(get_db)):
+    """Thêm repo vào tenant ĐÃ CÓ — KHÔNG provision (không đẻ bot/user/link mới)."""
+    data = _auth(request, db)
+    if not data or not data.get("tok"):
+        return RedirectResponse("/", status_code=303)
+    tenants = _tenants(db, data)
+    if not tenants:                       # chưa có tenant → phải qua wizard tạo bot trước
+        return RedirectResponse("/wizard", status_code=303)
+    s = get_settings()
+    repos, install_url = await _list_repos(s, data)
+    sel = tenant if any(str(t.id) == tenant for t in tenants) else ""
+    return HTMLResponse(tpl.add_repo(
+        data.get("name") or data["login"], _tenant_dicts(tenants), repos, install_url,
+        data.get("state", ""), selected_tenant=sel))
+
+
+@router.post("/repo/add", response_class=HTMLResponse)
+async def repo_add_create(request: Request, db: Session = Depends(get_db)):
+    s = get_settings()
+    data = _auth(request, db)
+    if not data or not data.get("tok"):
+        return RedirectResponse("/", status_code=303)
+    form = await _form(request)
+    if form.get("csrf") != data.get("state"):
+        return RedirectResponse("/repo/add", status_code=303)
+    tenants = _tenants(db, data)
+    tid = form.get("tenant_id", "")
+    tenant = next((t for t in tenants if str(t.id) == tid), None)  # guard: chỉ tenant của user
+    repo_val = form.get("repo", "")
+    err: str | None = None
+    if tenant is None:
+        err = t("repoadd.err.tenant")
+    elif "|" not in repo_val or not repo_val.rsplit("|", 1)[1].isdigit():
+        err = t("repoadd.err.repo")
+    else:
+        repo_full_name, inst = repo_val.rsplit("|", 1)
+        exists = db.scalar(select(Repository).where(
+            Repository.tenant_id == tenant.id,
+            Repository.repo_full_name == repo_full_name))
+        if exists is not None:
+            err = t("repoadd.err.exists", name=repo_full_name)
+        else:
+            add_repository(db, tenant, repo_full_name, int(inst),
+                           base_branch=(form.get("base_branch") or "dev").strip(),
+                           prod_branch=(form.get("prod_branch") or "main").strip())
+            db.commit()
+            return RedirectResponse("/repositories", status_code=303)
+    repos, install_url = await _list_repos(s, data)
+    return HTMLResponse(tpl.add_repo(
+        data.get("name") or data["login"], _tenant_dicts(tenants), repos, install_url,
+        data.get("state", ""), selected_tenant=tid, error=err))
+
+
 @router.get("/requests", response_class=HTMLResponse)
 async def requests(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     ids = [t.id for t in _tenants(db, data)]
@@ -333,7 +416,7 @@ async def requests(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/activity", response_class=HTMLResponse)
 async def activity(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     ids = [t.id for t in _tenants(db, data)]
@@ -352,7 +435,7 @@ async def activity(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request, db: Session = Depends(get_db)):
-    data = _auth(request)
+    data = _auth(request, db)
     if not data:
         return RedirectResponse("/", status_code=303)
     tenants = _tenants(db, data)

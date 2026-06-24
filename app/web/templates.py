@@ -92,11 +92,15 @@ def _stepper(steps: list[str]) -> str:
 
 def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
            dedicated_enabled: bool, gchat_enabled: bool = False,
-           error: str | None = None) -> str:
+           error: str | None = None, has_workspace: bool = False) -> str:
     err = ""
     if error:
         err = (f"<div class='alert alert-danger' style='margin-bottom:18px'>"
                f"{icon('alert', 18)}<div>{esc(error)}</div></div>")
+    if has_workspace:
+        err += (f"<div class='alert alert-info' style='margin-bottom:18px'>"
+                f"{icon('info', 18)}<div>{t('wizard.have_ws')} "
+                f"<a href='/repo/add'>{t('repos.add')}</a></div></div>")
 
     # Chọn kênh chat. Chỉ hiện khi Google Chat được bật; nếu không → ẩn cố định Telegram.
     if gchat_enabled:
@@ -280,6 +284,55 @@ def _wizard_js() -> str:
 })();
 </script>""".replace("__OWN__", own).replace("__SHARED__", shared) \
     .replace("__PF_TG__", pf_tg).replace("__PF_GC__", pf_gc)
+
+
+# ── Add repository (vào tenant đã có — KHÔNG provision bot/link mới) ───────────
+def add_repo(user_name: str, tenants: list[dict], repos: list[dict], install_url: str,
+             csrf: str, *, selected_tenant: str = "", error: str | None = None) -> str:
+    err = ""
+    if error:
+        err = (f"<div class='alert alert-danger' style='margin-bottom:18px'>"
+               f"{icon('alert', 18)}<div>{esc(error)}</div></div>")
+    tenant_opts = "".join(
+        f"<option value='{tn['id']}'{' selected' if str(tn['id']) == str(selected_tenant) else ''}>"
+        f"{esc(tn['name'])}</option>" for tn in tenants)
+    connected = bool(repos)
+    repo_status = (
+        f"<span class='badge badge-success'>{icon('check')}{t('wizard.connected')}</span>" if connected
+        else f"<span class='badge badge-warning'>{t('wizard.not_connected')}</span>")
+    install_label = t("wizard.manage_repo") if connected else t("wizard.install_app")
+    head = (f"<div class='page-head'><div>"
+            f"<h1 class='page-title'>{t('repoadd.title')}</h1>"
+            f"<p class='muted' style='margin-top:4px'>{t('repoadd.subtitle')}</p></div></div>")
+    body = f"""
+      {head}
+      {err}
+      <form class='card' method='post' action='/repo/add' novalidate>
+        <input type='hidden' name='csrf' value='{esc(csrf)}'>
+        <div class='field'><label>{t('repoadd.tenant')}</label>
+          <select class='input' name='tenant_id' required>{tenant_opts}</select></div>
+        <div class='card card-tight card-row' style='justify-content:space-between'>
+          <div class='card-row'><span class='ws-ico'>{icon('repo', 16)}</span>
+            <div><div style='font-weight:600'>GitHub App</div>
+              <div class='hint' style='margin:0'>{t('wizard.s0.ghapp_desc')}</div></div></div>
+          {repo_status}
+        </div>
+        <a class='btn btn-secondary' style='margin-top:14px' href='{esc(install_url)}'>{icon('plus', 16)}{install_label}</a>
+        <div class='field'><label>{t('repoadd.select')}</label>
+          <select class='input' name='repo' required>{_repo_options(repos)}</select></div>
+        <div class='field-2'>
+          <div class='field'><label>{t('wizard.s2.dev_branch')}</label>
+            <input class='input' name='base_branch' value='dev'></div>
+          <div class='field'><label>{t('wizard.s2.prod_branch')}</label>
+            <input class='input' name='prod_branch' value='main'></div>
+        </div>
+        <div class='wnav'>
+          <a class='btn btn-ghost' href='/repositories'>{icon('arrow-left', 16)}{t('common.back')}</a>
+          <span class='grow'></span>
+          <button type='submit' class='btn btn-primary'>{icon('plus', 16)}{t('repoadd.btn')}</button>
+        </div>
+      </form>"""
+    return shell(t("title.repo_add"), active="repo", user_name=user_name, body=body)
 
 
 # ── Done ──────────────────────────────────────────────────────────────────────

@@ -8,10 +8,19 @@ KHÔNG đụng backend: chỉ phục vụ render HTML/CSS.
 """
 from __future__ import annotations
 
+import contextvars
 from html import escape as esc
 
 from app.web import i18n
 from app.web.i18n import t
+
+# Cờ hiển thị mục "Platform admin" trên sidebar — set theo từng request (mirror i18n contextvar)
+# bởi tầng route khi user đăng nhập là super admin. Mặc định ẩn cho mọi người dùng thường.
+_show_admin: contextvars.ContextVar[bool] = contextvars.ContextVar("luna_show_admin", default=False)
+
+
+def set_admin_nav(flag: bool) -> None:
+    _show_admin.set(bool(flag))
 
 # ── Design tokens + component system ──────────────────────────────────────────
 CSS = """
@@ -125,6 +134,8 @@ select.input{appearance:none;cursor:pointer;
 .alert svg{flex:none;margin-top:1px}
 .alert-danger{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);color:#FCA5A5}
 .alert-success{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.35);color:#6EE7B7}
+.alert-info{background:rgba(99,102,241,.1);border-color:rgba(99,102,241,.35);color:#A5B4FC}
+.alert-info a{color:inherit;font-weight:600;text-decoration:underline}
 
 /* ── App shell ── */
 .shell{display:grid;grid-template-columns:var(--sidebar-w) 1fr;min-height:100vh;position:relative;z-index:1}
@@ -242,6 +253,7 @@ select.input{appearance:none;cursor:pointer;
 # ── Lucide icons (inline SVG) ─────────────────────────────────────────────────
 _ICONS = {
     "moon": '<path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    "layers": '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 12.18-9.17 4.16a2 2 0 0 1-1.66 0L2 12.18"/><path d="m22 17.18-9.17 4.16a2 2 0 0 1-1.66 0L2 17.18"/>',
     "dashboard": '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
     "bot": '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     "repo": '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
@@ -354,10 +366,15 @@ def _sidebar(active: str) -> str:
     for key, label_key, href in _NAV:
         cls = "nav-item active" if key == active else "nav-item"
         items.append(f"<a class='{cls}' href='{href}'>{icon(key)}<span>{t(label_key)}</span></a>")
+    admin = ""
+    if _show_admin.get():
+        cls = "nav-item active" if active == "admin" else "nav-item"
+        admin = (f"<div class='nav-label'>{t('nav.platform')}</div>"
+                 f"<a class='{cls}' href='/admin'>{icon('shield')}<span>{t('nav.admin')}</span></a>")
     foot = (f"<div class='sidebar-foot'><a class='nav-item' href='/logout'>"
             f"{icon('logout')}<span>{t('common.logout')}</span></a></div>")
     return (f"<aside class='sidebar' id='sidebar'>{brand()}"
-            f"<div class='nav-label'>{t('nav.workspace')}</div>{''.join(items)}{foot}</aside>")
+            f"<div class='nav-label'>{t('nav.workspace')}</div>{''.join(items)}{admin}{foot}</aside>")
 
 
 def shell(title: str, *, active: str, user_name: str, body: str) -> str:
