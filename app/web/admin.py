@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Bot, Repository, Request as MaintRequest, Tenant, User
+from app.models import Bot, Repository, Request as MaintRequest, Tenant, User, UserRole
 from app.web import pages
 from app.web.routes import _auth, _fmt, is_super_admin
 
@@ -32,6 +32,22 @@ def _counts(db: Session, model) -> dict[int, int]:
     return {tid: n for tid, n in rows}
 
 
+def _admins_by_tenant(db: Session) -> dict[int, list[dict]]:
+    """{tenant_id: [admin/manager]} — người quản trị THẬT (role), khác owner (web). ADMIN trước.
+    1 query duy nhất rồi gom Python (tránh N+1 theo từng tenant)."""
+    out: dict[int, list[dict]] = {}
+    rows = db.scalars(
+        select(User).where(User.role.in_([UserRole.ADMIN, UserRole.MANAGER]))
+        .order_by(User.role, User.id)
+    ).all()
+    for u in rows:
+        out.setdefault(u.tenant_id, []).append({
+            "name": u.display_name or "—", "role": u.role.value,
+            "platform": u.platform, "linked": u.platform_user_id is not None,
+        })
+    return out
+
+
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_home(request: Request, db: Session = Depends(get_db)):
     data = _auth(request, db)
@@ -44,6 +60,7 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
     bots = _counts(db, Bot)
     users = _counts(db, User)
     reqs = _counts(db, MaintRequest)
+    admins = _admins_by_tenant(db)
     n_active = db.scalar(
         select(func.count()).select_from(MaintRequest)
         .where(MaintRequest.status.in_(_ACTIVE))
@@ -57,7 +74,7 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
             "plan": tn.plan, "platform": tn.chat_platform,
             "repos": repos.get(tn.id, 0), "bots": bots.get(tn.id, 0),
             "users": users.get(tn.id, 0), "requests": reqs.get(tn.id, 0),
-            "created": _fmt(tn.created_at),
+            "created": _fmt(tn.created_at), "admins": admins.get(tn.id, []),
         })
 
     stats = {

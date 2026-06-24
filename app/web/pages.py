@@ -282,12 +282,29 @@ def team(user_name: str, workspaces: list[dict], csrf: str) -> str:
 
 
 # ── Platform admin (super admin — read-only: mọi tenant + thống kê) ────────────
+def _admin_badge(a: dict) -> str:
+    """1 chip admin/manager: tên · role, kèm icon kênh + chấm đã-link (xanh) / chưa (vàng)."""
+    pf = icon("chat", 12) if a.get("platform") == "google_chat" else icon("send", 12)
+    dot = "dot-success" if a.get("linked") else "dot-warning"
+    cls = "badge-info" if a.get("role") == "admin" else "badge-muted"
+    return (f"<span class='badge {cls}' style='gap:5px'>"
+            f"<span class='dot {dot}'></span>{pf}{esc(a.get('name') or '—')} · {esc(a.get('role') or '')}</span>")
+
+
 def _admin_tenant_row(tn: dict) -> str:
     owner = tn.get("owner") or "—"
     counts = (f"{tn.get('repos', 0)} · {tn.get('bots', 0)} · "
               f"{tn.get('users', 0)} · {tn.get('requests', 0)}")
+    admins = tn.get("admins") or []
+    admins_line = (
+        f"<div class='hint' style='margin:6px 0 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap'>"
+        f"<span>{t('admin.col.admins')}:</span>"
+        + ("".join(_admin_badge(a) for a in admins) if admins
+           else f"<span class='muted'>{t('admin.no_admins')}</span>")
+        + "</div>")
     return f"""
-      <div class='card card-tight card-row' style='justify-content:space-between;gap:12px;flex-wrap:wrap'>
+      <div class='card card-tight' style='gap:8px'>
+       <div class='card-row' style='justify-content:space-between;gap:12px;flex-wrap:wrap'>
         <div class='card-row' style='min-width:0'>
           <span class='ws-ico' style='width:40px;height:40px;flex:none'>{icon('moon', 18)}</span>
           <div style='min-width:0'>
@@ -302,6 +319,8 @@ def _admin_tenant_row(tn: dict) -> str:
           <span class='badge badge-info'>{t('admin.col.plan')}: {esc(tn.get('plan') or 'free')}</span>
           <span class='hint' style='margin:0'>{esc(tn.get('created') or '')}</span>
         </div>
+       </div>
+       {admins_line}
       </div>"""
 
 

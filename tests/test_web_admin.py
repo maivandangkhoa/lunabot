@@ -100,6 +100,31 @@ def test_admin_stats_count_platform_wide(client, db):
     assert "Acme" in r.text
 
 
+def test_admin_lists_tenant_admins(client, db):
+    """Mỗi tenant hiện admin/manager THẬT (role), khác owner web. EMPLOYEE không lên."""
+    tn = _tenant(db, uid=NORMAL_UID, login="alice", name="Acme")
+    create_user(db, tn, role=UserRole.ADMIN, display_name="Boss Lady")
+    create_user(db, tn, role=UserRole.MANAGER, display_name="Mid Manager")
+    create_user(db, tn, role=UserRole.EMPLOYEE, display_name="Worker Bee")
+    _make_admin(db)
+    db.commit()
+    _login(client, uid=ADMIN_UID, login="boss")
+    r = client.get("/admin")
+    assert r.status_code == 200
+    assert "Boss Lady" in r.text and "Mid Manager" in r.text
+    assert "Worker Bee" not in r.text          # employee không phải admin/manager
+
+
+def test_admin_shows_none_when_no_admins(client, db):
+    """Tenant không có admin/manager (vd seed thiếu) → hiện 'chưa có', không vỡ trang."""
+    _tenant(db, uid=NORMAL_UID, login="alice", name="Acme")
+    _make_admin(db)
+    db.commit()
+    _login(client, uid=ADMIN_UID, login="boss")
+    r = client.get("/admin")
+    assert r.status_code == 200 and "Acme" in r.text
+
+
 # ── Nav visibility ────────────────────────────────────────────────────────────
 def test_admin_nav_hidden_for_normal_user(client, db):
     _tenant(db, uid=NORMAL_UID, login="user", name="Acme")
