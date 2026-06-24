@@ -180,3 +180,102 @@ def settings(user_name: str, account: dict, tenants: list[dict]) -> str:
               f"<a class='btn btn-secondary' href='/logout'>{icon('logout', 16)}{t('common.logout')}</a></div>")
     return shell(t("title.settings"), active="settings", user_name=user_name,
                  body=head + acct + ws + danger)
+
+
+# ── Team (Người dùng + Workspace) ─────────────────────────────────────────────
+_ROLES = ("employee", "manager", "admin")
+_ROLE_BADGE = {"admin": "badge-info", "manager": "badge-success", "employee": "badge-muted"}
+
+
+def _role_options(selected: str | None = None) -> str:
+    return "".join(
+        f"<option value='{r}'{' selected' if r == selected else ''}>{t('team.role.' + r)}</option>"
+        for r in _ROLES)
+
+
+def _team_user(u: dict, csrf: str) -> str:
+    badge = _ROLE_BADGE.get(u["role"], "badge-muted")
+    if u["linked"]:
+        status = f"<span class='badge badge-success'>{t('team.linked')}</span>"
+        action = (
+            f"<form method='post' action='/users/unlink' style='flex:none' "
+            f"onsubmit=\"return confirm('{esc(t('team.unlink_confirm'))}')\">"
+            f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+            f"<input type='hidden' name='user_id' value='{u['id']}'>"
+            f"<button class='btn btn-ghost' style='height:38px'>{t('team.unlink')}</button></form>")
+        token = ""
+    else:
+        status = f"<span class='badge badge-warning'>{t('team.pending')}</span>"
+        action = ""
+        token = (f"<div class='hint' style='margin-top:8px'>{t('team.token')}: "
+                 f"<span class='code'>{esc(u.get('token') or '—')}</span></div>") if u.get("token") else ""
+    role_form = (
+        f"<form method='post' action='/users/role' style='display:flex;gap:8px;flex:none'>"
+        f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+        f"<input type='hidden' name='user_id' value='{u['id']}'>"
+        f"<select class='input' name='role' style='height:38px;width:auto;padding-right:36px'>"
+        f"{_role_options(u['role'])}</select>"
+        f"<button class='btn btn-secondary' style='height:38px'>{t('team.save')}</button></form>")
+    return f"""
+      <div class='card card-tight'>
+        <div class='card-row' style='justify-content:space-between;flex-wrap:wrap;gap:12px'>
+          <div class='card-row' style='min-width:0'>
+            <span class='ws-ico' style='width:38px;height:38px;flex:none'>{icon('users', 17)}</span>
+            <div style='min-width:0'>
+              <div style='font-weight:600;font-size:15px'>{esc(u.get('name') or '—')}</div>
+              <div style='margin-top:4px;display:flex;gap:8px;align-items:center'>
+                <span class='badge {badge}'>{esc(t('team.role.' + u['role']))}</span>{status}</div>
+            </div>
+          </div>
+          <div class='card-row' style='gap:10px;flex:none'>{role_form}{action}</div>
+        </div>{token}
+      </div>"""
+
+
+def _invite_form(tenant_id: int, csrf: str) -> str:
+    return (
+        f"<form method='post' action='/users/invite' class='card card-tight' "
+        f"style='display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:12px'>"
+        f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+        f"<input type='hidden' name='tenant_id' value='{tenant_id}'>"
+        f"<div class='field' style='flex:1;min-width:200px;margin:0'>"
+        f"<label>{t('team.invite_name')}</label>"
+        f"<input class='input' name='name' required placeholder='{esc(t('team.invite_name_ph'))}'></div>"
+        f"<div class='field' style='margin:0;flex:none'><label>{t('team.invite_role')}</label>"
+        f"<select class='input' name='role' style='width:auto;padding-right:36px'>{_role_options('employee')}</select></div>"
+        f"<button class='btn btn-primary' style='flex:none'>{icon('plus', 16)}{t('team.invite_btn')}</button>"
+        f"</form>")
+
+
+def _rename_form(tn: dict, csrf: str) -> str:
+    return (
+        f"<form method='post' action='/tenants/rename' style='display:flex;gap:10px;flex:none'>"
+        f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+        f"<input type='hidden' name='tenant_id' value='{tn['id']}'>"
+        f"<input class='input' name='name' value='{esc(tn['name'])}' maxlength='255' "
+        f"aria-label='{esc(t('team.rename'))}' style='height:38px;width:200px'>"
+        f"<button class='btn btn-secondary' style='height:38px'>{t('team.rename_btn')}</button></form>")
+
+
+def _workspace_block(tn: dict, csrf: str) -> str:
+    head = (
+        f"<div class='card-row' style='justify-content:space-between;flex-wrap:wrap;gap:12px;margin:30px 0 14px'>"
+        f"<div class='card-row'><span class='ws-ico' style='width:38px;height:38px;flex:none'>{icon('moon', 16)}</span>"
+        f"<div><div style='font-weight:600;font-size:18px'>{esc(tn['name'])}</div>"
+        f"<span class='badge badge-muted' style='margin-top:5px'>{t('team.plan')}: {esc(tn.get('plan') or 'free')}</span></div></div>"
+        f"{_rename_form(tn, csrf)}</div>")
+    if tn["users"]:
+        users = "<div class='stack-sm'>" + "".join(_team_user(u, csrf) for u in tn["users"]) + "</div>"
+    else:
+        users = (f"<div class='card' style='text-align:center;padding:24px;color:var(--text-2)'>"
+                 f"{t('team.no_users')}</div>")
+    return head + users + _invite_form(tn["id"], csrf)
+
+
+def team(user_name: str, workspaces: list[dict], csrf: str) -> str:
+    head = _head("team.title", "team.subtitle")
+    if workspaces:
+        body = "".join(_workspace_block(tn, csrf) for tn in workspaces)
+    else:
+        body = _empty("users", t("team.empty.title"), t("team.empty.desc"), "/wizard", t("dash.new"))
+    return shell(t("title.users"), active="users", user_name=user_name, body=head + body)

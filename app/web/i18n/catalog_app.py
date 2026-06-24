@@ -22,6 +22,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "nav.repositories": {"vi": "Kho mã", "en": "Repositories", "ko": "저장소"},
     "nav.requests": {"vi": "Yêu cầu", "en": "Requests", "ko": "요청"},
     "nav.activity": {"vi": "Hoạt động", "en": "Activity", "ko": "활동"},
+    "nav.users": {"vi": "Người dùng", "en": "Team", "ko": "팀"},
     "nav.settings": {"vi": "Cài đặt", "en": "Settings", "ko": "설정"},
     "shell.search": {"vi": "Tìm kiếm…", "en": "Search…", "ko": "검색…"},
     "shell.notifications": {"vi": "Thông báo", "en": "Notifications", "ko": "알림"},
@@ -117,6 +118,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "title.repositories": {"vi": "Luna — Kho mã", "en": "Luna — Repositories", "ko": "Luna — 저장소"},
     "title.requests": {"vi": "Luna — Yêu cầu", "en": "Luna — Requests", "ko": "Luna — 요청"},
     "title.activity": {"vi": "Luna — Hoạt động", "en": "Luna — Activity", "ko": "Luna — 활동"},
+    "title.users": {"vi": "Luna — Người dùng", "en": "Luna — Team", "ko": "Luna — 팀"},
     "title.settings": {"vi": "Luna — Cài đặt", "en": "Luna — Settings", "ko": "Luna — 설정"},
 
     # ── Overview (Dashboard) ──
@@ -163,4 +165,27 @@ TEXTS: dict[str, dict[str, str]] = {
     "set.empty": {"vi": "Chưa có workspace nào.", "en": "No workspaces yet.", "ko": "아직 워크스페이스가 없습니다."},
     "set.danger": {"vi": "Phiên đăng nhập", "en": "Session", "ko": "세션"},
     "set.signout.desc": {"vi": "Đăng xuất khỏi bảng điều khiển Luna trên thiết bị này.", "en": "Sign out of the Luna console on this device.", "ko": "이 기기에서 Luna 콘솔에서 로그아웃합니다."},
+
+    # ── Team (Người dùng + workspace) ──
+    "team.title": {"vi": "Người dùng & Workspace", "en": "Team & Workspace", "ko": "팀 & 워크스페이스"},
+    "team.subtitle": {"vi": "Quản lý workspace và thành viên — mời, phân quyền, gỡ liên kết.", "en": "Manage your workspaces and members — invite, assign roles, unlink.", "ko": "워크스페이스와 멤버를 관리하세요 — 초대, 역할 지정, 연결 해제."},
+    "team.plan": {"vi": "Gói", "en": "Plan", "ko": "요금제"},
+    "team.rename": {"vi": "Tên workspace", "en": "Workspace name", "ko": "워크스페이스 이름"},
+    "team.rename_btn": {"vi": "Đổi tên", "en": "Rename", "ko": "이름 변경"},
+    "team.save": {"vi": "Lưu", "en": "Save", "ko": "저장"},
+    "team.role.employee": {"vi": "Nhân viên", "en": "Employee", "ko": "직원"},
+    "team.role.manager": {"vi": "Quản lý", "en": "Manager", "ko": "관리자"},
+    "team.role.admin": {"vi": "Quản trị", "en": "Admin", "ko": "어드민"},
+    "team.linked": {"vi": "Đã liên kết", "en": "Linked", "ko": "연결됨"},
+    "team.pending": {"vi": "Chờ liên kết", "en": "Pending", "ko": "대기 중"},
+    "team.token": {"vi": "Mã liên kết", "en": "Link token", "ko": "연결 토큰"},
+    "team.unlink": {"vi": "Gỡ liên kết", "en": "Unlink", "ko": "연결 해제"},
+    "team.unlink_confirm": {"vi": "Gỡ liên kết người dùng này? Họ sẽ phải /start lại bằng mã mới.", "en": "Unlink this user? They will need to /start again with a new token.", "ko": "이 사용자를 연결 해제할까요? 새 토큰으로 다시 /start 해야 합니다."},
+    "team.no_users": {"vi": "Workspace này chưa có người dùng nào.", "en": "No users in this workspace yet.", "ko": "이 워크스페이스에 아직 사용자가 없습니다."},
+    "team.invite_name": {"vi": "Tên thành viên", "en": "Member name", "ko": "멤버 이름"},
+    "team.invite_name_ph": {"vi": "vd: Nguyễn Văn A", "en": "e.g. Jane Doe", "ko": "예: 홍길동"},
+    "team.invite_role": {"vi": "Vai trò", "en": "Role", "ko": "역할"},
+    "team.invite_btn": {"vi": "Mời", "en": "Invite", "ko": "초대"},
+    "team.empty.title": {"vi": "Chưa có workspace nào", "en": "No workspaces yet", "ko": "아직 워크스페이스가 없습니다"},
+    "team.empty.desc": {"vi": "Tạo bot đầu tiên để có workspace, rồi mời thành viên vào đây.", "en": "Create your first bot to get a workspace, then invite members here.", "ko": "첫 봇을 만들어 워크스페이스를 생성한 뒤 멤버를 초대하세요."},
 }

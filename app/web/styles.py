@@ -344,6 +344,7 @@ _NAV = [
     ("repo", "nav.repositories", "/repositories"),
     ("requests", "nav.requests", "/requests"),
     ("activity", "nav.activity", "/activity"),
+    ("users", "nav.users", "/users"),
     ("settings", "nav.settings", "/settings"),
 ]
 

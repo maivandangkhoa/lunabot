@@ -27,6 +27,7 @@ from app.github_app import GitHubApp
 from app.poller import run_polling
 from app.recovery import recover_interrupted_requests, rekick_pending_deploys
 from app.web.routes import router as web_router
+from app.web.team import router as web_team_router
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -60,6 +61,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="luna", version="0.0.0", lifespan=lifespan)
 app.include_router(web_router)  # web wizard self-service (/, /login, /wizard, /dashboard…)
+app.include_router(web_team_router)  # quản lý người dùng + workspace (/users, /tenants/rename)
 
 
 @app.get("/healthz")
