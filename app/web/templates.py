@@ -11,7 +11,7 @@ from html import escape as esc
 
 from app.web import landing_sections as lp
 from app.web.i18n import t
-from app.web.styles import brand, doc, icon, lang_switcher, onboarding, shell
+from app.web.styles import brand, doc, icon, lang_switcher, onboarding, shell, status_dot
 
 # ── Landing ───────────────────────────────────────────────────────────────────
 _FLOW = ["flow.request", "flow.analyze", "flow.plan", "flow.approve", "flow.code",
@@ -91,11 +91,29 @@ def _stepper(steps: list[str]) -> str:
 
 
 def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
-           dedicated_enabled: bool, error: str | None = None) -> str:
+           dedicated_enabled: bool, gchat_enabled: bool = False,
+           error: str | None = None) -> str:
     err = ""
     if error:
         err = (f"<div class='alert alert-danger' style='margin-bottom:18px'>"
                f"{icon('alert', 18)}<div>{esc(error)}</div></div>")
+
+    # Chọn kênh chat. Chỉ hiện khi Google Chat được bật; nếu không → ẩn cố định Telegram.
+    if gchat_enabled:
+        platform_block = f"""
+            <div class='field'><label>{t('wizard.s1.platform')}</label>
+              <div class='choices'>
+                <label class='choice'><input type='radio' name='platform' value='telegram' id='pf-telegram' checked>
+                  <span class='ch-tick'>{icon('check', 13)}</span>
+                  <span class='ch-title'>{icon('send', 16)} {t('wizard.s1.platform.telegram')}</span>
+                  <span class='ch-desc'>{t('wizard.s1.platform.telegram_desc')}</span></label>
+                <label class='choice'><input type='radio' name='platform' value='google_chat' id='pf-gchat'>
+                  <span class='ch-tick'>{icon('check', 13)}</span>
+                  <span class='ch-title'>{icon('chat', 16)} {t('wizard.s1.platform.gchat')}</span>
+                  <span class='ch-desc'>{t('wizard.s1.platform.gchat_desc')}</span></label>
+              </div></div>"""
+    else:
+        platform_block = "<input type='hidden' name='platform' value='telegram'>"
 
     connected = bool(repos)
     repo_status = (
@@ -280,20 +298,10 @@ def done(result, repo_full_name: str) -> str:
     return onboarding(t("title.done"), body)
 
 
-# ── Dashboard (app shell có sidebar) ──────────────────────────────────────────
-_STATUS_DOT = {
-    "running": "dot-running", "executing": "dot-running", "analyzing": "dot-running",
-    "active": "dot-success", "merged": "dot-success", "merged_main": "dot-success",
-    "ready": "dot-success", "approved": "dot-success",
-    "pending": "dot-warning", "await_manager": "dot-warning", "plan_review": "dot-warning",
-    "failed": "dot-danger", "cancelled": "dot-danger",
-}
-
-
+# ── Bots (app shell có sidebar) ───────────────────────────────────────────────
 def _bot_card(r: dict) -> str:
     username = ('@' + esc(r['username'])) if r['username'] else t("common.luna_shared")
-    status = (r.get('status') or '').lower()
-    dot = _STATUS_DOT.get(status, "")
+    dot = status_dot(r.get('status'))
     return f"""
       <div class='card card-tight card-row' style='justify-content:space-between'>
         <div class='card-row'>
@@ -311,7 +319,7 @@ def _bot_card(r: dict) -> str:
       </div>"""
 
 
-def dashboard(user_name: str, rows: list[dict]) -> str:
+def bots(user_name: str, rows: list[dict]) -> str:
     head = f"""
       <div class='page-head'>
         <div><h1 class='page-title'>{t('dash.title')}</h1>
@@ -329,4 +337,4 @@ def dashboard(user_name: str, rows: list[dict]) -> str:
               {t('dash.empty.desc')}</p>
             <a class='btn btn-primary' href='/wizard'>{icon('plus', 16)}{t('dash.empty.cta')}</a>
           </div>"""
-    return shell(t("title.dashboard"), active="bot", user_name=user_name, body=head + body)
+    return shell(t("title.bots"), active="bot", user_name=user_name, body=head + body)

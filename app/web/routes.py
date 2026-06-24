@@ -11,15 +11,16 @@ from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
 from app.github_oauth import GitHubOAuth, GitHubOAuthError
-from app.models import Bot, Repository, Tenant
+from app.models import Bot, Repository, Request as MaintRequest, RequestEvent, Tenant
 from app.provisioning import ProvisioningError, provision
 from app.web import i18n
+from app.web import pages
 from app.web import session as sess
 from app.web import templates as tpl
 
@@ -166,7 +167,8 @@ async def wizard(request: Request):
             await oauth.aclose()
     csrf = data.get("state", "")
     return HTMLResponse(tpl.wizard(data.get("name") or data["login"], repos, install_url,
-                                   csrf, s.dedicated_container_enabled))
+                                   csrf, s.dedicated_container_enabled,
+                                   gchat_enabled=s.google_chat_enabled))
 
 
 @router.post("/wizard/create", response_class=HTMLResponse)
@@ -185,13 +187,14 @@ async def wizard_create(request: Request, db: Session = Depends(get_db)):
         return HTMLResponse(_wizard_err(s, data, "Chưa chọn repo hợp lệ."))
     repo_full_name, inst = repo_val.rsplit("|", 1)
     bot_choice = form.get("bot_choice", "shared")
+    platform = form.get("platform", "telegram")
     try:
         result = await provision(
             db, s,
             owner_github_id=int(data["uid"]), owner_github_login=data["login"],
             owner_name=data.get("name") or data["login"],
             repo_full_name=repo_full_name, installation_id=int(inst),
-            bot_choice=bot_choice,
+            bot_choice=bot_choice, platform=platform,
             hosting_choice=form.get("hosting", "shared_instance"),
             display_name=(form.get("display_name") or "").strip() or None,
             bot_token=(form.get("bot_token") or "").strip() or None,
@@ -212,19 +215,28 @@ def _wizard_err(s, data: dict, msg: str) -> str:
     oauth = GitHubOAuth.from_settings(s)
     install_url = oauth.install_url(data.get("state", ""))
     return tpl.wizard(data.get("name") or data["login"], [], install_url,
-                      data.get("state", ""), s.dedicated_container_enabled, error=msg)
+                      data.get("state", ""), s.dedicated_container_enabled,
+                      gchat_enabled=s.google_chat_enabled, error=msg)
 
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, db: Session = Depends(get_db)):
-    s = get_settings()
+# ----- app-shell pages (sidebar) -----
+def _auth(request: Request) -> dict | None:
+    """Set ngôn ngữ + đọc session. None ⇒ caller redirect về '/'."""
     _lang(request)
-    data = _read_session(request, s)
-    if not data:
-        return RedirectResponse("/", status_code=303)
-    tenants = db.scalars(
+    return _read_session(request, get_settings())
+
+
+def _tenants(db: Session, data: dict) -> list[Tenant]:
+    return list(db.scalars(
         select(Tenant).where(Tenant.owner_github_id == int(data["uid"]))
-    ).all()
+    ).all())
+
+
+def _fmt(dt) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+
+
+def _bot_rows(db: Session, tenants: list[Tenant]) -> list[dict]:
     rows: list[dict] = []
     for t in tenants:
         repo = db.scalar(select(Repository).where(Repository.tenant_id == t.id))
@@ -233,7 +245,113 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                          "repo": repo.repo_full_name if repo else "-",
                          "username": b.username, "mode": b.mode,
                          "deployment": b.deployment_mode, "status": b.status})
-    return HTMLResponse(tpl.dashboard(data.get("name") or data["login"], rows))
+    return rows
+
+
+def _repo_name_map(db: Session, tenant_ids: list[int]) -> dict[int, str]:
+    repos = db.scalars(
+        select(Repository).where(Repository.tenant_id.in_(tenant_ids))
+    ).all() if tenant_ids else []
+    return {r.id: r.repo_full_name for r in repos}
+
+
+def _request_rows(db: Session, tenant_ids: list[int], limit: int | None = None) -> list[dict]:
+    if not tenant_ids:
+        return []
+    names = _repo_name_map(db, tenant_ids)
+    q = (select(MaintRequest)
+         .where(MaintRequest.tenant_id.in_(tenant_ids))
+         .order_by(MaintRequest.updated_at.desc()))
+    if limit:
+        q = q.limit(limit)
+    return [{"title": r.title, "status": r.status.value, "repo": names.get(r.repo_id, "—"),
+             "updated": _fmt(r.updated_at), "pr_url": r.pr_url, "pr_number": r.pr_number}
+            for r in db.scalars(q).all()]
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request, db: Session = Depends(get_db)):
+    data = _auth(request)
+    if not data:
+        return RedirectResponse("/", status_code=303)
+    tenants = _tenants(db, data)
+    ids = [t.id for t in tenants]
+    bots = _bot_rows(db, tenants)
+    recent = _request_rows(db, ids, limit=5)
+    active = {"new", "analyzing", "clarifying", "plan_review", "executing", "verify",
+              "merged_dev", "await_manager"}
+    n_req = db.scalar(select(func.count()).select_from(MaintRequest)
+                      .where(MaintRequest.tenant_id.in_(ids))) if ids else 0
+    stats = {"bots": len(bots), "repos": len(_repo_name_map(db, ids)),
+             "requests": n_req or 0,
+             "active": sum(1 for r in recent if r["status"] in active)}
+    return HTMLResponse(pages.overview(data.get("name") or data["login"], stats, recent))
+
+
+@router.get("/bots", response_class=HTMLResponse)
+async def bots(request: Request, db: Session = Depends(get_db)):
+    data = _auth(request)
+    if not data:
+        return RedirectResponse("/", status_code=303)
+    rows = _bot_rows(db, _tenants(db, data))
+    return HTMLResponse(tpl.bots(data.get("name") or data["login"], rows))
+
+
+@router.get("/repositories", response_class=HTMLResponse)
+async def repositories(request: Request, db: Session = Depends(get_db)):
+    data = _auth(request)
+    if not data:
+        return RedirectResponse("/", status_code=303)
+    tenants = _tenants(db, data)
+    rows: list[dict] = []
+    for t in tenants:
+        n_bots = db.scalar(select(func.count()).select_from(Bot)
+                           .where(Bot.tenant_id == t.id)) or 0
+        for repo in db.scalars(select(Repository).where(Repository.tenant_id == t.id)).all():
+            rows.append({"full_name": repo.repo_full_name, "base": repo.base_branch,
+                         "prod": repo.prod_branch,
+                         "installed": repo.gh_installation_id is not None, "bots": n_bots})
+    return HTMLResponse(pages.repositories(data.get("name") or data["login"], rows))
+
+
+@router.get("/requests", response_class=HTMLResponse)
+async def requests(request: Request, db: Session = Depends(get_db)):
+    data = _auth(request)
+    if not data:
+        return RedirectResponse("/", status_code=303)
+    ids = [t.id for t in _tenants(db, data)]
+    rows = _request_rows(db, ids)
+    return HTMLResponse(pages.requests(data.get("name") or data["login"], rows))
+
+
+@router.get("/activity", response_class=HTMLResponse)
+async def activity(request: Request, db: Session = Depends(get_db)):
+    data = _auth(request)
+    if not data:
+        return RedirectResponse("/", status_code=303)
+    ids = [t.id for t in _tenants(db, data)]
+    rows: list[dict] = []
+    if ids:
+        evs = db.execute(
+            select(RequestEvent, MaintRequest.title)
+            .join(MaintRequest, RequestEvent.request_id == MaintRequest.id)
+            .where(MaintRequest.tenant_id.in_(ids))
+            .order_by(RequestEvent.created_at.desc()).limit(40)
+        ).all()
+        rows = [{"title": title, "kind": ev.kind.value, "direction": ev.direction.value,
+                 "when": _fmt(ev.created_at)} for ev, title in evs]
+    return HTMLResponse(pages.activity(data.get("name") or data["login"], rows))
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings(request: Request, db: Session = Depends(get_db)):
+    data = _auth(request)
+    if not data:
+        return RedirectResponse("/", status_code=303)
+    tenants = _tenants(db, data)
+    account = {"login": data.get("login"), "name": data.get("name")}
+    ws = [{"name": t.name, "plan": t.plan, "platform": t.chat_platform} for t in tenants]
+    return HTMLResponse(pages.settings(data.get("name") or data["login"], account, ws))
 
 
 @router.get("/logout")

@@ -206,6 +206,13 @@ select.input{appearance:none;cursor:pointer;
 .divider{height:1px;background:var(--border);margin:24px 0}
 .stack-sm > * + *{margin-top:8px}
 
+/* ── Stat grid (overview) ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}
+.stat .stat-num{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.stat .stat-lbl{font-size:13px;color:var(--text-2);margin-top:4px;display:flex;align-items:center;gap:7px}
+.stat .stat-lbl svg{width:15px;height:15px;color:var(--text-3)}
+@media(max-width:880px){.stats{grid-template-columns:repeat(2,1fr)}}
+
 /* ── Language switcher ── */
 .langsw{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 10px 0 12px;
   background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text-2)}
@@ -275,6 +282,21 @@ def icon(name: str, size: int = 20, cls: str = "") -> str:
             f"stroke-linejoin='round' aria-hidden='true'>{path}</svg>")
 
 
+# status (lower-case) → CSS dot class. Dùng chung cho mọi trang app-shell.
+STATUS_DOT = {
+    "running": "dot-running", "executing": "dot-running", "analyzing": "dot-running",
+    "verify": "dot-running", "plan_review": "dot-warning", "await_manager": "dot-warning",
+    "clarifying": "dot-warning", "pending": "dot-warning", "new": "dot-warning",
+    "active": "dot-success", "merged": "dot-success", "merged_dev": "dot-success",
+    "merged_main": "dot-success", "ready": "dot-success", "approved": "dot-success",
+    "closed": "dot-success", "failed": "dot-danger", "cancelled": "dot-danger",
+}
+
+
+def status_dot(status: str | None) -> str:
+    return STATUS_DOT.get((status or "").lower(), "")
+
+
 def lang_switcher() -> str:
     """Bộ chọn ngôn ngữ — JS điều hướng tới /lang/<code>?next=<đường dẫn hiện tại> rồi reload."""
     cur = i18n.get_lang()
@@ -316,11 +338,11 @@ def onboarding(title: str, body: str, *, user_name: str | None = None) -> str:
 # (icon_key, i18n_key, href) — nhãn dịch tại thời điểm render
 _NAV = [
     ("dashboard", "nav.dashboard", "/dashboard"),
-    ("bot", "nav.bots", "/dashboard"),
-    ("repo", "nav.repositories", "/wizard"),
-    ("requests", "nav.requests", "/dashboard"),
-    ("activity", "nav.activity", "/dashboard"),
-    ("settings", "nav.settings", "/dashboard"),
+    ("bot", "nav.bots", "/bots"),
+    ("repo", "nav.repositories", "/repositories"),
+    ("requests", "nav.requests", "/requests"),
+    ("activity", "nav.activity", "/activity"),
+    ("settings", "nav.settings", "/settings"),
 ]
 
 

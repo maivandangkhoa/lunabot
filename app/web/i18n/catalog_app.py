@@ -104,4 +104,56 @@ TEXTS: dict[str, dict[str, str]] = {
     "dash.empty.title": {"vi": "Chưa có bot nào", "en": "No bots yet", "ko": "아직 봇이 없습니다"},
     "dash.empty.desc": {"vi": "Tạo bot đầu tiên để Luna bắt đầu bảo trì codebase của bạn qua chat.", "en": "Create your first bot so Luna can start maintaining your codebase over chat.", "ko": "첫 봇을 만들어 Luna가 채팅으로 코드베이스 유지보수를 시작하게 하세요."},
     "dash.empty.cta": {"vi": "Tạo bot đầu tiên", "en": "Create your first bot", "ko": "첫 봇 만들기"},
+
+    # ── Page titles (document <title>) ──
+    "title.bots": {"vi": "Luna — Bot", "en": "Luna — Bots", "ko": "Luna — 봇"},
+    "title.repositories": {"vi": "Luna — Kho mã", "en": "Luna — Repositories", "ko": "Luna — 저장소"},
+    "title.requests": {"vi": "Luna — Yêu cầu", "en": "Luna — Requests", "ko": "Luna — 요청"},
+    "title.activity": {"vi": "Luna — Hoạt động", "en": "Luna — Activity", "ko": "Luna — 활동"},
+    "title.settings": {"vi": "Luna — Cài đặt", "en": "Luna — Settings", "ko": "Luna — 설정"},
+
+    # ── Overview (Dashboard) ──
+    "over.title": {"vi": "Tổng quan", "en": "Overview", "ko": "개요"},
+    "over.subtitle": {"vi": "Toàn cảnh không gian làm việc của bạn.", "en": "A snapshot of your workspace.", "ko": "워크스페이스 현황 요약입니다."},
+    "over.stat.bots": {"vi": "Bot", "en": "Bots", "ko": "봇"},
+    "over.stat.repos": {"vi": "Kho mã", "en": "Repositories", "ko": "저장소"},
+    "over.stat.requests": {"vi": "Yêu cầu", "en": "Requests", "ko": "요청"},
+    "over.stat.active": {"vi": "Đang xử lý", "en": "In progress", "ko": "진행 중"},
+    "over.recent": {"vi": "Yêu cầu gần đây", "en": "Recent requests", "ko": "최근 요청"},
+    "over.recent.empty": {"vi": "Chưa có yêu cầu nào.", "en": "No requests yet.", "ko": "아직 요청이 없습니다."},
+
+    # ── Repositories ──
+    "repos.title": {"vi": "Kho mã", "en": "Repositories", "ko": "저장소"},
+    "repos.subtitle": {"vi": "Các repo đã kết nối với Luna qua GitHub App.", "en": "Repositories connected to Luna via the GitHub App.", "ko": "GitHub App으로 Luna에 연결된 저장소입니다."},
+    "repos.connect": {"vi": "Kết nối repo", "en": "Connect repo", "ko": "저장소 연결"},
+    "repos.empty.title": {"vi": "Chưa có repo nào", "en": "No repositories yet", "ko": "아직 저장소가 없습니다"},
+    "repos.empty.desc": {"vi": "Kết nối repository đầu tiên để Luna có thể bảo trì codebase của bạn.", "en": "Connect your first repository so Luna can maintain your codebase.", "ko": "첫 저장소를 연결해 Luna가 코드베이스를 유지보수하게 하세요."},
+    "repos.installed": {"vi": "Đã cài đặt", "en": "Installed", "ko": "설치됨"},
+    "repos.not_installed": {"vi": "Chưa cài GitHub App", "en": "GitHub App not installed", "ko": "GitHub App 미설치"},
+    "repos.bots": {"vi": "{n} bot", "en": "{n} bot(s)", "ko": "봇 {n}개"},
+
+    # ── Requests ──
+    "reqs.title": {"vi": "Yêu cầu", "en": "Requests", "ko": "요청"},
+    "reqs.subtitle": {"vi": "Mọi yêu cầu bảo trì và trạng thái trong quy trình.", "en": "Every maintenance request and where it is in the workflow.", "ko": "모든 유지보수 요청과 워크플로 상태입니다."},
+    "reqs.empty.title": {"vi": "Chưa có yêu cầu nào", "en": "No requests yet", "ko": "아직 요청이 없습니다"},
+    "reqs.empty.desc": {"vi": "Yêu cầu xuất hiện ở đây khi người dùng nhắn cho bot qua chat.", "en": "Requests appear here when users message a bot over chat.", "ko": "사용자가 채팅으로 봇에 메시지를 보내면 여기에 표시됩니다."},
+    "reqs.view_pr": {"vi": "Xem PR", "en": "View PR", "ko": "PR 보기"},
+
+    # ── Activity ──
+    "act.title": {"vi": "Hoạt động", "en": "Activity", "ko": "활동"},
+    "act.subtitle": {"vi": "Dòng sự kiện mới nhất xuyên suốt các yêu cầu.", "en": "The latest stream of events across all requests.", "ko": "모든 요청에 걸친 최신 이벤트 스트림입니다."},
+    "act.empty.title": {"vi": "Chưa có hoạt động", "en": "No activity yet", "ko": "아직 활동이 없습니다"},
+    "act.empty.desc": {"vi": "Sự kiện sẽ xuất hiện khi bot của bạn bắt đầu xử lý yêu cầu.", "en": "Events will show up once your bots start handling requests.", "ko": "봇이 요청을 처리하기 시작하면 이벤트가 표시됩니다."},
+
+    # ── Settings ──
+    "set.title": {"vi": "Cài đặt", "en": "Settings", "ko": "설정"},
+    "set.subtitle": {"vi": "Tài khoản và không gian làm việc của bạn.", "en": "Your account and workspaces.", "ko": "계정 및 워크스페이스입니다."},
+    "set.account": {"vi": "Tài khoản", "en": "Account", "ko": "계정"},
+    "set.github": {"vi": "Tài khoản GitHub", "en": "GitHub account", "ko": "GitHub 계정"},
+    "set.name": {"vi": "Tên hiển thị", "en": "Display name", "ko": "표시 이름"},
+    "set.workspaces": {"vi": "Không gian làm việc", "en": "Workspaces", "ko": "워크스페이스"},
+    "set.plan": {"vi": "Gói", "en": "Plan", "ko": "요금제"},
+    "set.empty": {"vi": "Chưa có workspace nào.", "en": "No workspaces yet.", "ko": "아직 워크스페이스가 없습니다."},
+    "set.danger": {"vi": "Phiên đăng nhập", "en": "Session", "ko": "세션"},
+    "set.signout.desc": {"vi": "Đăng xuất khỏi bảng điều khiển Luna trên thiết bị này.", "en": "Sign out of the Luna console on this device.", "ko": "이 기기에서 Luna 콘솔에서 로그아웃합니다."},
 }
