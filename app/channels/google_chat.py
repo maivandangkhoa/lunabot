@@ -24,6 +24,7 @@ import httpx
 import jwt
 
 from app.channels.base import Attachment, Button, InboundMessage
+from app.channels.formatting import format_for, split_chunks
 
 log = logging.getLogger("luna.google_chat")
 
@@ -360,7 +361,8 @@ class GoogleChatAdapter:
         headers = await self._headers()
         # Reply đúng thread của hội thoại (origin). FALLBACK_TO_NEW_THREAD an toàn cho space flat.
         params = {"messageReplyOption": "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"} if thread else None
-        chunks = [text[i : i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]
+        body, _ = format_for(self.name, text)  # markdown → Google Chat markup (đậm 1 dấu sao)
+        chunks = split_chunks(body, _MAX_LEN)
         result: dict = {}
         for idx, chunk in enumerate(chunks):
             payload: dict[str, Any] = {"text": chunk}

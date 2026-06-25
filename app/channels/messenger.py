@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 
 from app.channels.base import Attachment, Button, InboundMessage
+from app.channels.formatting import format_for, split_chunks
 
 log = logging.getLogger("luna.messenger")
 
@@ -132,7 +133,8 @@ class MessengerAdapter:
     ) -> Any:
         """Gửi tin tới user (PSID). Chunk nếu dài; quick replies gắn chunk cuối."""
         params = {"access_token": self.page_access_token}
-        chunks = [text[i: i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]
+        body, _ = format_for(self.name, text)  # Messenger không có rich text → strip markdown
+        chunks = split_chunks(body, _MAX_LEN)
         result: Any = {}
 
         for idx, chunk in enumerate(chunks):

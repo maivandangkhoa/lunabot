@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from app.channels.base import Attachment, Button, InboundMessage
+from app.channels.formatting import format_for, split_chunks
 
 log = logging.getLogger("luna.zalo")
 
@@ -193,7 +194,8 @@ class ZaloAdapter:
         token = await self._get_token()
         headers = {"access_token": token}
         is_group_dest = destination in self._group_ids
-        chunks = [text[i: i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]
+        body, _ = format_for(self.name, text)  # Zalo không có rich text → strip markdown về plain
+        chunks = split_chunks(body, _MAX_LEN)
         result: Any = {}
 
         for idx, chunk in enumerate(chunks):

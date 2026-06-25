@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.channels.base import Button, InboundMessage
+from app.channels.formatting import format_for, split_chunks
 
 log = logging.getLogger("luna.telegram")
 
@@ -130,11 +131,17 @@ class TelegramAdapter:
         text: str,
         buttons: list[list[Button]] | None = None,
     ) -> dict:
-        """Gửi tin (chunk nếu dài). Inline keyboard chỉ gắn vào chunk cuối."""
-        chunks = [text[i : i + _MAX_LEN] for i in range(0, len(text), _MAX_LEN)] or [""]
+        """Gửi tin (chunk nếu dài). Inline keyboard chỉ gắn vào chunk cuối.
+
+        Markdown của bot → Telegram HTML (`parse_mode=HTML`) qua format_for; chunk ở ranh giới
+        dòng để không cắt giữa thẻ inline."""
+        body, parse_mode = format_for(self.name, text)
+        chunks = split_chunks(body, _MAX_LEN)
         result: dict = {}
         for idx, chunk in enumerate(chunks):
             payload: dict = {"chat_id": platform_user_id, "text": chunk}
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
             if idx == len(chunks) - 1:
                 kb = self._keyboard(buttons)
                 if kb:
