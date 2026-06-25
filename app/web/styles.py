@@ -173,8 +173,9 @@ select.input{appearance:none;cursor:pointer;
 .nav-item svg{width:18px;height:18px;color:var(--text-3)}
 .sidebar-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:14px}
 .main{display:flex;flex-direction:column;min-width:0}
-.topbar{display:flex;align-items:center;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border);
+.topbar{display:flex;padding:14px 0;border-bottom:1px solid var(--border);
   position:sticky;top:0;background:rgba(11,15,25,.72);backdrop-filter:blur(12px);z-index:5}
+.topbar-inner{display:flex;align-items:center;gap:16px;width:100%;max-width:1400px;margin:0 auto;padding:0 28px}
 .workspace{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;min-width:0}
 .workspace .ws-ico{width:26px;height:26px;border-radius:8px;background:var(--elevated);flex:none;
   border:1px solid var(--border);display:grid;place-items:center;color:var(--text-2)}
@@ -266,7 +267,8 @@ select.input{appearance:none;cursor:pointer;
   .step-name{display:none}
   .card{padding:20px} .content{padding:22px 16px}
   .search{display:none}
-  .topbar{padding:12px 16px;gap:10px}
+  .topbar{padding:12px 0}
+  .topbar-inner{padding:0 16px;gap:10px}
   .page-head{flex-wrap:wrap}
 }
 """
@@ -444,7 +446,7 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
     initial = esc((user_name or "U").strip()[:1].upper())
     ws = esc(user_name or "Workspace")
     topbar = (
-        "<header class='topbar'>"
+        "<header class='topbar'><div class='topbar-inner'>"
         f"<button class='icon-btn menu-btn' onclick=\"document.getElementById('sidebar').classList.toggle('open')\" "
         f"aria-label='{esc(t('shell.menu'))}'>{icon('menu', 18)}</button>"
         f"<div class='workspace'><span class='ws-ico'>{icon('moon', 15)}</span>"
@@ -455,7 +457,7 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
         f"<button class='icon-btn' aria-label='{esc(t('shell.notifications'))}'>{icon('bell', 18)}</button>"
         f"<div class='avatar' title='{ws}'>{initial}</div>"
         "</div>"
-        "</header>"
+        "</div></header>"
     )
     return doc(title, (
         f"<div class='shell'>{_sidebar(active)}"
