@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     claude_code_oauth_token: str | None = None
     claude_timeout_s: int = 1800
 
+    # --- Lớp 2: hiểu câu tự nhiên cho hành động cổng (xem app/intent.py) ---
+    # Khi từ khoá cứng (ok/sửa/huỷ…) KHÔNG khớp nhưng user đang có việc chờ duyệt, nhờ Claude
+    # chuẩn hoá câu của họ về 1 từ khoá canonical rồi LUÔN xin xác nhận. Tắt = chỉ dùng từ khoá.
+    intent_llm_enabled: bool = True
+    intent_timeout_s: int = 25            # phân loại ngắn → timeout nhỏ (không phải tác vụ nặng)
+    # LLM tự chấm độ chắc chắn (0..1): >= ngưỡng → làm luôn; dưới → xin xác nhận. Hành động
+    # KHÔNG hoàn tác (merge production) thì LUÔN xác nhận bất kể điểm (xem dispatcher._IRREVERSIBLE).
+    intent_confidence_threshold: float = 0.75
+
     # --- Deploy verify (sau merge dev) ---
     # Bật: sau khi merge vào dev, chờ GitHub Action build+deploy xong + curl URL dev (200)
     # rồi mới mời manager. Tắt = giữ hành vi cũ (merge xong mời manager ngay).

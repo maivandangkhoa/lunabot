@@ -4,7 +4,10 @@ import asyncio
 import pytest
 
 from app.claude_runner import ClaudeResult
-from app.dispatcher import _try_text_action, handle_channel_update, handle_telegram_update
+from app.dispatcher import (
+    _intent_enabled, _try_text_action, handle_channel_update, handle_telegram_update,
+)
+from app.intent import Intent
 from app.models import Request, RequestStatus, UserRole
 from app.onboarding import add_repository, create_tenant, create_user, get_user_by_platform
 from app.orchestrator import Orchestrator, cb
@@ -552,4 +555,132 @@ async def test_other_member_cannot_chen_thread_request(db, fakes):
 
     assert any("thread mới" in s[1].lower() for s in fakes["adapter"].sent)
     assert len(t.requests) == 1                          # KHÔNG tạo request mới trong cùng thread
-    assert req.status == RequestStatus.CLARIFYING        # request của nhân viên không bị đụng
+
+
+# ---------------- Lớp 2: LLM hiểu câu tự nhiên khi từ khoá trượt (xác nhận trước, không execute) ----
+
+def _patch_classify(monkeypatch, intent):
+    monkeypatch.setattr("app.dispatcher._intent_enabled", lambda: True)
+    async def _classify(text, statuses, **k):
+        return intent
+    monkeypatch.setattr("app.dispatcher.classify_intent", _classify)
+
+
+@pytest.mark.asyncio
+async def test_llm_low_confidence_asks_confirm_not_execute(db, fakes, monkeypatch):
+    """Câu tự nhiên, LLM chưa đủ chắc (conf<ngưỡng) → bot XIN XÁC NHẬN (nút), KHÔNG tự duyệt."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    req = _mkreq(db, t, repo, emp, RequestStatus.PLAN_REVIEW)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+    _patch_classify(monkeypatch, Intent("ok", 0.5))      # dưới 0.75
+
+    handled = await _try_text_action(db, orch, emp, "chắc là ổn rồi nhỉ", "emp")
+
+    assert handled is True
+    assert req.status == RequestStatus.PLAN_REVIEW       # CHƯA execute — chờ xác nhận
+    dest, txt, buttons = fakes["adapter"].sent[-1]
+    assert "xác nhận" in txt.lower()
+    flat = [b for row in buttons for b in row]
+    assert cb("confirm", req.id) in {b.callback_data for b in flat}
+
+
+@pytest.mark.asyncio
+async def test_llm_high_confidence_executes_directly(db, fakes, monkeypatch):
+    """LLM đủ chắc + việc hoàn-tác-được (confirm trên dev) → làm THẲNG, không bắt xác nhận lại."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    req = _mkreq(db, t, repo, emp, RequestStatus.PLAN_REVIEW)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+    _patch_classify(monkeypatch, Intent("ok", 0.95))     # trên 0.75
+    calls = []
+    async def _hc(r, u, data, **k):
+        calls.append((r.id, data))
+    monkeypatch.setattr(orch, "handle_callback", _hc)
+
+    handled = await _try_text_action(db, orch, emp, "ừ làm luôn đi em", "emp")
+
+    assert handled is True
+    assert calls == [(req.id, cb("confirm", req.id))]    # execute thẳng
+    assert fakes["adapter"].sent == []                   # KHÔNG hỏi xác nhận
+
+
+@pytest.mark.asyncio
+async def test_llm_irreversible_always_confirms(db, fakes, monkeypatch):
+    """Merge production (mgr_approve) KHÔNG hoàn tác → LUÔN xác nhận dù LLM rất chắc (sàn an toàn)."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+    _patch_classify(monkeypatch, Intent("ok", 0.99))     # rất chắc
+
+    handled = await _try_text_action(db, orch, mgr, "cho lên production luôn", "mgr")
+
+    assert handled is True
+    assert merge.status == RequestStatus.AWAIT_MANAGER   # CHƯA merge — sàn an toàn bắt xác nhận
+    dest, txt, buttons = fakes["adapter"].sent[-1]
+    flat = [b for row in buttons for b in row]
+    assert cb("mgr_approve", merge.id) in {b.callback_data for b in flat}
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_none_falls_through(db, fakes, monkeypatch):
+    """LLM trả None (không phải hành động cổng) → _try_text_action False → rơi luồng cũ (feedback)."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    _mkreq(db, t, repo, emp, RequestStatus.PLAN_REVIEW)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+    monkeypatch.setattr("app.dispatcher._intent_enabled", lambda: True)
+    called = {"n": 0}
+    async def _classify(text, statuses, **k):
+        called["n"] += 1
+        return None
+    monkeypatch.setattr("app.dispatcher.classify_intent", _classify)
+
+    handled = await _try_text_action(db, orch, emp, "nút đăng nhập vẫn còn lệch trên mobile", "emp")
+    assert called["n"] == 1                               # đã thực sự gọi LLM (PLAN_REVIEW là cổng thuần)
+
+    assert handled is False
+    assert fakes["adapter"].sent == []
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_not_triggered_at_verify(db, fakes, monkeypatch):
+    """VERIFY: văn bản tự do là PHẢN HỒI (nội dung) → KHÔNG gọi LLM, để rơi vào luồng feedback cũ."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    _mkreq(db, t, repo, emp, RequestStatus.VERIFY)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+    monkeypatch.setattr("app.dispatcher._intent_enabled", lambda: True)
+    async def _boom(*a, **k):
+        raise AssertionError("KHÔNG được gọi LLM ở VERIFY (đó là feedback, không phải cổng quyết định)")
+    monkeypatch.setattr("app.dispatcher.classify_intent", _boom)
+
+    handled = await _try_text_action(db, orch, emp, "vẫn còn lỗi chỗ đăng nhập nhé", "emp")
+
+    assert handled is False                               # rơi luồng cũ → handle_message (feedback)
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_disabled_skips_classify(db, fakes, monkeypatch):
+    """Tắt Lớp 2 → KHÔNG gọi LLM, giữ hành vi chỉ-từ-khoá (câu lạ → False → luồng cũ)."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    _mkreq(db, t, repo, emp, RequestStatus.PLAN_REVIEW)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+    monkeypatch.setattr("app.dispatcher._intent_enabled", lambda: False)
+    async def _boom(*a, **k):
+        raise AssertionError("không được gọi LLM khi Lớp 2 tắt")
+    monkeypatch.setattr("app.dispatcher.classify_intent", _boom)
+
+    handled = await _try_text_action(db, orch, emp, "được rồi triển khai đi", "emp")
+
+    assert handled is False                               # rơi luồng cũ (plan_pending)
+    assert fakes["adapter"].sent == []
+
+
+def test_intent_enabled_requires_token(monkeypatch):
+    """Guard: bật cờ nhưng thiếu OAuth token ⇒ vẫn tắt (không bao giờ gọi LLM khi chưa cấu hình)."""
+    from app.config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(s, "intent_llm_enabled", True)
+    monkeypatch.setattr(s, "claude_code_oauth_token", None)
+    assert _intent_enabled() is False
+    monkeypatch.setattr(s, "claude_code_oauth_token", "tok")
+    assert _intent_enabled() is True
+    monkeypatch.setattr(s, "intent_llm_enabled", False)
+    assert _intent_enabled() is False

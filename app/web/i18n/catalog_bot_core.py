@@ -90,6 +90,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "🤔 You have several pending items — choose which one to apply:",
         "ko": "🤔 대기 중인 항목이 여러 개입니다 — 적용할 항목을 선택하세요:",
     },
+    "disp.confirm_intent": {
+        "vi": "🤔 Mình hiểu ý anh/chị về yêu cầu #{id}. Bấm nút bên dưới, hoặc trả lời '{word}' để xác nhận nhé.",
+        "en": "🤔 I think I understand what you mean for request #{id}. Tap the button below, or reply '{word}' to confirm.",
+        "ko": "🤔 요청 #{id}에 대한 의도를 이해한 것 같아요. 아래 버튼을 누르거나 '{word}'로 답하여 확인해 주세요.",
+    },
     "disp.verb_confirm": {"vi": "✅ Duyệt KH #{id}", "en": "✅ Approve plan #{id}", "ko": "✅ 계획 승인 #{id}"},
     "disp.verb_reject": {"vi": "✏️ Sửa KH #{id}", "en": "✏️ Edit plan #{id}", "ko": "✏️ 계획 수정 #{id}"},
     "disp.verb_cancel": {"vi": "❌ Huỷ #{id}", "en": "❌ Cancel #{id}", "ko": "❌ 취소 #{id}"},

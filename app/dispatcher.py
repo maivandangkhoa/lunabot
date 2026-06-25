@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.admin_commands import handle_command, help_text, is_command
 from app.channels.base import Button, ChannelAdapter
+from app.config import get_settings
+from app.intent import Intent, classify_intent
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import AlreadyLinkedError, get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
@@ -29,6 +31,14 @@ from app.web.i18n import detect, normalize, set_lang, t
 log = logging.getLogger("luna.dispatcher")
 
 _TEXT_ACTIVE = (RequestStatus.CLARIFYING, RequestStatus.VERIFY)
+# Lớp 2 (LLM hiểu câu tự nhiên) CHỈ chạy ở trạng thái cổng "thuần quyết định": user được kỳ
+# vọng DUYỆT/TỪ CHỐI, không phải gõ nội dung. Ở CLARIFYING (trả lời làm rõ) và VERIFY (phản
+# hồi sửa) văn bản tự do CHÍNH LÀ nội dung → giữ keyword-only, tránh tốn LLM + tránh hijack.
+_LLM_GATE_STATUSES = (RequestStatus.PLAN_REVIEW, RequestStatus.AWAIT_MANAGER)
+# Hành động KHÔNG hoàn tác → qua Lớp 2 (LLM) LUÔN xin xác nhận, bất kể độ chắc chắn. Chỉ
+# `mgr_approve` (merge `main` = deploy production) thuộc nhóm này; còn lại (confirm trên dev,
+# cancel/reject) còn cổng sau hoặc chỉ dừng việc nên cho làm thẳng khi LLM đủ chắc.
+_IRREVERSIBLE = {"mgr_approve"}
 _W_CLEAR = {"/clear", "/new", "/reset"}     # huỷ request đang mở → mở session mới
 # Lệnh chỉ-đọc, không in token → an toàn dùng trong group (trả lời ngay trong thread).
 # Các lệnh in token / sửa dữ liệu (/users, /invite, /role, /unlink, /addrepo) vẫn DM-only.
@@ -52,6 +62,21 @@ _ACTION_VERB = {
     "verify_ok": "disp.verb_verify_ok", "mgr_approve": "disp.verb_mgr_approve",
     "mgr_reject": "disp.verb_mgr_reject",
 }
+
+
+def _intent_enabled() -> bool:
+    """Lớp 2 (LLM hiểu câu tự nhiên) chỉ bật khi cấu hình cho phép VÀ có OAuth token Claude.
+    Không token (vd môi trường test/local) ⇒ tắt ⇒ hành vi giống hệt khi chỉ có từ khoá."""
+    s = get_settings()
+    return s.intent_llm_enabled and bool(s.claude_code_oauth_token)
+
+
+def _needs_confirm(intent: Intent, action: str) -> bool:
+    """Hành động do LLM suy ra có cần XÁC NHẬN trước không: có, nếu việc KHÔNG hoàn tác (sàn an
+    toàn) HOẶC độ chắc chắn dưới ngưỡng cấu hình. Đủ chắc + hoàn tác được → cho làm thẳng."""
+    if action in _IRREVERSIBLE:
+        return True
+    return intent.confidence < get_settings().intent_confidence_threshold
 
 
 def _keyword_action(word: str, status: RequestStatus) -> str | None:
@@ -236,11 +261,11 @@ def _active_request(db: Session, user: User, inbound) -> Request | None:
     ).first()
 
 
-def _actionable(db: Session, user: User, word: str,
-                *, group_chat_id: str | None = None) -> list[tuple[Request, str]]:
-    """Mọi việc đang chờ mà từ khoá `word` áp dụng được: request PLAN_REVIEW/VERIFY của chính họ
+def _pending_requests(db: Session, user: User,
+                      *, group_chat_id: str | None = None) -> list[Request]:
+    """Mọi việc đang chờ ở cổng duyệt cho user này: request PLAN_REVIEW/VERIFY của chính họ
     (vai requester) + AWAIT_MANAGER của tenant (vai manager) + (manager, trong group) PLAN_REVIEW/
-    VERIFY của THREAD này — để manager thao tác 'đạt/sửa/huỷ' thay nhân viên. Trả (request, action)."""
+    VERIFY của THREAD này — để manager thao tác thay nhân viên. Dedup, giữ thứ tự (mới nhất trước)."""
     reqs = list(db.scalars(
         select(Request).where(
             Request.requester_user_id == user.id,
@@ -263,8 +288,15 @@ def _actionable(db: Session, user: User, word: str,
                 ).order_by(Request.id.desc())
             ).all()
     seen: set[int] = set()
-    uniq = [r for r in reqs if not (r.id in seen or seen.add(r.id))]  # dedup, giữ thứ tự
-    return [(r, act) for r in uniq if (act := _keyword_action(word, r.status))]
+    return [r for r in reqs if not (r.id in seen or seen.add(r.id))]  # dedup, giữ thứ tự
+
+
+def _actionable(db: Session, user: User, word: str,
+                *, group_chat_id: str | None = None) -> list[tuple[Request, str]]:
+    """Lọc các việc đang chờ (`_pending_requests`) còn lại những việc mà từ khoá `word` áp dụng
+    được theo status (`_keyword_action`). Trả (request, action)."""
+    return [(r, act) for r in _pending_requests(db, user, group_chat_id=group_chat_id)
+            if (act := _keyword_action(word, r.status))]
 
 
 async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str,
@@ -278,9 +310,21 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
     m = _REQ_ID_RE.search(text)
     target_id = int(m.group(1)) if m else None
     word = _REQ_ID_RE.sub("", text).strip().lower()   # bỏ '#12' trước khi khớp từ khoá
-    if word not in _W_ANY:                             # không phải từ khoá → luồng cũ (tránh hijack)
-        return False
     group_chat_id = inbound.chat_id if (inbound and inbound.is_group) else None
+    intent = None                                      # Lớp 2: Intent(word, confidence) nếu LLM suy ra
+    if word not in _W_ANY:                             # Lớp 1 (từ khoá) trượt
+        # Lớp 2: nhờ LLM hiểu câu tự nhiên NẾU bật + có việc đang chờ cổng. Bỏ qua khi nhắm
+        # '#id' tường minh (câu lạ + id → không đủ chắc) → trả về luồng cũ (feedback/làm rõ).
+        if target_id is not None or not _intent_enabled():
+            return False
+        pending = [r for r in _pending_requests(db, user, group_chat_id=group_chat_id)
+                   if r.status in _LLM_GATE_STATUSES]
+        if not pending:                                # không ở cổng thuần quyết định → luồng cũ
+            return False
+        intent = await classify_intent(text, [r.status.value for r in pending])
+        if intent is None:                             # không phải hành động cổng → luồng cũ
+            return False
+        word = intent.word
     cands = _actionable(db, user, word, group_chat_id=group_chat_id)
 
     if target_id is not None:                          # nhắm tường minh "ok #12"
@@ -294,8 +338,13 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
 
     if not cands:                                      # không phải hành động → luồng cũ
         return False
-    if len(cands) == 1:                                # rõ ràng → làm luôn
+    if len(cands) == 1:                                # rõ ràng (1 việc)
         req, action = cands[0]
+        if intent and _needs_confirm(intent, action):  # LLM chưa đủ chắc / việc không hoàn tác → hỏi lại
+            buttons = [[Button(t(_ACTION_VERB[action], id=req.id), cb(action, req.id))]]
+            await orch.adapter.send(
+                reply_to, t("disp.confirm_intent", id=req.id, word=word), buttons)
+            return True
         await orch.handle_callback(req, user, cb(action, req.id), reply_to=reply_to)
         return True
 
