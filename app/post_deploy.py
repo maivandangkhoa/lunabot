@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import httpx
 from sqlalchemy import select
 
-from app import prompts
+from app import prompts, report
 from app.channels.base import Button
 from app.claude_runner import PermissionMode
 from app.config import Settings, get_settings
@@ -155,9 +155,9 @@ async def _http_ok(url: str) -> tuple[bool, str]:
 
 # ---------------- notify / chuyển trạng thái (tách khỏi orchestrator để file < 500 LOC) ----------------
 async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) -> None:
-    """Báo (các) manager: tóm tắt + PR + nút duyệt. Group → đăng công khai; DM → từng manager."""
-    text = t("ops.notify_managers", id=req.id, title=req.title,
-             prod=repo.prod_branch, pr=req.pr_url)
+    """Báo (các) manager: gói duyệt 10.x (loại thay đổi/nguyên nhân/giải pháp/phạm vi/test/
+    file/thống kê/diff) + nút duyệt. Group → đăng công khai; DM → từng manager."""
+    text = report.manager_packet(req, repo, requester=orch._requester(req))
     buttons = [[Button(t("ops.btn.approve_merge"), f"mgr_approve:{req.id}"),
                 Button(t("ops.btn.reject"), f"mgr_reject:{req.id}")]]
     if req.origin_is_group and req.origin_chat_id:
@@ -261,7 +261,9 @@ async def _run_verify_loop(orch: "Orchestrator", req: Request, repo: Repository,
                 reason = "" if ok else f"trang dev {dev_url} không trả 2xx ({detail})"
 
         if passed:
-            await enter_await_manager(orch, req, user_msg=t("ops.deploy_ok"))
+            # Bàn giao kèm link DEV để người dùng tự kiểm tra (UAT) nếu đã dò được URL.
+            msg = t("ops.deploy_ok_link", url=dev_url) if dev_url else t("ops.deploy_ok")
+            await enter_await_manager(orch, req, user_msg=msg)
             return
 
         rounds += 1
@@ -285,11 +287,13 @@ async def _give_up(orch: "Orchestrator", req: Request, reason: str,
     req.pr_url = None
     orch._set_status(req, RequestStatus.VERIFY)
     orch.db.commit()
-    log_line = t("ops.give_up.log_line", url=outcome.run_url) if outcome.run_url else ""
+    # Chi tiết kỹ thuật (lý do + log CI) chỉ ghi log nội bộ, KHÔNG gửi người dùng cuối.
+    log.info("give_up req %s: reason=%s run_url=%s fix_failed=%s",
+             req.id, reason, outcome.run_url, fix_failed)
     extra = t("ops.give_up.extra_fix_failed") if fix_failed else ""
     await orch._say(
         req, orch._requester(req),
-        t("ops.give_up", reason=reason, extra=extra, log_line=log_line),
+        t("ops.give_up", extra=extra),
         buttons=[[Button(t("ops.btn.needs_fix"), f"verify_fix:{req.id}"),
                   Button(t("ops.btn.cancel"), f"cancel:{req.id}")]])
 

@@ -152,18 +152,15 @@ TEXTS: dict[str, dict[str, str]] = {
     "orch.analyze_failed": {
         "vi": (
             "⚠️ Em gặp trục trặc khi phân tích, chưa xong được. "
-            'Anh/chị nhắn em "chạy lại" để em thử lại nhé.\n'
-            "(chi tiết: {detail})"
+            'Anh/chị nhắn em "chạy lại" để em thử lại nhé.'
         ),
         "en": (
             "⚠️ I hit a problem during analysis and couldn't finish. "
-            'Please message me "chạy lại" so I can try again.\n'
-            "(details: {detail})"
+            'Please message me "chạy lại" so I can try again.'
         ),
         "ko": (
             "⚠️ 분석 중 문제가 발생하여 완료하지 못했습니다. "
-            '"chạy lại"라고 메시지를 보내시면 다시 시도하겠습니다.\n'
-            "(세부 정보: {detail})"
+            '"chạy lại"라고 메시지를 보내시면 다시 시도하겠습니다.'
         ),
     },
     "orch.relay_then_clarify": {
@@ -181,9 +178,9 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
     },
     "orch.no_signal": {
-        "vi": "⚠️ Không hiểu phản hồi của Claude ({error}). Cần người can thiệp.",
-        "en": "⚠️ Could not understand Claude's response ({error}). Human intervention needed.",
-        "ko": "⚠️ Claude의 응답을 이해할 수 없습니다 ({error}). 사람의 개입이 필요합니다.",
+        "vi": "⚠️ Em chưa xử lý xong yêu cầu này. Anh/chị thử mô tả lại rõ hơn giúp em nhé.",
+        "en": "⚠️ I couldn't complete this request. Please try describing it again more clearly.",
+        "ko": "⚠️ 이 요청을 완료하지 못했습니다. 좀 더 명확하게 다시 설명해 주세요.",
     },
     "orch.clarify_body": {
         "vi": "{body}\n\n(trả lời tin này)",
@@ -225,35 +222,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "🛠 변경 작업과 PR 생성을 시작합니다. 완료되면 알려드리겠습니다…",
     },
     "orch.prepare_repo_error": {
-        "vi": "⚠️ Lỗi chuẩn bị repo: {detail}",
-        "en": "⚠️ Repo preparation error: {detail}",
-        "ko": "⚠️ 저장소 준비 오류: {detail}",
+        "vi": "⚠️ Em chưa chuẩn bị được nơi làm việc cho yêu cầu này. Anh/chị thử lại sau giúp em nhé.",
+        "en": "⚠️ I couldn't set up the workspace for this request. Please try again shortly.",
+        "ko": "⚠️ 이 요청의 작업 공간을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.",
     },
     "orch.execute_failed": {
-        "vi": "⚠️ Thực thi gặp vấn đề, cần người can thiệp:\n{detail}",
-        "en": "⚠️ Execution ran into a problem, human intervention needed:\n{detail}",
-        "ko": "⚠️ 실행 중 문제가 발생하여 사람의 개입이 필요합니다:\n{detail}",
+        "vi": "⚠️ Em gặp trục trặc khi thực hiện thay đổi, chưa hoàn tất được. "
+              'Anh/chị nhắn em "chạy lại" để em thử lại nhé.',
+        "en": "⚠️ I ran into a problem making the changes and couldn't finish. "
+              'Please message me "chạy lại" so I can try again.',
+        "ko": "⚠️ 변경 작업 중 문제가 발생하여 완료하지 못했습니다. "
+              '"chạy lại"라고 메시지를 보내시면 다시 시도하겠습니다.',
     },
     "orch.push_pr_error": {
-        "vi": "⚠️ Lỗi push/PR: {detail}",
-        "en": "⚠️ Push/PR error: {detail}",
-        "ko": "⚠️ push/PR 오류: {detail}",
+        "vi": "⚠️ Em gặp trục trặc khi lưu lại thay đổi. Anh/chị thử lại sau giúp em nhé.",
+        "en": "⚠️ I hit a problem saving the changes. Please try again shortly.",
+        "ko": "⚠️ 변경 사항을 저장하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
     },
-    "orch.deployed": {
-        "vi": (
-            "✅ Đã triển khai. PR: {pr_url}\n{summary}"
-            "\n\n(Bấm nút, hoặc trả lời: ok nếu đạt · huỷ)"
-        ),
-        "en": (
-            "✅ Deployed. PR: {pr_url}\n{summary}"
-            "\n\n(Tap a button, or reply: ok if good · huỷ)"
-        ),
-        "ko": (
-            "✅ 배포 완료. PR: {pr_url}\n{summary}"
-            "\n\n(버튼을 누르거나, 답장하세요: 좋으면 ok · huỷ)"
-        ),
-    },
-
     # ── _verify_buttons ──
     "orch.btn.verify_ok": {"vi": "✅ Đạt", "en": "✅ Good", "ko": "✅ 통과"},
     "orch.btn.verify_fix": {"vi": "🔧 Cần sửa", "en": "🔧 Needs fix", "ko": "🔧 수정 필요"},
@@ -274,9 +259,9 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
     },
     "orch.merge_dev_error": {
-        "vi": "⚠️ Merge vào {base} lỗi: {detail}",
-        "en": "⚠️ Merge into {base} failed: {detail}",
-        "ko": "⚠️ {base}로 병합 실패: {detail}",
+        "vi": "⚠️ Em chưa đưa được thay đổi lên môi trường thử nghiệm. Anh/chị thử lại sau giúp em nhé.",
+        "en": "⚠️ I couldn't move the change to the test environment. Please try again shortly.",
+        "ko": "⚠️ 변경 사항을 테스트 환경에 반영하지 못했습니다. 잠시 후 다시 시도해 주세요.",
     },
     "orch.merged_dev_waiting_deploy": {
         "vi": (
@@ -300,9 +285,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "⛔ 관리자만 병합을 승인할 수 있습니다.",
     },
     "orch.merge_main_error": {
-        "vi": "⚠️ Merge `{prod}` lỗi: {detail}",
-        "en": "⚠️ Merge `{prod}` failed: {detail}",
-        "ko": "⚠️ `{prod}` 병합 실패: {detail}",
+        "vi": "⚠️ Em chưa triển khai được lên `{prod}`. Vui lòng kiểm tra lại và thử duyệt lại sau.",
+        "en": "⚠️ I couldn't deploy to `{prod}`. Please check and try approving again shortly.",
+        "ko": "⚠️ `{prod}`에 배포하지 못했습니다. 확인 후 잠시 뒤 다시 승인해 주세요.",
     },
     "orch.merged_main_closed": {
         "vi": "🎉 Yêu cầu #{id} đã merge `{prod}` và đóng.",

@@ -33,6 +33,71 @@ def _orch(db, fakes, claude):
                         claude_run=claude, git=fakes["git"])
 
 
+IMPL_RICH = (
+    '{"action":"implemented","summary":"done","branch":"bot/req-1",'
+    '"change_type":"bug_fix","root_cause":"thiếu validate",'
+    '"changes":["Sửa nút lưu"],"self_test":["✓ Lưu thành công"],"self_test_conclusion":"PASS"}'
+)
+
+
+@pytest.mark.asyncio
+async def test_verify_handoff_is_business_and_persists_report(db, fakes, tmp_path):
+    """Bàn giao VERIFY: tin cho người tạo yêu cầu là báo cáo nghiệp vụ (KHÔNG lộ PR/diff),
+    và gói báo cáo được lưu vào report_json để mời manager về sau."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL_RICH, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "Sửa nút lưu", "chi tiết")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    assert req.status == RequestStatus.VERIFY
+    # report_json lưu từ tín hiệu Claude + thống kê diff (FakeGit.diff_summary).
+    assert req.report_json["change_type"] == "bug_fix"
+    assert req.report_json["self_test_conclusion"] == "PASS"
+    assert req.report_json["diff"]["files_changed"] == 1
+    # Tin bàn giao là báo cáo tự kiểm thử nghiệp vụ — KHÔNG lộ PR/diff cho người dùng cuối.
+    verify_msg = fakes["adapter"].sent[-1][1]
+    assert "Sửa nút lưu" in verify_msg and "tự kiểm thử" in verify_msg.lower()
+    assert "pull/" not in verify_msg and "src/app.py" not in verify_msg
+
+
+@pytest.mark.asyncio
+async def test_manager_packet_sent_at_approval(db, fakes, tmp_path):
+    """Khi mời duyệt, manager nhận gói 10.x (có diff/PR) — nơi DUY NHẤT lộ kỹ thuật."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL_RICH, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "Sửa nút lưu", "chi tiết")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    mgr_msg = next(s[1] for s in fakes["adapter"].sent if s[0] == "mgr-1")
+    assert "sẵn sàng merge" in mgr_msg
+    assert "pull/" in mgr_msg                    # diff (PR) cho manager
+    assert "src/app.py" in mgr_msg               # danh sách file
+    assert "Sửa lỗi" in mgr_msg                   # change_type đã dịch
+
+
+@pytest.mark.asyncio
+async def test_execute_failure_message_has_no_tech_detail(db, fakes, tmp_path):
+    """Lỗi thực thi: tin cho người dùng cuối KHÔNG kèm stderr/log kỹ thuật."""
+    t, repo, emp, mgr = _seed(db)
+    bad = ClaudeResult(ok=False, result="Traceback: fatal error at db.py:42", session_id="s2")
+    claude = FakeClaude([claude_json(PLAN, "s1"), bad])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    last = fakes["adapter"].sent[-1][1]
+    assert "Traceback" not in last and "db.py:42" not in last
+
+
 @pytest.mark.asyncio
 async def test_full_happy_path(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)

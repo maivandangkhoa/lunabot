@@ -128,6 +128,10 @@ class FakeGit:
     async def push_branch(self, *a, **k):
         return None
 
+    async def diff_summary(self, *a, **k):
+        return {"files": [{"path": "src/app.py", "status": "modified", "added": 5, "deleted": 2}],
+                "files_changed": 1, "insertions": 5, "deletions": 2}
+
     async def revert_merge(self, *a, **k):
         self.reverted = a[-1] if a else None
         return None

@@ -18,6 +18,7 @@ from app.web.i18n.catalog_bot_admin import TEXTS as _BOT_ADMIN
 from app.web.i18n.catalog_bot_core import TEXTS as _BOT_CORE
 from app.web.i18n.catalog_bot_ops import TEXTS as _BOT_OPS
 from app.web.i18n.catalog_bot_orch import TEXTS as _BOT_ORCH
+from app.web.i18n.catalog_bot_report import TEXTS as _BOT_REPORT
 from app.web.i18n.catalog_landing import TEXTS as _LANDING
 
 # Mã ISO 639-1 → tên hiển thị (đúng ngôn ngữ bản địa)
@@ -26,7 +27,7 @@ DEFAULT = "vi"
 COOKIE = "luna_lang"
 
 TEXTS: dict[str, dict[str, str]] = {
-    **_APP, **_LANDING, **_BOT_ORCH, **_BOT_CORE, **_BOT_ADMIN, **_BOT_OPS,
+    **_APP, **_LANDING, **_BOT_ORCH, **_BOT_CORE, **_BOT_ADMIN, **_BOT_OPS, **_BOT_REPORT,
 }
 
 _current: contextvars.ContextVar[str] = contextvars.ContextVar("luna_lang", default=DEFAULT)

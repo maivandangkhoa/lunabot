@@ -23,6 +23,17 @@ _LANG_RULE = (
     "tiếng Việt → tiếng Việt). KHÔNG dịch tên field JSON, giá trị action, đường dẫn file hay mã nguồn."
 )
 
+# Người tạo yêu cầu KHÔNG phải lập trình viên → phần VĂN BẢN nói với họ phải bằng ngôn ngữ
+# nghiệp vụ. (Người duyệt/manager khi đến bước duyệt mới xem chi tiết kỹ thuật — app lo phần đó.)
+_BIZ_RULE = dedent(
+    """
+    PHONG CÁCH (phần văn bản nói với người dùng): người tạo yêu cầu KHÔNG phải kỹ sư phần mềm.
+    - Dùng ngôn ngữ tự nhiên, dễ hiểu, tập trung vào HÀNH VI hệ thống và NHU CẦU nghiệp vụ.
+    - TUYỆT ĐỐI KHÔNG đưa vào phần văn bản: mã nguồn, stack trace, commit hash, log kỹ thuật,
+      tên hàm/biến/bảng, hay cấu trúc nội bộ. (Các field JSON kỹ thuật vẫn ghi bình thường.)
+    """
+).strip()
+
 
 def analyzing_system_prompt(repo_full_name: str, base_branch: str) -> str:
     """Phase ANALYZING/CLARIFYING — CHỈ ĐỌC, không sửa file."""
@@ -42,10 +53,16 @@ def analyzing_system_prompt(repo_full_name: str, base_branch: str) -> str:
           {{"action":"plan","summary":"...","steps":["bước 1","bước 2"],"risk":"low|med|high"}}
           ```
 
+        CÂU HỎI LÀM RÕ phải hướng nghiệp vụ: hỏi về vấn đề hiện tại, kết quả mong muốn,
+        trường hợp sử dụng cụ thể, ví dụ thực tế. KHÔNG hỏi về chi tiết kỹ thuật nội bộ
+        (vd "API nào", "schema DB ra sao", "có sửa repository layer không").
+
         TUYỆT ĐỐI: mọi câu trả lời PHẢI kết thúc bằng đúng một khối ```json như trên,
         kể cả khi bạn chỉ đang trả lời một câu hỏi. Không có ngoại lệ.
 
         {_LANG_RULE}
+
+        {_BIZ_RULE}
 
         {_JSON_RULE}
         """
@@ -109,12 +126,31 @@ def executing_system_prompt(
         3. NEVER push nhánh protected: {prot}. Có pre-push hook chặn — đừng tìm cách lách.
         4. App sẽ lo push + tạo PR; bạn tập trung sửa code cho đúng và đủ.{build_rule}
 
-        Kết thúc bằng:
+        BÁO CÁO TỰ KIỂM THỬ (bắt buộc trước khi kết thúc): tự xác nhận thay đổi chạy đúng
+        yêu cầu — luồng chính (happy path), trường hợp lỗi (dữ liệu rỗng/không hợp lệ), và
+        không gây hỏng chức năng liên quan. Liệt kê việc đã kiểm thử vào field `self_test`.
+        CHỈ ghi self_test_conclusion="PASS" khi đã THỰC SỰ kiểm thử; việc nào chưa làm phải
+        nói rõ. Không được đánh dấu PASS nếu chưa kiểm thử.
+
+        Kết thúc bằng (chỉ `summary` là bắt buộc; các field còn lại điền đầy đủ nếu có để
+        người duyệt nắm được — mô tả ngắn gọn, hướng nghiệp vụ, KHÔNG đi sâu kỹ thuật):
         ```json
-        {{"action":"implemented","summary":"tóm tắt thay đổi","branch":"{branch}"}}
+        {{"action":"implemented",
+          "branch":"{branch}",
+          "summary":"tóm tắt thay đổi (1-2 câu)",
+          "change_type":"bug_fix | feature | improvement | refactor",
+          "problem":"vấn đề/tính năng theo góc nhìn người dùng",
+          "root_cause":"nguyên nhân gốc (ngắn gọn)",
+          "solution":"cách xử lý",
+          "scope":["UI","API","Database","Background Job","Authentication","Integration","Infrastructure","Khác"],
+          "changes":["thay đổi 1 mô tả theo hành vi hệ thống","thay đổi 2"],
+          "self_test":["✓ việc đã kiểm thử 1","✓ việc đã kiểm thử 2"],
+          "self_test_conclusion":"PASS"}}
         ```
 
         {_LANG_RULE}
+
+        {_BIZ_RULE}
 
         {_JSON_RULE}
         """

@@ -84,8 +84,9 @@ def parse_signal(text: str) -> ParsedSignal:
             error=f"thiếu field bắt buộc cho '{action.value}': {missing}",
         )
 
-    # Chuẩn hoá nhẹ: questions/steps phải là list.
-    for k in ("questions", "steps"):
+    # Chuẩn hoá nhẹ: các field dạng danh sách phải là list (Claude đôi khi trả 1 chuỗi).
+    # changes/self_test/scope thuộc gói báo cáo nghiệp vụ của action "implemented" (tuỳ chọn).
+    for k in ("questions", "steps", "changes", "self_test", "scope"):
         if k in data and isinstance(data[k], str):
             data[k] = [data[k]]
 

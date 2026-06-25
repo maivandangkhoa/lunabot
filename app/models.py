@@ -246,6 +246,10 @@ class Request(Base):
     pr_url: Mapped[str | None] = mapped_column(String(512))
     # SHA của merge commit khi PR vào dev — để revert dev nếu manager từ chối.
     dev_merge_sha: Mapped[str | None] = mapped_column(String(64))
+    # Gói báo cáo nghiệp vụ (CLAUDE_WORKFLOW.md): loại thay đổi, nguyên nhân, giải pháp,
+    # phạm vi, self-test, danh sách file + thống kê diff. Dựng ở EXECUTING, dùng khi mời
+    # manager duyệt (sống qua deploy-gate nền + restart). NULL = request cũ/chưa có report.
+    report_json: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

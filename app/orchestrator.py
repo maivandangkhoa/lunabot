@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import git_ops, post_deploy, prompts
+from app import git_ops, post_deploy, prompts, report
 from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
@@ -334,9 +334,10 @@ class Orchestrator:
 
         if not res.ok:
             # Lỗi tạm khi chạy Claude → cho retriable thay vì kẹt ANALYZING.
+            log.warning("analyze req %s lỗi: %s", req.id, res.result[:300])
             self._set_status(req, RequestStatus.CLARIFYING)
             self.db.commit()
-            await self._say(req, requester, t("orch.analyze_failed", detail=res.result[:300]))
+            await self._say(req, requester, t("orch.analyze_failed"))
             return
 
         sig = parse_signal(res.result)
@@ -351,8 +352,9 @@ class Orchestrator:
                     req, requester,
                     t("orch.relay_then_clarify", result=res.result[:3500]))
             else:
+                log.warning("analyze req %s không có tín hiệu: %s", req.id, sig.error)
                 self.db.commit()
-                await self._say(req, requester, t("orch.no_signal", error=sig.error))
+                await self._say(req, requester, t("orch.no_signal"))
             return
 
         if sig.action == Action.CLARIFY:
@@ -392,8 +394,9 @@ class Orchestrator:
                 repo_dir = await self._ensure_repo_cloned(repo)
                 await self.git.prepare_branch(repo_dir, branch, repo.base_branch)
             except Exception as exc:
+                log.warning("chuẩn bị repo req %s lỗi: %s", req.id, exc)
                 self.db.commit()
-                await self._say(req, requester, t("orch.prepare_repo_error", detail=str(exc)))
+                await self._say(req, requester, t("orch.prepare_repo_error"))
                 return
 
             prompt = (prompts.fix_request_prompt(fix_feedback) if fix_feedback
@@ -407,8 +410,9 @@ class Orchestrator:
             )
             req.claude_session_id = res.session_id
             if not res.ok or not parse_signal(res.result).ok:
+                log.warning("execute req %s lỗi: %s", req.id, res.result[:800])
                 self.db.commit()
-                await self._say(req, requester, t("orch.execute_failed", detail=res.result[:800]))
+                await self._say(req, requester, t("orch.execute_failed"))
                 return
 
             try:
@@ -421,17 +425,20 @@ class Orchestrator:
                         title=f"[luna] {req.title}", body=res.result[:1000])
                     req.pr_number = pr.get("number")
                     req.pr_url = pr.get("html_url")
+                # Gói báo cáo nghiệp vụ: tín hiệu Claude + thống kê diff từ git (nguồn sự thật).
+                diff = await self.git.diff_summary(repo_dir, repo.base_branch)
+                req.report_json = report.build_report(parse_signal(res.result).data, diff)
             except Exception as exc:
+                log.warning("push/PR req %s lỗi: %s", req.id, exc)
                 self.db.commit()
-                await self._say(req, requester, t("orch.push_pr_error", detail=str(exc)))
+                await self._say(req, requester, t("orch.push_pr_error"))
                 return
 
         self._set_status(req, RequestStatus.VERIFY)
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, pr_url=req.pr_url)
         self.db.commit()
-        await self._say(req, requester,
-                        t("orch.deployed", pr_url=req.pr_url,
-                          summary=parse_signal(res.result).data.get("summary", "")),
+        # Bàn giao UAT: ngôn ngữ nghiệp vụ + báo cáo tự kiểm thử, KHÔNG lộ PR/commit/log.
+        await self._say(req, requester, report.self_test_message(req),
                         buttons=self._verify_buttons(req))
 
     def _verify_buttons(self, req: Request) -> list[list["Button"]]:
@@ -467,8 +474,9 @@ class Orchestrator:
             res = await self.github.merge_pull_request(
                 repo.gh_installation_id, repo.repo_full_name, req.pr_number)
         except Exception as exc:
+            log.warning("merge dev req %s lỗi: %s", req.id, exc)
             self.db.commit()
-            await self._say(req, requester, t("orch.merge_dev_error", base=repo.base_branch, detail=str(exc)))
+            await self._say(req, requester, t("orch.merge_dev_error", base=repo.base_branch))
             return
         req.dev_merge_sha = (res or {}).get("sha")  # để revert dev / poll deploy theo sha này
         self._set_status(req, RequestStatus.MERGED_DEV)
@@ -498,8 +506,9 @@ class Orchestrator:
                 title=f"[luna] release req-{req.id}", body=req.title)
             await self.github.merge_pull_request(repo.gh_installation_id, repo.repo_full_name, pr["number"])
         except Exception as exc:
+            log.warning("merge main req %s lỗi: %s", req.id, exc)
             self.db.commit()
-            await self._say(req, approver, t("orch.merge_main_error", prod=repo.prod_branch, detail=str(exc)))
+            await self._say(req, approver, t("orch.merge_main_error", prod=repo.prod_branch))
             return
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.APPROVED))

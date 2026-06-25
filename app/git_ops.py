@@ -129,6 +129,55 @@ async def push_branch(repo_dir: Path, branch: str, remote: str = "origin") -> No
     await run_git(["push", "-u", remote, branch], cwd=repo_dir)
 
 
+_STATUS_LABEL = {"A": "added", "M": "modified", "D": "deleted",
+                 "R": "renamed", "C": "copied", "T": "type-changed"}
+
+
+async def diff_summary(repo_dir: Path, base_branch: str, remote: str = "origin") -> dict:
+    """Thống kê thay đổi của nhánh hiện tại so với base (cho gói duyệt manager — mục 10.7/10.8).
+
+    Nguồn sự thật là GIT, không tin số liệu Claude tự khai. Trả:
+      {files: [{path, status, added, deleted}], files_changed, insertions, deletions}
+    Lỗi (chưa có ref base, repo lạ…) → trả rỗng an toàn, KHÔNG raise (báo cáo chỉ là phụ trợ).
+    """
+    rng = f"{remote}/{base_branch}...HEAD"
+    empty = {"files": [], "files_changed": 0, "insertions": 0, "deletions": 0}
+    try:
+        numstat = await run_git(["diff", "--numstat", rng], cwd=repo_dir, check=False)
+        namestat = await run_git(["diff", "--name-status", rng], cwd=repo_dir, check=False)
+    except Exception as exc:  # noqa: BLE001 — báo cáo phụ trợ, không được làm hỏng luồng
+        log.warning("diff_summary lỗi: %s", exc)
+        return empty
+    if numstat.returncode != 0 or namestat.returncode != 0:
+        return empty
+
+    # path → (added, deleted); "-" cho file nhị phân.
+    counts: dict[str, tuple[int, int]] = {}
+    ins = dels = 0
+    for line in numstat.stdout.splitlines():
+        cols = line.split("\t")
+        if len(cols) < 3:
+            continue
+        a, d, path = cols[0], cols[1], cols[-1]
+        ai = int(a) if a.isdigit() else 0
+        di = int(d) if d.isdigit() else 0
+        ins += ai
+        dels += di
+        counts[path] = (ai, di)
+
+    files: list[dict] = []
+    for line in namestat.stdout.splitlines():
+        cols = line.split("\t")
+        if len(cols) < 2:
+            continue
+        code, path = cols[0], cols[-1]
+        added, deleted = counts.get(path, (0, 0))
+        files.append({"path": path, "status": _STATUS_LABEL.get(code[0], code),
+                      "added": added, "deleted": deleted})
+    return {"files": files, "files_changed": len(files),
+            "insertions": ins, "deletions": dels}
+
+
 async def revert_merge(
     repo_dir: Path, base_branch: str, merge_sha: str, remote: str = "origin"
 ) -> None:
