@@ -222,22 +222,28 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "🛠 변경 작업과 PR 생성을 시작합니다. 완료되면 알려드리겠습니다…",
     },
     "orch.prepare_repo_error": {
-        "vi": "⚠️ Em chưa chuẩn bị được nơi làm việc cho yêu cầu này. Anh/chị thử lại sau giúp em nhé.",
-        "en": "⚠️ I couldn't set up the workspace for this request. Please try again shortly.",
-        "ko": "⚠️ 이 요청의 작업 공간을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        "vi": "⚠️ Em chưa chuẩn bị được nơi làm việc cho yêu cầu này. "
+              "Anh/chị bấm Confirm để em thử lại nhé.",
+        "en": "⚠️ I couldn't set up the workspace for this request. "
+              "Tap Confirm so I can try again.",
+        "ko": "⚠️ 이 요청의 작업 공간을 준비하지 못했습니다. "
+              "Confirm을 눌러 주시면 다시 시도하겠습니다.",
     },
     "orch.execute_failed": {
         "vi": "⚠️ Em gặp trục trặc khi thực hiện thay đổi, chưa hoàn tất được. "
-              'Anh/chị nhắn em "chạy lại" để em thử lại nhé.',
+              "Anh/chị bấm Confirm để em thử lại nhé.",
         "en": "⚠️ I ran into a problem making the changes and couldn't finish. "
-              'Please message me "chạy lại" so I can try again.',
+              "Tap Confirm so I can try again.",
         "ko": "⚠️ 변경 작업 중 문제가 발생하여 완료하지 못했습니다. "
-              '"chạy lại"라고 메시지를 보내시면 다시 시도하겠습니다.',
+              "Confirm을 눌러 주시면 다시 시도하겠습니다.",
     },
     "orch.push_pr_error": {
-        "vi": "⚠️ Em gặp trục trặc khi lưu lại thay đổi. Anh/chị thử lại sau giúp em nhé.",
-        "en": "⚠️ I hit a problem saving the changes. Please try again shortly.",
-        "ko": "⚠️ 변경 사항을 저장하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        "vi": "⚠️ Em gặp trục trặc khi lưu lại thay đổi. "
+              "Anh/chị bấm Confirm để em thử lại nhé.",
+        "en": "⚠️ I hit a problem saving the changes. "
+              "Tap Confirm so I can try again.",
+        "ko": "⚠️ 변경 사항을 저장하는 중 문제가 발생했습니다. "
+              "Confirm을 눌러 주시면 다시 시도하겠습니다.",
     },
     # ── _verify_buttons ──
     "orch.btn.verify_ok": {"vi": "✅ Đạt", "en": "✅ Good", "ko": "✅ 통과"},

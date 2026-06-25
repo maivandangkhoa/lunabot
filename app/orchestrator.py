@@ -374,11 +374,23 @@ class Orchestrator:
             steps = "\n".join(f"{i}. {s}" for i, s in enumerate(sig.data["steps"], 1))
             text = t("orch.plan_text", risk=sig.data.get("risk", "?"),
                      summary=sig.data["summary"], steps=steps)
-            await self._say(req, requester, text, buttons=[[
-                Button(t("orch.btn.confirm"), cb("confirm", req.id)),
-                Button(t("orch.btn.edit"), cb("reject", req.id)),
-                Button(t("orch.btn.cancel"), cb("cancel", req.id)),
-            ]])
+            await self._say(req, requester, text, buttons=self._plan_buttons(req))
+
+    def _plan_buttons(self, req: Request) -> list[list["Button"]]:
+        return [[
+            Button(t("orch.btn.confirm"), cb("confirm", req.id)),
+            Button(t("orch.btn.edit"), cb("reject", req.id)),
+            Button(t("orch.btn.cancel"), cb("cancel", req.id)),
+        ]]
+
+    async def _fail_to_plan_review(self, req: Request, requester: User, msg_key: str) -> None:
+        """Pha thực thi lỗi → quay về PLAN_REVIEW (kế hoạch đã duyệt vẫn còn) + nút Confirm để
+        user bấm chạy lại, thay vì kẹt EXECUTING (ngõ cụt: 'chạy lại' → "đang xử lý #id").
+        Commit SAU _say để event tin lỗi được lưu vào nhật ký (trước đây commit trước _say nên
+        tin lỗi không bao giờ vào DB)."""
+        self._set_status(req, RequestStatus.PLAN_REVIEW)
+        await self._say(req, requester, t(msg_key), buttons=self._plan_buttons(req))
+        self.db.commit()
 
     async def _execute(self, req: Request, fix_feedback: str | None = None) -> None:
         repo = self._repo(req)
@@ -395,8 +407,7 @@ class Orchestrator:
                 await self.git.prepare_branch(repo_dir, branch, repo.base_branch)
             except Exception as exc:
                 log.warning("chuẩn bị repo req %s lỗi: %s", req.id, exc)
-                self.db.commit()
-                await self._say(req, requester, t("orch.prepare_repo_error"))
+                await self._fail_to_plan_review(req, requester, "orch.prepare_repo_error")
                 return
 
             prompt = (prompts.fix_request_prompt(fix_feedback) if fix_feedback
@@ -411,8 +422,7 @@ class Orchestrator:
             req.claude_session_id = res.session_id
             if not res.ok or not parse_signal(res.result).ok:
                 log.warning("execute req %s lỗi: %s", req.id, res.result[:800])
-                self.db.commit()
-                await self._say(req, requester, t("orch.execute_failed"))
+                await self._fail_to_plan_review(req, requester, "orch.execute_failed")
                 return
 
             try:
@@ -430,8 +440,7 @@ class Orchestrator:
                 req.report_json = report.build_report(parse_signal(res.result).data, diff)
             except Exception as exc:
                 log.warning("push/PR req %s lỗi: %s", req.id, exc)
-                self.db.commit()
-                await self._say(req, requester, t("orch.push_pr_error"))
+                await self._fail_to_plan_review(req, requester, "orch.push_pr_error")
                 return
 
         self._set_status(req, RequestStatus.VERIFY)

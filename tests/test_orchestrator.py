@@ -99,6 +99,38 @@ async def test_execute_failure_message_has_no_tech_detail(db, fakes, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_execute_failure_is_retriable_via_confirm(db, fakes, tmp_path):
+    """Lỗi thực thi KHÔNG để request kẹt EXECUTING (ngõ cụt 'chạy lại'): quay về PLAN_REVIEW
+    + nút Confirm, bấm Confirm chạy lại → thành công. Tin lỗi cũng được ghi vào nhật ký."""
+    t, repo, emp, mgr = _seed(db)
+    bad = ClaudeResult(ok=False, result="❌ execute lỗi", session_id="s2")
+    # PLAN (analyze) → bad (execute lần 1 fail) → IMPL (execute lần 2 OK).
+    claude = FakeClaude([claude_json(PLAN, "s1"), bad, claude_json(IMPL, "s3")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    # Không kẹt EXECUTING → về PLAN_REVIEW, có nút để bấm lại.
+    assert req.status == RequestStatus.PLAN_REVIEW
+    fail = fakes["adapter"].sent[-1]
+    assert "Confirm" in fail[1] and fail[2]          # tin lỗi kèm nút
+    # Event tin lỗi được lưu (trước đây commit-trước-_say nên mất).
+    from app.models import EventKind, RequestEvent
+    from sqlalchemy import select
+    payloads = [e.payload_json.get("payload", "") for e in db.scalars(
+        select(RequestEvent).where(RequestEvent.request_id == req.id,
+                                   RequestEvent.kind == EventKind.SYSTEM)).all()]
+    assert any("trục trặc khi thực hiện" in p for p in payloads)
+
+    # Bấm Confirm lại → execute chạy lại, lần này OK → VERIFY.
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    assert req.status == RequestStatus.VERIFY
+    assert req.pr_number == 7
+
+
+@pytest.mark.asyncio
 async def test_full_happy_path(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
     claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
