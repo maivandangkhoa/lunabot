@@ -21,7 +21,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "{retry_hint}"
         ),
         "ko": (
-            "🌿 {repo} 저장소에 제가 작업할 `{base}` 브랜치가 없습니다.\n\n"
+            "🌿 {repo} 저장소에 제가 작업할 `{base}` 브랜치가 없는 상태입니다.\n\n"
             "제 절차: 먼저 `{base}` 브랜치에 커밋하여 검토받은 뒤 `{prod}`에 병합합니다. "
             "그래서 저장소에 이 두 브랜치가 모두 있어야 합니다.\n\n"
             "빠른 생성 방법: GitHub에서 저장소 열기 → 브랜치 선택 상자 클릭 → `{base}` 입력 → "
@@ -56,7 +56,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "and the GitHub App install permission, then {retry_hint_lower}"
         ),
         "ko": (
-            "❓ {repo} 저장소를 찾을 수 없습니다. 저장소 이름과 "
+            "❓ {repo} 저장소를 찾을 수 없는 상태입니다. 저장소 이름과 "
             "GitHub App 설치 권한을 확인한 뒤 {retry_hint_lower}"
         ),
     },
@@ -123,7 +123,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "orch.no_open_request": {
         "vi": "✨ Không có yêu cầu đang mở. Gửi yêu cầu mới để bắt đầu.",
         "en": "✨ No open request. Send a new request to get started.",
-        "ko": "✨ 열려 있는 요청이 없습니다. 새 요청을 보내 시작하세요.",
+        "ko": "✨ 열려 있는 요청이 없는 상태입니다. 새 요청을 보내 시작하세요.",
     },
     "orch.cleared": {
         "vi": "🧹 Đã đóng yêu cầu #{id}. Gửi yêu cầu mới để bắt đầu session mới.",
@@ -135,7 +135,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "orch.ask_failed": {
         "vi": "⚠️ Chưa trả lời được, thử lại sau nhé:\n{detail}",
         "en": "⚠️ Could not answer, please try again later:\n{detail}",
-        "ko": "⚠️ 답변할 수 없습니다. 나중에 다시 시도하세요:\n{detail}",
+        "ko": "⚠️ 답변할 수 없는 상태입니다. 나중에 다시 시도하세요:\n{detail}",
     },
     "orch.ask_empty": {
         "vi": "(không có nội dung)",

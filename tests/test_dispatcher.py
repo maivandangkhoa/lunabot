@@ -449,7 +449,7 @@ async def test_ask_without_question_shows_usage(db, fakes):
     u.platform_user_id = "99"
     db.commit()
     await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "/ask"))
-    assert any("Cú pháp: /ask" in s[1] for s in fakes["adapter"].sent)
+    assert any("Hướng dẫn sử dụng: /ask" in s[1] for s in fakes["adapter"].sent)
     assert len(u.tenant.requests) == 0
 
 

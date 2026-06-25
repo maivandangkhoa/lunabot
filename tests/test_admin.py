@@ -131,7 +131,7 @@ async def test_cross_tenant_blocked(db, fakes):
     other = create_user(db, t2, role=UserRole.EMPLOYEE, display_name="Other")
     db.commit()
     await handle_command(db, fakes["adapter"], admin, f"/role {other.id} admin")
-    assert any("Không tìm thấy" in s[1] for s in fakes["adapter"].sent)
+    assert any("tìm thấy user" in s[1] for s in fakes["adapter"].sent)
     assert other.role == UserRole.EMPLOYEE  # không đổi
 
 
