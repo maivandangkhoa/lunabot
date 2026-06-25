@@ -181,6 +181,7 @@ select.input{appearance:none;cursor:pointer;
 .workspace .ws-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search{flex:1;max-width:420px;display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;
   background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text-3);font-size:14px}
+.topbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto}
 .icon-btn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--text-2);
   border:1px solid var(--border);background:var(--surface);cursor:pointer;transition:.13s}
 .icon-btn:hover{color:var(--text);border-color:var(--border-2)}
@@ -449,9 +450,11 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
         f"<div class='workspace'><span class='ws-ico'>{icon('moon', 15)}</span>"
         f"<span class='ws-name'>{ws}</span></div>"
         f"<div class='search'>{icon('search', 15)}<span>{t('shell.search')}</span></div>"
+        "<div class='topbar-actions'>"
         f"{lang_switcher()}"
         f"<button class='icon-btn' aria-label='{esc(t('shell.notifications'))}'>{icon('bell', 18)}</button>"
         f"<div class='avatar' title='{ws}'>{initial}</div>"
+        "</div>"
         "</header>"
     )
     return doc(title, (
