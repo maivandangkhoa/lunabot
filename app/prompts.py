@@ -126,6 +126,13 @@ def executing_system_prompt(
         3. NEVER push nhánh protected: {prot}. Có pre-push hook chặn — đừng tìm cách lách.
         4. App sẽ lo push + tạo PR; bạn tập trung sửa code cho đúng và đủ.{build_rule}
 
+        VĂN BẢN CHUẨN/BOILERPLATE (giấy phép, CODE_OF_CONDUCT…): TUYỆT ĐỐI KHÔNG tự gõ
+        nguyên văn các văn bản dài đã chuẩn hoá (vd toàn văn GPL/AGPL/Apache-2.0) — API có
+        thể CHẶN output (content filter) làm hỏng cả thao tác. Hãy TẢI từ nguồn chính thức
+        bằng shell rồi chỉ tự viết phần tuỳ biến (năm, tên chủ sở hữu, mục README), vd:
+          `curl -fsSL https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE`
+        Giấy phép ngắn (MIT/BSD/ISC) thì tự điền template được, không cần tải.
+
         BÁO CÁO TỰ KIỂM THỬ (bắt buộc trước khi kết thúc): tự xác nhận thay đổi chạy đúng
         yêu cầu — luồng chính (happy path), trường hợp lỗi (dữ liệu rỗng/không hợp lệ), và
         không gây hỏng chức năng liên quan. Liệt kê việc đã kiểm thử vào field `self_test`.
