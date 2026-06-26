@@ -268,7 +268,7 @@ def _architecture() -> str:
         <p class='lp-sub'>{t('arch.sub')}</p>
       </div>
       <div class='arch'>
-        {node('requests', t('arch.node1.title'), t('arch.node1.desc'), ['Telegram', 'Google Chat'])}
+        {node('requests', t('arch.node1.title'), t('arch.node1.desc'), ['Telegram', 'Google Chat', 'Messenger', 'Zalo'])}
         {arrow}
         {node('moon', t('arch.node2.title'), t('arch.node2.desc'), ['FSM', 'Claude Code', t('arch.node2.tag_gate')], hl=True)}
         {arrow}
@@ -374,6 +374,18 @@ def _channels() -> str:
             <h3>Google Chat</h3></div>
           <p>{t('chan.gc.desc')}</p>
           <div class='tags'><span>{t('chan.gc.tag1')}</span><span>{t('chan.gc.tag2')}</span><span>{t('chan.gc.tag3')}</span></div>
+        </div>
+        <div class='chan'>
+          <div class='top'><span class='ci' style='background:linear-gradient(135deg,#00B2FF,#006AFF)'>{icon('chat', 22)}</span>
+            <h3>Messenger</h3></div>
+          <p>{t('chan.fb.desc')}</p>
+          <div class='tags'><span>{t('chan.fb.tag1')}</span><span>{t('chan.fb.tag2')}</span><span>{t('chan.fb.tag3')}</span></div>
+        </div>
+        <div class='chan'>
+          <div class='top'><span class='ci' style='background:#0068FF'>{icon('chat', 22)}</span>
+            <h3>Zalo</h3></div>
+          <p>{t('chan.zl.desc')}</p>
+          <div class='tags'><span>{t('chan.zl.tag1')}</span><span>{t('chan.zl.tag2')}</span><span>{t('chan.zl.tag3')}</span></div>
         </div>
       </div>
       <div class='chan-soon'>
