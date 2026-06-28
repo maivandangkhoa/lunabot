@@ -377,6 +377,34 @@ async def test_ok_ambiguous_asks_back(db, fakes):
 
 
 @pytest.mark.asyncio
+async def test_verify_button_label_echo_advances_not_loops(db, fakes):
+    """VERIFY: user echo NGUYÊN nhãn nút '✅ Đạt' (kênh không route click, vd Messenger) → khớp
+    verify_ok → merge dev (rời VERIFY), KHÔNG bị coi là feedback chạy lại EXECUTING vô tận."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    req = _mkreq(db, t, repo, emp, RequestStatus.VERIFY)
+    req.pr_number = 7
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, emp, "✅ Đạt", "emp")
+
+    assert handled is True
+    assert req.status != RequestStatus.VERIFY              # đã tiến tới (merge dev → chờ manager)
+
+
+@pytest.mark.asyncio
+async def test_keyword_symbol_strip_keeps_phrase_guard(db, fakes):
+    """Strip emoji KHÔNG được nới lỏng thành khớp token: 'fix bug' vẫn không phải hành động."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    _mkreq(db, t, repo, emp, RequestStatus.VERIFY)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, emp, "fix bug đăng nhập", "emp")
+
+    assert handled is False                                # rơi về luồng feedback cũ, không khớp nút
+
+
+@pytest.mark.asyncio
 async def test_ok_with_explicit_id_targets_that_request(db, fakes):
     """'ok #<merge>' duyệt đúng merge đó, KHÔNG đụng KH riêng của manager."""
     t, repo, emp, mgr = _seed_mgr(db)
