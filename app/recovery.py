@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session
 
 from app.channels.base import ChannelAdapter
 from app.channels.google_chat import GoogleChatAdapter
+from app.channels.messenger import MessengerAdapter
 from app.channels.telegram import TelegramAdapter
+from app.channels.zalo import ZaloAdapter
 from app.config import Settings
 from app.db import SessionLocal
 from app.models import (
@@ -58,6 +60,10 @@ def _build_adapter(platform: str | None, settings: Settings) -> ChannelAdapter |
                                bot_username=settings.telegram_bot_username)
     if platform == "google_chat" and settings.google_chat_enabled:
         return GoogleChatAdapter.from_settings(settings)
+    if platform == "messenger" and settings.messenger_enabled:
+        return MessengerAdapter.from_settings(settings)
+    if platform == "zalo" and settings.zalo_enabled:
+        return ZaloAdapter.from_settings(settings)
     return None
 
 
