@@ -27,7 +27,7 @@ from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import AlreadyLinkedError, get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
-from app.web.i18n import detect, normalize, set_lang, t
+from app.web.i18n import TEXTS, detect, normalize, set_lang, t
 
 log = logging.getLogger("luna.dispatcher")
 
@@ -69,12 +69,32 @@ def _strip_symbols(s: str) -> str:
     kept = "".join(ch if (unicodedata.category(ch)[0] in ("L", "N", "M") or ch.isspace())
                    else " " for ch in s)
     return " ".join(kept.split())
+
+
+def _norm_word(text: str) -> str:
+    """Chuẩn hoá text → từ khoá: bỏ '#id', emoji/ký hiệu, hạ thường, gộp khoảng trắng."""
+    return _strip_symbols(_REQ_ID_RE.sub("", text)).lower()
+
+
 # action → key i18n nhãn nút khi hỏi lại lúc nhập nhằng (nhiều việc cùng khớp 1 từ khoá).
 # Resolve t() tại use-site (không phải module-load) để theo đúng ngôn ngữ người dùng.
 _ACTION_VERB = {
     "confirm": "disp.verb_confirm", "reject": "disp.verb_reject", "cancel": "disp.verb_cancel",
     "verify_ok": "disp.verb_verify_ok", "mgr_approve": "disp.verb_mgr_approve",
     "mgr_reject": "disp.verb_mgr_reject",
+}
+# Mỗi action → 1 từ khoá đại diện (đã có trong _W_*) để _keyword_action map đúng theo status.
+_VERB_KW = {
+    "confirm": "ok", "mgr_approve": "ok", "verify_ok": "đạt",
+    "reject": "sửa", "cancel": "huỷ", "mgr_reject": "reject",
+}
+# Nhãn nút khử-nhập-nhằng đã chuẩn hoá (mọi ngôn ngữ) → từ khoá. Messenger gửi click dạng TEXT
+# (quick-reply ephemeral) ⇒ user echo nguyên nhãn "✅ Allow merge #53"; nếu không nhận diện sẽ
+# rơi thành feedback và chạy lại EXECUTING nhầm request khác. Dựng 1 lần từ catalog i18n.
+_VERB_LABEL_KW: dict[str, str] = {
+    _norm_word(val.replace("#{id}", "")): _VERB_KW[action]
+    for action, key in _ACTION_VERB.items()
+    for val in TEXTS.get(key, {}).values()
 }
 
 
@@ -324,7 +344,9 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
     m = _REQ_ID_RE.search(text)
     target_id = int(m.group(1)) if m else None
     # bỏ '#12' + emoji/ký hiệu (nhãn nút) trước khi khớp từ khoá → echo nhãn nút vẫn khớp.
-    word = _strip_symbols(_REQ_ID_RE.sub("", text)).lower()
+    word = _norm_word(text)
+    # Echo nhãn nút khử-nhập-nhằng ("✅ Allow merge #53") → từ khoá tương ứng để route theo id.
+    word = _VERB_LABEL_KW.get(word, word)
     group_chat_id = inbound.chat_id if (inbound and inbound.is_group) else None
     intent = None                                      # Lớp 2: Intent(word, confidence) nếu LLM suy ra
     if word not in _W_ANY:                             # Lớp 1 (từ khoá) trượt

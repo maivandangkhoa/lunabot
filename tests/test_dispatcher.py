@@ -393,6 +393,39 @@ async def test_verify_button_label_echo_advances_not_loops(db, fakes):
 
 
 @pytest.mark.asyncio
+async def test_disambig_button_label_echo_routes_by_id(db, fakes):
+    """Echo NGUYÊN nhãn nút khử-nhập-nhằng '✅ Allow merge #53' (Messenger gửi click dạng text)
+    → khớp mgr_approve đúng #53, KHÔNG rơi thành feedback chạy lại request đang mở khác."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    merge.pr_number = 3
+    other = _mkreq(db, t, repo, mgr, RequestStatus.VERIFY)   # việc đang mở khác của manager
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, f"✅ Allow merge #{merge.id}", "mgr")
+
+    assert handled is True
+    assert merge.status != RequestStatus.AWAIT_MANAGER      # đã duyệt merge production
+    assert other.status == RequestStatus.VERIFY             # KHÔNG đụng việc khác
+
+
+@pytest.mark.asyncio
+async def test_disambig_label_vietnamese_echo(db, fakes):
+    """Nhãn tiếng Việt '✅ Cho merge #id' echo dạng text cũng route đúng mgr_approve."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    merge.pr_number = 4
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, f"✅ Cho merge #{merge.id}", "mgr")
+
+    assert handled is True
+    assert merge.status != RequestStatus.AWAIT_MANAGER
+
+
+@pytest.mark.asyncio
 async def test_keyword_symbol_strip_keeps_phrase_guard(db, fakes):
     """Strip emoji KHÔNG được nới lỏng thành khớp token: 'fix bug' vẫn không phải hành động."""
     t, repo, emp, mgr = _seed_mgr(db)
