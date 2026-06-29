@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from textwrap import dedent
 
+from app.web.i18n import get_lang
+
 _JSON_RULE = dedent(
     """
     QUAN TRỌNG: Kết thúc câu trả lời bằng ĐÚNG MỘT khối ```json (không thêm chữ nào sau nó).
@@ -17,11 +19,20 @@ _JSON_RULE = dedent(
 # Ép Claude trả lời bằng CHÍNH ngôn ngữ người dùng đang dùng (đa ngôn ngữ — không cứng tiếng Việt).
 # Phần text hướng tới người dùng (phân tích, câu hỏi làm rõ, tóm tắt) phải khớp ngôn ngữ họ viết;
 # CHỈ phần kỹ thuật giữ nguyên: tên field JSON, action, đường dẫn file, lệnh, mã nguồn.
-_LANG_RULE = (
-    "NGÔN NGỮ: Viết phần trả lời cho người dùng bằng ĐÚNG ngôn ngữ mà người dùng dùng trong "
-    "yêu cầu/tin nhắn của họ (vd họ viết tiếng Anh → trả lời tiếng Anh; tiếng Hàn → tiếng Hàn; "
-    "tiếng Việt → tiếng Việt). KHÔNG dịch tên field JSON, giá trị action, đường dẫn file hay mã nguồn."
-)
+_LANG_NAMES = {"vi": "tiếng Việt (Vietnamese)", "en": "English", "ko": "한국어 (Korean)"}
+
+
+def _lang_rule() -> str:
+    """Chốt CỨNG ngôn ngữ đích = ngôn ngữ đã phát hiện từ NỘI DUNG user (i18n.get_lang(), do
+    dispatcher._sync_user_language set). KHÔNG để Claude tự phán đoán lại: system prompt toàn
+    tiếng Việt dễ kéo nó trôi về vi dù user viết tiếng Anh — đây là lý do ack (chuỗi tĩnh, đúng
+    'en') và câu làm rõ (Claude sinh, lệch 'vi') từng bất đồng. Dùng cùng 1 nguồn sự thật với t()."""
+    name = _LANG_NAMES.get(get_lang(), _LANG_NAMES["vi"])
+    return (
+        f"NGÔN NGỮ BẮT BUỘC: viết TOÀN BỘ phần văn bản nói với người dùng bằng {name}. Đây là "
+        "ngôn ngữ đã xác định từ tin nhắn của họ — KHÔNG dùng ngôn ngữ khác, kể cả khi phần hướng "
+        "dẫn này viết bằng tiếng Việt. KHÔNG dịch tên field JSON, giá trị action, đường dẫn file hay mã nguồn."
+    )
 
 # Người tạo yêu cầu KHÔNG phải lập trình viên → phần VĂN BẢN nói với họ phải bằng ngôn ngữ
 # nghiệp vụ. (Người duyệt/manager khi đến bước duyệt mới xem chi tiết kỹ thuật — app lo phần đó.)
@@ -60,7 +71,7 @@ def analyzing_system_prompt(repo_full_name: str, base_branch: str) -> str:
         TUYỆT ĐỐI: mọi câu trả lời PHẢI kết thúc bằng đúng một khối ```json như trên,
         kể cả khi bạn chỉ đang trả lời một câu hỏi. Không có ngoại lệ.
 
-        {_LANG_RULE}
+        {_lang_rule()}
 
         {_BIZ_RULE}
 
@@ -78,11 +89,12 @@ def ask_system_prompt(repo_full_name: str, base_branch: str) -> str:
 
         - CHỈ ĐỌC: dùng Read/Grep/Glob để tra cứu. KHÔNG sửa/ghi file, KHÔNG chạy lệnh
           thay đổi, KHÔNG commit/push.
-        - Trả lời NGẮN GỌN, đi thẳng câu hỏi, BẰNG CHÍNH NGÔN NGỮ người dùng đặt câu hỏi
-          (tiếng Anh → tiếng Anh, tiếng Hàn → tiếng Hàn, tiếng Việt → tiếng Việt). Trích đường dẫn file khi hữu ích.
+        - Trả lời NGẮN GỌN, đi thẳng câu hỏi. Trích đường dẫn file khi hữu ích.
         - Nếu câu hỏi thực chất cần SỬA code → nói rõ người dùng nên gửi một yêu cầu bảo trì
           (nhắn thẳng nội dung, không qua /ask).
         - KHÔNG cần kết thúc bằng khối json — đây là hỏi-đáp tự do.
+
+        {_lang_rule()}
         """
     ).strip()
 
@@ -155,7 +167,7 @@ def executing_system_prompt(
           "self_test_conclusion":"PASS"}}
         ```
 
-        {_LANG_RULE}
+        {_lang_rule()}
 
         {_BIZ_RULE}
 
