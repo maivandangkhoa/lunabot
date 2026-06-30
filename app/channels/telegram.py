@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.channels.base import Button, InboundMessage
+from app.channels.base import Attachment, Button, InboundMessage
 from app.channels.formatting import format_for, split_chunks
 
 log = logging.getLogger("luna.telegram")
@@ -92,7 +92,8 @@ class TelegramAdapter:
         msg = raw.get("message") or raw.get("edited_message") or {}
         chat = msg.get("chat", {})
         is_group = chat.get("type") in _GROUP_TYPES
-        raw_text = msg.get("text", "") or ""
+        # Tin ảnh dùng `caption` thay cho `text` → đọc cả hai để gửi ảnh + chữ trong 1 message.
+        raw_text = msg.get("text") or msg.get("caption") or ""
         mentioned = bool(self.bot_username) and f"@{self.bot_username}".lower() in raw_text.lower()
         is_cmd = raw_text.startswith("/")
         replied = (self.bot_id is not None
@@ -106,8 +107,19 @@ class TelegramAdapter:
             is_group=is_group,
             addressed=(not is_group) or mentioned or is_cmd or replied,
             language_code=msg.get("from", {}).get("language_code"),
+            attachments=self._parse_photos(msg),
             raw=raw,
         )
+
+    @staticmethod
+    def _parse_photos(msg: dict) -> list[Attachment]:
+        """`message.photo[]` là nhiều kích cỡ cùng ảnh (tăng dần) → lấy bản lớn nhất (cuối).
+        `ref.file_id` để tải qua getFile (download_attachment)."""
+        photos = msg.get("photo") or []
+        if not photos:
+            return []
+        fid = (photos[-1] or {}).get("file_id")
+        return [Attachment("photo.jpg", "image/jpeg", {"file_id": fid})] if fid else []
 
     @staticmethod
     def callback_id(raw: dict) -> str | None:
@@ -154,6 +166,20 @@ class TelegramAdapter:
         if text:
             payload["text"] = text
         return await self._api("answerCallbackQuery", payload)
+
+    async def download_attachment(self, attachment: Attachment) -> bytes:
+        """Tải ảnh: getFile (file_id → file_path) rồi GET /file/bot<token>/<file_path>."""
+        fid = attachment.ref.get("file_id")
+        if not fid:
+            raise ValueError("Attachment không có file_id.")
+        data = await self._api("getFile", {"file_id": fid})
+        path = data.get("result", {}).get("file_path")
+        if not path:
+            raise RuntimeError(f"getFile không trả file_path: {data.get('description')}")
+        resp = await self._http().get(f"/file/bot{self.token}/{path}")
+        if resp.status_code != 200:
+            raise RuntimeError(f"download_attachment lỗi {resp.status_code}")
+        return resp.content
 
     # ----- Long-polling -----
     async def get_updates(self, offset: int | None = None, timeout: int = 25) -> list[dict]:

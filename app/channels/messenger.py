@@ -33,6 +33,36 @@ _GRAPH_API = "https://graph.facebook.com/v21.0"
 _MAX_LEN = 2000  # Messenger giới hạn text 2000 ký tự
 
 
+def merge_events(messaging: list[dict]) -> list[dict]:
+    """Khi user gửi ảnh + chữ một lượt, Messenger tách thành nhiều 'message' event nhưng
+    thường gộp chung 1 webhook POST (`entry.messaging[]`). Gộp các event message thường của
+    CÙNG sender lại (nối text, gộp attachments) → 1 InboundMessage có cả ảnh lẫn chữ.
+
+    KHÔNG gộp nút bấm (quick_reply/postback) hay event khác sender — giữ nguyên, đúng thứ tự."""
+    merged: dict[str, dict] = {}        # sender_id → event đã gộp
+    out: list[dict] = []
+    for ev in messaging:
+        msg = ev.get("message")
+        sender = (ev.get("sender") or {}).get("id")
+        plain = bool(msg) and not msg.get("quick_reply")   # tin thường (text/ảnh), không phải bấm nút
+        if not (plain and sender):
+            out.append(ev)
+            continue
+        if sender not in merged:
+            base = {**ev, "message": {**msg}}
+            if msg.get("attachments") is not None:
+                base["message"]["attachments"] = list(msg["attachments"])
+            merged[sender] = base
+            out.append(base)
+            continue
+        bmsg = merged[sender]["message"]
+        if msg.get("text"):
+            bmsg["text"] = (f"{bmsg['text']}\n{msg['text']}" if bmsg.get("text") else msg["text"])
+        if msg.get("attachments"):
+            bmsg.setdefault("attachments", []).extend(msg["attachments"])
+    return out
+
+
 @dataclass
 class MessengerAdapter:
     """Adapter Facebook Messenger — shared OA (env) hoặc own page (BYO token)."""

@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.channels.base import Button
-from app.channels.messenger import MessengerAdapter
+from app.channels.messenger import MessengerAdapter, merge_events
 
 
 def _adapter(handler) -> MessengerAdapter:
@@ -50,6 +50,47 @@ def test_parse_inbound_image_attachment():
         "attachments": [{"type": "image", "payload": {"url": "https://cdn/x.jpg"}}]}})
     assert len(m.attachments) == 1 and m.attachments[0].is_image
     assert m.attachments[0].ref["url"] == "https://cdn/x.jpg"
+
+
+# ── merge_events (gộp ảnh + chữ trong 1 POST) ────────────────────────────────────
+def test_merge_events_combines_image_and_text_same_sender():
+    """Ảnh + chữ user gửi một lượt (Messenger tách event, chung 1 POST) → 1 event có cả hai."""
+    out = merge_events([
+        {"sender": {"id": "PSID1"}, "message": {"attachments": [
+            {"type": "image", "payload": {"url": "https://cdn/x.jpg"}}]}},
+        {"sender": {"id": "PSID1"}, "message": {"text": "fix this screen"}},
+    ])
+    assert len(out) == 1
+    msg = out[0]["message"]
+    assert msg["text"] == "fix this screen"
+    assert msg["attachments"][0]["payload"]["url"] == "https://cdn/x.jpg"
+
+
+def test_merge_events_keeps_different_senders_separate():
+    out = merge_events([
+        {"sender": {"id": "A"}, "message": {"text": "hi"}},
+        {"sender": {"id": "B"}, "message": {"text": "yo"}},
+    ])
+    assert len(out) == 2
+
+
+def test_merge_events_does_not_merge_quick_reply():
+    """Bấm nút (quick_reply) là hành động riêng → KHÔNG gộp vào tin thường cùng sender."""
+    out = merge_events([
+        {"sender": {"id": "A"}, "message": {"text": "hi"}},
+        {"sender": {"id": "A"}, "message": {"text": "OK", "quick_reply": {"payload": "confirm:5"}}},
+    ])
+    assert len(out) == 2
+
+
+def test_merge_events_does_not_mutate_input():
+    src = [
+        {"sender": {"id": "A"}, "message": {"attachments": [{"type": "image"}]}},
+        {"sender": {"id": "A"}, "message": {"text": "caption"}},
+    ]
+    merge_events(src)
+    assert "text" not in src[0]["message"]          # event gốc không bị thêm text
+    assert len(src[0]["message"]["attachments"]) == 1
 
 
 # ── send ───────────────────────────────────────────────────────────────────────

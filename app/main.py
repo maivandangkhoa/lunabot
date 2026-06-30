@@ -20,6 +20,7 @@ from app.channels.google_chat import (
     verify_google_jwt,
 )
 from app.channels.messenger import MessengerAdapter
+from app.channels.messenger import merge_events as merge_messenger_events
 from app.channels.zalo import ZaloAdapter
 from app.channels.telegram import TelegramAdapter
 from app.config import get_settings
@@ -365,7 +366,8 @@ async def webhook_messenger(
     except Exception:  # noqa: BLE001
         return Response(status_code=status.HTTP_400_BAD_REQUEST)
     for entry in data.get("entry", []):
-        for ev in entry.get("messaging", []):
+        # Gộp ảnh + chữ user gửi một lượt (Messenger tách event nhưng chung 1 POST).
+        for ev in merge_messenger_events(entry.get("messaging", [])):
             task = asyncio.create_task(_process_messenger(ev))
             _bg_tasks.add(task)
             task.add_done_callback(_bg_tasks.discard)
