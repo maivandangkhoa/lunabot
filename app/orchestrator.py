@@ -22,6 +22,7 @@ from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
 from app.config import get_settings
+from app.github_app import GitHubAppError
 from app.models import (
     Approval,
     ApprovalDecision,
@@ -509,11 +510,8 @@ class Orchestrator:
             return
         repo = self._repo(req)
         try:
-            pr = await self.github.create_pull_request(
-                repo.gh_installation_id, repo.repo_full_name,
-                head=repo.base_branch, base=repo.prod_branch,
-                title=f"[luna] release req-{req.id}", body=req.title)
-            await self.github.merge_pull_request(repo.gh_installation_id, repo.repo_full_name, pr["number"])
+            pr = await self._ensure_release_pr(req, repo)
+            await self._merge_release_pr(repo, pr["number"])
         except Exception as exc:
             log.warning("merge main req %s lỗi: %s", req.id, exc)
             self.db.commit()
@@ -532,6 +530,38 @@ class Orchestrator:
             except Exception as exc:  # noqa: BLE001
                 log.warning("xoá nhánh %s req %s lỗi: %s", req.branch_name, req.id, exc)
         await self._say(req, self._requester(req), t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
+
+    async def _ensure_release_pr(self, req: Request, repo) -> dict:
+        """PR release base→prod, idempotent. Nếu create trả 422 (PR đã mở từ lần duyệt
+        trước thất bại), tra lại PR cũ để merge thay vì kẹt vòng lặp tạo-PR-lỗi."""
+        try:
+            return await self.github.create_pull_request(
+                repo.gh_installation_id, repo.repo_full_name,
+                head=repo.base_branch, base=repo.prod_branch,
+                title=f"[luna] release req-{req.id}", body=req.title)
+        except GitHubAppError as exc:
+            if exc.status_code == 422:
+                existing = await self.github.find_open_pull_request(
+                    repo.gh_installation_id, repo.repo_full_name,
+                    head=repo.base_branch, base=repo.prod_branch)
+                if existing:
+                    return existing
+            raise
+
+    async def _merge_release_pr(self, repo, number: int) -> None:
+        """Merge PR, retry 1 lần khi GitHub trả 405 'Base branch was modified' (race
+        khi prod bị đẩy commit ngay giữa lúc tạo PR và merge)."""
+        for attempt in range(2):
+            try:
+                await self.github.merge_pull_request(
+                    repo.gh_installation_id, repo.repo_full_name, number)
+                return
+            except GitHubAppError as exc:
+                if exc.status_code == 405 and attempt == 0:
+                    log.info("merge PR #%s 405, thử lại: %s", number, exc)
+                    await asyncio.sleep(2)
+                    continue
+                raise
 
     async def _manager_reject(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):

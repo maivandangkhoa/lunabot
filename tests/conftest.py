@@ -11,6 +11,7 @@ from app.channels.google_chat import GoogleChatAdapter
 from app.channels.telegram import TelegramAdapter
 from app.claude_runner import ClaudeResult
 from app.db import Base
+from app.github_app import GitHubAppError
 from app.web.i18n import DEFAULT, set_lang
 
 
@@ -82,6 +83,9 @@ class FakeGitHub:
         self.merged: list[int] = []
         self.closed_prs: list[int] = []
         self.deleted_branches: list[str] = []
+        # Fault injection cho test idempotent merge (số lần còn phải fail).
+        self.fail_create_422 = 0
+        self.fail_merge_405 = 0
 
     async def installation_token(self, installation_id):
         return "ghs_fake"
@@ -90,11 +94,26 @@ class FakeGitHub:
         return f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
 
     async def create_pull_request(self, installation_id, repo_full_name, *, head, base, title, body=""):
+        if self.fail_create_422 > 0:
+            self.fail_create_422 -= 1
+            raise GitHubAppError("POST /pulls → HTTP 422: Validation Failed", status_code=422)
         n = len(self.created_prs) + 7
-        self.created_prs.append({"head": head, "base": base, "title": title})
+        self.created_prs.append({"number": n, "head": head, "base": base, "title": title})
         return {"number": n, "html_url": f"https://github.com/{repo_full_name}/pull/{n}"}
 
+    async def find_open_pull_request(self, installation_id, repo_full_name, *, head, base):
+        for pr in self.created_prs:
+            if pr["head"] == head and pr["base"] == base and pr["number"] not in self.merged:
+                return {"number": pr["number"],
+                        "html_url": f"https://github.com/{repo_full_name}/pull/{pr['number']}"}
+        return None
+
     async def merge_pull_request(self, installation_id, repo_full_name, number, *, method="merge"):
+        if self.fail_merge_405 > 0:
+            self.fail_merge_405 -= 1
+            raise GitHubAppError(
+                "PUT /merge → HTTP 405: Base branch was modified. Review and try the merge again.",
+                status_code=405)
         self.merged.append(number)
         return {"merged": True, "sha": f"mergesha{number}"}
 
