@@ -245,6 +245,17 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "⚠️ 변경 사항을 저장하는 중 문제가 발생했습니다. "
               "Confirm을 눌러 주시면 다시 시도하겠습니다.",
     },
+    "orch.push_workflows_perm": {
+        "vi": "⚠️ Thay đổi có đụng tới file CI/CD (.github/workflows/), nhưng GitHub App "
+              "chưa được cấp quyền **Workflows** nên GitHub từ chối lưu. Nhờ quản trị viên "
+              "cấp quyền Workflows (Read & write) cho bot trên repo, rồi bấm Confirm để em thử lại nhé.",
+        "en": "⚠️ The change touches CI/CD files (.github/workflows/), but the GitHub App "
+              "doesn't have the **Workflows** permission, so GitHub refused to save it. Please ask "
+              "an admin to grant the bot Workflows (Read & write) on the repo, then tap Confirm to retry.",
+        "ko": "⚠️ 변경 사항이 CI/CD 파일(.github/workflows/)을 건드리지만 GitHub App에 "
+              "**Workflows** 권한이 없어 GitHub가 저장을 거부했습니다. 관리자에게 저장소에서 봇에 "
+              "Workflows(Read & write) 권한을 부여하도록 요청한 뒤 Confirm을 눌러 다시 시도해 주세요.",
+    },
     # ── _verify_buttons ──
     "orch.btn.verify_ok": {"vi": "✅ Đạt", "en": "✅ Good", "ko": "✅ 통과"},
     "orch.btn.verify_fix": {"vi": "🔧 Cần sửa", "en": "🔧 Needs fix", "ko": "🔧 수정 필요"},

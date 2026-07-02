@@ -95,6 +95,16 @@ def friendly_repo_error(exc: Exception, repo: Repository, *, retry_hint: str) ->
              detail=str(exc)[:300], retry_hint=retry_hint)
 
 
+def classify_push_error(exc: Exception) -> str:
+    """Chọn i18n key cho lỗi push/PR. Nhận diện lỗi CI-workflow (GitHub chặn app token
+    không có quyền `workflows` khi push .github/workflows/*) để báo đúng lý do, tránh vòng
+    lặp Confirm mù mờ. Mặc định về push_pr_error chung."""
+    low = str(exc).lower()
+    if "workflow" in low and "permission" in low:
+        return "orch.push_workflows_perm"
+    return "orch.push_pr_error"
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -441,7 +451,7 @@ class Orchestrator:
                 req.report_json = report.build_report(parse_signal(res.result).data, diff)
             except Exception as exc:
                 log.warning("push/PR req %s lỗi: %s", req.id, exc)
-                await self._fail_to_plan_review(req, requester, "orch.push_pr_error")
+                await self._fail_to_plan_review(req, requester, classify_push_error(exc))
                 return
 
         self._set_status(req, RequestStatus.VERIFY)

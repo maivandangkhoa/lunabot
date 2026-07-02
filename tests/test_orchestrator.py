@@ -131,6 +131,30 @@ async def test_execute_failure_is_retriable_via_confirm(db, fakes, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_push_workflows_permission_reports_reason(db, fakes, tmp_path):
+    """Push bị GitHub chặn vì app token thiếu quyền `workflows` (đụng .github/workflows/*):
+    báo đúng lý do + cách xử lý, KHÔNG lặp câu 'problem saving' mù mờ."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    async def _reject(*a, **k):
+        raise RuntimeError(
+            "git push lỗi (code 1): ! [remote rejected] bot/req-1 -> bot/req-1 "
+            "(refusing to allow a GitHub App to create or update workflow "
+            "`.github/workflows/ci.yml` without `workflows` permission)")
+    fakes["git"].push_branch = _reject
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    assert req.status == RequestStatus.PLAN_REVIEW
+    last = fakes["adapter"].sent[-1][1]
+    assert "Workflows" in last and "problem saving" not in last
+
+
+@pytest.mark.asyncio
 async def test_full_happy_path(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
     claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
