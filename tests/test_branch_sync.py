@@ -311,3 +311,24 @@ async def test_sync_button_label_echo_no_declines(db, fakes, tmp_path):
     assert req.report_json["prod_sync"]["state"] == "declined"
     assert fakes["git"].pushed == []
     assert req.status == RequestStatus.PLAN_REVIEW           # vẫn phân tích tiếp
+
+
+@pytest.mark.asyncio
+async def test_conflict_flow_dm_uses_approver_language(db, fakes, tmp_path):
+    """DM: lời mời gỡ conflict + tin trạng thái theo ngôn ngữ APPROVER (không phải requester)."""
+    orch, req, emp, mgr, claude = await _to_await_manager(
+        db, fakes, tmp_path, extra_claude=(RESOLVED,))
+    emp.language = "vi"
+    mgr.language = "en"
+    db.commit()
+
+    fakes["github"].fail_merge_405_conflict = 1
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    ask = fakes["adapter"].sent[-1]
+    assert "Couldn't deploy request" in ask[1]                # tiếng Anh (approver, DM)
+
+    fakes["git"].merge_conflict = True
+    await orch.handle_callback(req, mgr, cb("conflict_fix", req.id))
+    assert any("Combining the two changes" in s[1] for s in fakes["adapter"].sent)
+    # Tin đóng request cuối vào thread requester → tiếng Việt.
+    assert any(f"Yêu cầu #{req.id} đã merge" in s[1] for s in fakes["adapter"].sent)

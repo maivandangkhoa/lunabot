@@ -36,7 +36,7 @@ from app.models import (
     UserRole,
 )
 from app.parsing import Action, parse_signal, strip_json_block
-from app.web.i18n import t
+from app.web.i18n import set_lang_for, t
 
 log = logging.getLogger("luna.orchestrator")
 
@@ -172,6 +172,7 @@ class Orchestrator:
                              title: str, body: str | None, attachments=None,
                              *, chat_id: str | None = None, platform: str | None = None,
                              is_group: bool = False) -> Request:
+        set_lang_for(requester)
         req = Request(
             tenant_id=repo.tenant_id, repo_id=repo.id, requester_user_id=requester.id,
             title=title, body=body, status=RequestStatus.NEW,
@@ -186,6 +187,9 @@ class Orchestrator:
 
     async def handle_message(self, req: Request, actor: User, text: str, attachments=None) -> None:
         """Tin text: ý nghĩa tuỳ state hiện tại."""
+        # Reply đi vào thread của request → ngôn ngữ REQUESTER (actor có thể là manager
+        # gõ thay trong group, contextvar đang mang ngôn ngữ của HỌ).
+        set_lang_for(self._requester(req))
         self._event(req, EventKind.MSG, EventDirection.IN, actor_id=actor.id, text=text[:500])
         if req.status == RequestStatus.CLARIFYING:
             if await branch_sync.maybe_handle_sync_reply(self, req, text):
@@ -227,6 +231,9 @@ class Orchestrator:
         action, _ = parsed
         # Nơi báo lỗi/ephemeral cho NGƯỜI BẤM (đúng chat họ bấm): group thì trong group, DM thì DM.
         target = reply_to or req.origin_chat_id or actor.platform_user_id
+        # Lỗi guard bên dưới gửi cho NGƯỜI BẤM → ngôn ngữ của họ. (Cũng ghi đè contextvar
+        # cookie web khi duyệt qua web — approvals._act gọi thẳng vào đây.)
+        set_lang_for(actor)
         is_mgr_action = action in ("mgr_approve", "mgr_reject", "conflict_fix")
 
         # An ninh group: nút của request hiện công khai → người khác cũng bấm được.
@@ -241,6 +248,9 @@ class Orchestrator:
             return
 
         self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=actor.id, action=action)
+        # Qua guard: phần còn lại là tin hướng-requester (vào thread/DM requester).
+        # Các nhánh manager (_merge_to_main/_manager_reject/conflict_fix) tự set lại theo actor.
+        set_lang_for(self._requester(req))
 
         if action == "confirm" and req.status == RequestStatus.PLAN_REVIEW:
             await self._execute(req)
@@ -278,6 +288,7 @@ class Orchestrator:
         Dùng được ở MỌI trạng thái blocking (kể cả ANALYZING/EXECUTING, nơi không có nút huỷ).
         Chỉ dừng FSM + đóng session Claude hiện tại — KHÔNG đụng nhánh dev/commit đã tạo.
         """
+        set_lang_for(user)
         target = reply_to or user.platform_user_id
         req = self.db.scalars(
             select(Request).where(
@@ -298,6 +309,7 @@ class Orchestrator:
         """Lệnh /ask: hỏi-đáp CHỈ-ĐỌC về dự án, KHÔNG qua FSM (không tạo request, không
         nhánh/commit/PR, không neo session). Tái dùng bản clone sẵn (fetch nhẹ), chạy Claude
         read-only một lần. Giữ lock per-repo để không đọc lúc một request khác đang EXECUTING."""
+        set_lang_for(user)
         target = reply_to or user.platform_user_id
         async with _repo_locks[repo.id]:
             try:
@@ -322,6 +334,9 @@ class Orchestrator:
                        attachments=None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
+        # Mọi đường vào (dispatcher/web/callback/nền) đều compose tin + prompt Claude
+        # (_lang_rule) theo ngôn ngữ requester.
+        set_lang_for(requester)
         self._set_status(req, RequestStatus.ANALYZING)
         self.db.commit()
         await self._say(req, requester, t("orch.received"))
@@ -422,6 +437,7 @@ class Orchestrator:
     async def _execute(self, req: Request, fix_feedback: str | None = None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
+        set_lang_for(requester)
         await self._say(req, requester, t("orch.executing"))
         async with _repo_locks[repo.id]:
             self._set_status(req, RequestStatus.EXECUTING)
@@ -532,10 +548,12 @@ class Orchestrator:
             await post_deploy.enter_await_manager(self, req)
 
     async def _merge_to_main(self, req: Request, approver: User, reply_to: str | None = None) -> None:
+        set_lang_for(approver)                       # lỗi quyền gửi cho NGƯỜI BẤM
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
             await self.adapter.send(reply_to or approver.platform_user_id,
                                     t("orch.only_manager"))
             return
+        set_lang_for(self._requester(req))           # tin còn lại vào thread requester
         repo = self._repo(req)
         try:
             pr = await self._ensure_release_pr(req, repo)
@@ -546,6 +564,8 @@ class Orchestrator:
             if branch_sync.is_merge_conflict_405(exc):
                 # Conflict thật (prod bị sửa trực tiếp, đụng cùng chỗ) → mời manager
                 # xác nhận cho bot gộp rồi merge lại, thay vì lỗi chung "thử duyệt lại".
+                # Lời mời: group → ngôn ngữ requester (chủ thread); DM → ngôn ngữ approver.
+                set_lang_for(self._requester(req) if req.origin_is_group else approver)
                 await branch_sync.ask_conflict_fix(self, req, repo, reply_to)
                 return
             await self._say(req, approver, t("orch.merge_main_error", prod=repo.prod_branch))
@@ -598,10 +618,12 @@ class Orchestrator:
                 raise
 
     async def _manager_reject(self, req: Request, approver: User, reply_to: str | None = None) -> None:
+        set_lang_for(approver)                       # lỗi quyền gửi cho NGƯỜI BẤM
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
             await self.adapter.send(reply_to or approver.platform_user_id,
                                     t("orch.only_manager"))
             return
+        set_lang_for(self._requester(req))           # tin còn lại vào thread requester
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.REJECTED))
         self._set_status(req, RequestStatus.CANCELLED)

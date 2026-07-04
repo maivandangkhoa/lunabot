@@ -24,7 +24,7 @@ from app.claude_runner import PermissionMode
 from app.github_app import GitHubAppError
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.textnorm import strip_symbols
-from app.web.i18n import t
+from app.web.i18n import set_lang_for, t
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.orchestrator import Orchestrator
@@ -224,6 +224,9 @@ async def resolve_conflict_and_merge(
     orch: "Orchestrator", req: Request, actor: User, target: str | None,
 ) -> None:
     """Nút conflict_fix: sync prod→base (Claude resolve) rồi chạy lại nguyên đường merge release."""
+    # Tin trạng thái (fixing/fix_failed/only_manager) đi về `dest`: group → ngôn ngữ
+    # requester (chủ thread); DM → ngôn ngữ người bấm.
+    set_lang_for(orch._requester(req) if req.origin_is_group else actor)
     if actor.role not in (UserRole.MANAGER, UserRole.ADMIN):
         await orch.adapter.send(target or actor.platform_user_id, t("orch.only_manager"))
         return

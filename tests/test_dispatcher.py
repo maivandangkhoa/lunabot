@@ -755,3 +755,31 @@ def test_keyword_gop_maps_conflict_fix_only_in_await_manager():
     assert _keyword_action("gộp", RequestStatus.AWAIT_MANAGER) == "conflict_fix"
     assert _keyword_action("gộp", RequestStatus.PLAN_REVIEW) is None
     assert _keyword_action("gộp", RequestStatus.VERIFY) is None
+
+
+@pytest.mark.asyncio
+async def test_lang_command_allowed_in_group(db, fakes):
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    u.language = "vi"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "@LunaBot /lang en", -100))
+    assert u.language == "en"
+    assert not any("nhắn riêng" in s[1].lower() for s in fakes["adapter"].sent)
+    assert any(s[0] == "-100" and "Language switched" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_start_does_not_persist_language(db, fakes):
+    """Ngôn ngữ chốt từ TIN ĐẦU user gửi, không phải locale client lúc /start —
+    nếu /start ghi sẵn cột thì detection không bao giờ chạy."""
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    db.commit()
+    raw = _msg("99", f"/start {u.link_token}")
+    raw["message"]["from"]["language_code"] = "en"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], raw)
+    assert get_user_by_platform(db, "telegram", "99").language is None

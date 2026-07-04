@@ -6,7 +6,7 @@ import pytest
 from app.channels.base import InboundMessage
 from app.dispatcher import _sync_user_language
 from app.models import User
-from app.web.i18n import detect, get_lang
+from app.web.i18n import detect, get_lang, set_lang_for
 
 
 @pytest.mark.parametrize(
@@ -45,10 +45,42 @@ def test_sync_sets_language_from_content():
     assert get_lang() == "en"
 
 
-def test_sync_switches_language_on_confident_content():
+def test_sync_is_sticky_never_redetects():
+    """Ngôn ngữ chốt từ tin đầu là STICKY: tin sau (kể cả tín hiệu ngôn ngữ khác rõ ràng)
+    KHÔNG đổi nữa — tránh lẫn ngôn ngữ giữa hội thoại. Đổi chủ động bằng /lang."""
     u = User(language="en")
     _sync_user_language(_StubDB(), u, _inbound("vui lòng sửa giúp trang đăng nhập"))
-    assert u.language == "vi"
+    assert u.language == "en"
+    assert get_lang() == "en"
+
+
+def test_sync_first_weak_text_falls_back_to_client_locale():
+    u = User(language=None)
+    _sync_user_language(_StubDB(), u, _inbound("ok", lang="ko"))
+    assert u.language == "ko"          # tin đầu yếu → chốt theo language_code client
+    assert get_lang() == "ko"
+
+
+def test_sync_no_signal_keeps_null_for_later():
+    u = User(language=None)
+    _sync_user_language(_StubDB(), u, _inbound("ok"))
+    assert u.language is None          # chưa persist — tin có nghĩa sau còn quyết
+    _sync_user_language(_StubDB(), u, _inbound("로그인 버그를 고쳐주세요"))
+    assert u.language == "ko"
+
+
+def test_sync_command_does_not_persist_but_uses_stored():
+    u = User(language=None)
+    _sync_user_language(_StubDB(), u, _inbound("/repos", lang="en"))
+    assert u.language is None          # lệnh không chốt ngôn ngữ
+    assert get_lang() == "en"          # nhưng trả lời tạm theo client
+
+
+def test_set_lang_for():
+    assert set_lang_for(User(language="ko")) == "ko"
+    assert get_lang() == "ko"
+    assert set_lang_for(User(language=None)) == "vi"   # DEFAULT
+    assert set_lang_for(None) == "vi"
 
 
 def test_sync_skips_command():

@@ -45,7 +45,7 @@ _IRREVERSIBLE = {"mgr_approve"}
 _W_CLEAR = {"/clear", "/new", "/reset"}     # huỷ request đang mở → mở session mới
 # Lệnh chỉ-đọc, không in token → an toàn dùng trong group (trả lời ngay trong thread).
 # Các lệnh in token / sửa dữ liệu (/users, /invite, /role, /unlink, /addrepo) vẫn DM-only.
-_W_GROUP_SAFE = {"/whoami", "/help", "/repos", "/repo"}
+_W_GROUP_SAFE = {"/whoami", "/help", "/repos", "/repo", "/lang"}
 
 # Từ khoá text thay cho bấm nút (kênh add-on như Google Chat không route click về endpoint).
 _W_CONFIRM = {"ok", "confirm", "duyệt", "duyet", "đồng ý", "dong y", "yes", "y", "ừ", "u"}
@@ -128,19 +128,26 @@ _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def _sync_user_language(db: Session, user: User, inbound) -> None:
-    """Đặt ngôn ngữ trả lời theo NỘI DUNG người dùng gõ (heuristic, không gọi API) rồi lưu
-    vào hồ sơ để các lượt sau dùng lại — chỉ tốn lượt phát hiện đầu, sau đó tái dùng.
+    """Ngôn ngữ user là STICKY: chốt 1 lần từ TIN CÓ NGHĨA ĐẦU TIÊN họ gửi, lưu User.language,
+    về sau luôn dùng giá trị đã lưu — KHÔNG detect lại mỗi tin (tin ngắn "ok"/echo nhãn nút
+    tiếng Anh từng làm đổi ngôn ngữ giữa hội thoại). Đổi chủ động bằng lệnh /lang.
 
-    Bỏ qua suy đoán với NÚT (callback) và LỆNH (/...) vì không đại diện ngôn ngữ. Khi chưa có
-    tín hiệu chắc chắn: giữ ngôn ngữ đã lưu; chưa có gì thì fallback language_code client → DEFAULT.
+    NÚT (callback) và LỆNH (/...) không đại diện ngôn ngữ → không dùng để chốt. Tin đầu
+    không đủ tín hiệu (detect None) → fallback language_code client; không có nốt → DEFAULT
+    tạm thời, CHƯA persist để tin có nghĩa kế tiếp còn quyết.
     """
+    if user.language:
+        set_lang(user.language)
+        return
     text = inbound.text or ""
-    if not inbound.callback_data and not text.startswith("/"):
-        detected = detect(text)
-        if detected and user.language != detected:
-            user.language = detected
-            db.commit()
-    set_lang(user.language or inbound.language_code)
+    if inbound.callback_data or text.startswith("/"):
+        set_lang(inbound.language_code)
+        return
+    lang = detect(text) or inbound.language_code
+    if lang:
+        user.language = normalize(lang)
+        db.commit()
+    set_lang(lang)
 
 
 async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, raw: dict,
@@ -444,9 +451,10 @@ async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: 
     if user is None:
         await adapter.send(platform_user_id, t("disp.start_bad_token"))
         return
-    if language_code:                       # ghi nhận ngôn ngữ client ngay khi liên kết
-        user.language = normalize(language_code)
-        set_lang(user.language)
+    # KHÔNG persist language_code lúc link: ngôn ngữ chốt từ TIN ĐẦU TIÊN user gửi
+    # (_sync_user_language) — ghi sẵn ở đây thì detection không bao giờ chạy.
+    if language_code:
+        set_lang(language_code)             # chỉ cho tin chào ngay dưới
     try:
         db.commit()
     except IntegrityError:

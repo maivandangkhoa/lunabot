@@ -474,3 +474,28 @@ async def test_verify_proceeds_when_slot_free(db, fakes, tmp_path):
 
     assert waiter.status == RequestStatus.AWAIT_MANAGER
     assert 9 in fakes["github"].merged
+
+
+@pytest.mark.asyncio
+async def test_replies_follow_requester_language_not_actor(db, fakes, tmp_path):
+    """Manager (ko) thao tác trên request của requester (en): tin vào thread phải theo
+    ngôn ngữ REQUESTER; riêng lỗi guard cho người bấm theo ngôn ngữ NGƯỜI BẤM."""
+    t, repo, emp, mgr = _seed(db)
+    emp.language = "en"
+    mgr.language = "ko"
+    emp2 = create_user(db, t, role=UserRole.EMPLOYEE, display_name="Eve")
+    emp2.platform_user_id = "emp-2"
+    emp2.language = "ko"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "Fix login please right now", "detail")
+
+    # Người khác (không phải owner, không phải manager) bấm nút → lỗi theo ngôn ngữ NGƯỜI BẤM (ko).
+    await orch.handle_callback(req, emp2, cb("confirm", req.id))
+    assert "요청은 당신의 것이 아닙니다" in fakes["adapter"].sent[-1][1]
+
+    # Manager (ko) từ chối kế hoạch → tin vào thread theo ngôn ngữ requester (en).
+    await orch.handle_callback(req, mgr, cb("reject", req.id))
+    assert "The plan was rejected" in fakes["adapter"].sent[-1][1]

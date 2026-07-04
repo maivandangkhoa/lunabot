@@ -30,7 +30,7 @@ from app.config import Settings, get_settings
 from app.github_app import GitHubApp
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.parsing import parse_signal
-from app.web.i18n import set_lang, t
+from app.web.i18n import set_lang, set_lang_for, t
 
 if TYPE_CHECKING:
     from app.orchestrator import Orchestrator
@@ -155,13 +155,22 @@ async def _http_ok(url: str) -> tuple[bool, str]:
 
 
 # ---------------- notify / chuyển trạng thái (tách khỏi orchestrator để file < 500 LOC) ----------------
-async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) -> None:
-    """Báo (các) manager: gói duyệt 10.x (loại thay đổi/nguyên nhân/giải pháp/phạm vi/test/
-    file/thống kê/diff) + nút duyệt. Group → đăng công khai; DM → từng manager."""
+def _mgr_packet(orch: "Orchestrator", req: Request, repo: Repository):
+    """Compose gói duyệt + nút DƯỚI ngôn ngữ contextvar hiện tại (caller set theo người nhận)."""
     text = report.manager_packet(req, repo, requester=orch._requester(req))
     buttons = [[Button(t("ops.btn.approve_merge"), f"mgr_approve:{req.id}"),
                 Button(t("ops.btn.reject"), f"mgr_reject:{req.id}")]]
+    return text, buttons
+
+
+async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) -> None:
+    """Báo (các) manager: gói duyệt 10.x (loại thay đổi/nguyên nhân/giải pháp/phạm vi/test/
+    file/thống kê/diff) + nút duyệt. Group → đăng công khai NGÔN NGỮ REQUESTER (chủ thread);
+    DM → từng manager, compose lại theo NGÔN NGỮ TỪNG NGƯỜI."""
+    requester = orch._requester(req)
     if req.origin_is_group and req.origin_chat_id:
+        set_lang_for(requester)
+        text, buttons = _mgr_packet(orch, req, repo)
         await orch.adapter.send(req.origin_chat_id, text, buttons)
         return
     # MANAGER + ADMIN: cả hai role đều có quyền duyệt merge (xem _merge_to_main), nên cả hai
@@ -176,7 +185,10 @@ async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) 
                     "chat để mời duyệt", req.id, repo.tenant_id)
         return
     for m in approvers:
+        set_lang_for(m)
+        text, buttons = _mgr_packet(orch, req, repo)
         await orch.adapter.send(m.platform_user_id, text, buttons)
+    set_lang_for(requester)  # trả contextvar về requester cho tin kế tiếp trong cùng luồng
 
 
 async def enter_await_manager(orch: "Orchestrator", req: Request, *, user_msg: str | None = None) -> None:

@@ -4,6 +4,7 @@ Mọi user:
   /help · /whoami
   /repos                        — liệt kê dự án (repo) của tenant
   /repo <số|tên>                — chọn dự án để gửi yêu cầu (khi tenant nhiều repo)
+  /lang <vi|en|ko>              — đổi ngôn ngữ bot trả lời (persist User.language)
 Chỉ admin:
   /users · /role <id> <role> · /unlink <id>
   /invite <role> <tên...>       — tạo user mới + link_token
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.channels.base import ChannelAdapter
 from app.models import Repository, Tenant, User, UserRole
 from app.onboarding import add_repository, create_user, regenerate_link_token
-from app.web.i18n import t
+from app.web.i18n import LANGS, set_lang, t
 
 log = logging.getLogger("luna.admin")
 
@@ -47,6 +48,10 @@ async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text:
                          reply_to: str | None = None) -> None:
     parts = text.split()
     cmd = parts[0].lower()
+    # Trả lời theo ngôn ngữ ĐÃ LƯU của người gõ (contextvar từ dispatcher có thể là
+    # language_code sơ bộ — lệnh không mang tín hiệu ngôn ngữ để detect).
+    if user.language:
+        set_lang(user.language)
     # Mặc định trả về DM của user; group cho lệnh chỉ-đọc thì trả ngay trong thread (reply_to).
     target = reply_to or user.platform_user_id
     send = lambda t: adapter.send(target, t)  # noqa: E731
@@ -63,6 +68,9 @@ async def handle_command(db: Session, adapter: ChannelAdapter, user: User, text:
         return
     if cmd == "/repo":                        # mọi user: chọn dự án active
         await _set_active_repo(db, send, user, parts)
+        return
+    if cmd == "/lang":                        # mọi user: đổi ngôn ngữ bot trả lời
+        await _set_language(db, send, user, parts)
         return
 
     if cmd not in _ADMIN_CMDS:
@@ -102,6 +110,24 @@ async def _list_repos(db, send, user: User) -> None:
         for i, r in enumerate(repos, 1)
     ]
     await send(t("admin.repos_list", body="\n".join(lines)))
+
+
+async def _set_language(db, send, user: User, parts) -> None:
+    """/lang [vi|en|ko] — trần: hiện ngôn ngữ hiện tại + cách dùng; có arg hợp lệ: persist
+    User.language + đổi contextvar ngay để câu xác nhận trả về bằng ngôn ngữ MỚI."""
+    if len(parts) < 2:
+        cur = user.language
+        await send(t("admin.lang_current", name=LANGS.get(cur, "—"), code=cur or "-")
+                   + "\n" + t("admin.lang_usage"))
+        return
+    code = parts[1].strip().lower()
+    if code not in LANGS:
+        await send(t("admin.lang_usage"))
+        return
+    user.language = code
+    db.commit()
+    set_lang(code)
+    await send(t("admin.lang_changed", name=LANGS[code]))
 
 
 async def _set_active_repo(db, send, user: User, parts) -> None:

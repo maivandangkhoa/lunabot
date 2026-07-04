@@ -10,6 +10,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/clear — đóng yêu cầu đang mở, bắt đầu session mới\n"
             "/repos — liệt kê dự án (repo) của tenant\n"
             "/repo <tên|số> — chọn dự án để gửi yêu cầu\n"
+            "/lang <vi|en|ko> — đổi ngôn ngữ bot trả lời\n"
             "/users — liệt kê user (admin)\n"
             "/invite <role> <tên> — tạo user + link (admin)\n"
             "/addrepo <owner/repo> <installation_id> [base] [prod] — thêm dự án (admin)\n"
@@ -24,6 +25,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/clear — close the open request, start a new session\n"
             "/repos — list the tenant's projects (repos)\n"
             "/repo <name|number> — pick a project to send requests to\n"
+            "/lang <vi|en|ko> — change the bot's reply language\n"
             "/users — list users (admin)\n"
             "/invite <role> <name> — create user + link (admin)\n"
             "/addrepo <owner/repo> <installation_id> [base] [prod] — add a project (admin)\n"
@@ -38,6 +40,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/clear — 열린 요청을 닫고 새 세션 시작\n"
             "/repos — 테넌트의 프로젝트(repo) 목록\n"
             "/repo <이름|번호> — 요청을 보낼 프로젝트 선택\n"
+            "/lang <vi|en|ko> — 봇 응답 언어 변경\n"
             "/users — 사용자 목록 (admin)\n"
             "/invite <role> <이름> — 사용자 생성 + 링크 (admin)\n"
             "/addrepo <owner/repo> <installation_id> [base] [prod] — 프로젝트 추가 (admin)\n"
@@ -45,6 +48,21 @@ TEXTS: dict[str, dict[str, str]] = {
             "/unlink <user_id> — 링크 해제, 새 토큰 발급 (admin)\n"
             "role ∈ employee|manager|admin"
         ),
+    },
+    "admin.lang_usage": {
+        "vi": "Cách dùng: /lang vi|en|ko — đổi ngôn ngữ bot trả lời.",
+        "en": "Usage: /lang vi|en|ko — change the bot's reply language.",
+        "ko": "사용법: /lang vi|en|ko — 봇 응답 언어를 변경합니다.",
+    },
+    "admin.lang_current": {
+        "vi": "Ngôn ngữ hiện tại: {name} ({code})",
+        "en": "Current language: {name} ({code})",
+        "ko": "현재 언어: {name} ({code})",
+    },
+    "admin.lang_changed": {
+        "vi": "✅ Đã chuyển ngôn ngữ sang {name}.",
+        "en": "✅ Language switched to {name}.",
+        "ko": "✅ 언어를 {name}(으)로 변경했습니다.",
     },
     "admin.whoami": {
         "vi": "id={id} · vai trò={role} · tenant={tenant} · {name}",

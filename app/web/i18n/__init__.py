@@ -91,6 +91,14 @@ def set_lang(code: str | None) -> str:
     return lang
 
 
+def set_lang_for(user) -> str:
+    """Đặt contextvar theo ngôn ngữ ĐÃ LƯU của NGƯỜI NHẬN tin (None → DEFAULT).
+
+    Quy tắc: mọi tin outbound compose dưới ngôn ngữ người nhận — gọi ngay TRƯỚC t().
+    Duck-typed (không import models — tránh vòng import)."""
+    return set_lang(getattr(user, "language", None))
+
+
 def get_lang() -> str:
     return _current.get()
 
