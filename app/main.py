@@ -6,6 +6,7 @@ GitHub webhook: stub (M2 dùng REST chủ động; webhook events để gắn CI
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from contextlib import asynccontextmanager
 
@@ -75,6 +76,29 @@ app.include_router(web_admin_router)  # super admin nền tảng — xem mọi t
 app.include_router(web_usage_router)  # đo lượng dùng Claude per-tenant (/usage, /admin/usage)
 
 
+_CSP = (
+    "default-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "img-src 'self' data:; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "script-src 'self' 'unsafe-inline'"
+)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Defense-in-depth cho các trang HTML render tay: chống clickjacking + backstop XSS."""
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    return resp
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "env": settings.luna_env}
@@ -87,7 +111,8 @@ async def webhook_telegram(
 ) -> Response:
     """Telegram webhook. Trả 200 cả khi lỗi nội bộ để Telegram không retry bão."""
     if settings.telegram_webhook_secret:
-        if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+        if not hmac.compare_digest(x_telegram_bot_api_secret_token or "",
+                                   settings.telegram_webhook_secret):
             return Response(status_code=status.HTTP_403_FORBIDDEN)
 
     raw = await request.json()
@@ -121,7 +146,8 @@ async def webhook_telegram_bot(
         bot = bot_registry.get_bot(db, bot_id)
         if bot is None or bot.platform != "telegram" or bot.mode != "own":
             return Response(status_code=status.HTTP_404_NOT_FOUND)
-        if bot.webhook_secret and x_telegram_bot_api_secret_token != bot.webhook_secret:
+        if bot.webhook_secret and not hmac.compare_digest(
+                x_telegram_bot_api_secret_token or "", bot.webhook_secret):
             return Response(status_code=status.HTTP_403_FORBIDDEN)
         raw = await request.json()
         adapter = bot_registry.build_adapter(bot)
@@ -253,12 +279,13 @@ async def webhook_zalo(
     if not settings.zalo_enabled:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     body = await request.body()
-    if settings.zalo_app_secret and x_zoa_signature:
+    # Enforce khi có secret: thiếu HEADER cũng bị chặn (không fail-open). Chỉ audit-mode
+    # (zalo_verify_enforce=False) mới cho qua để debug.
+    if settings.zalo_app_secret and settings.zalo_verify_enforce:
         adapter_tmp = ZaloAdapter.from_settings(settings)
-        if not adapter_tmp.verify_signature(body, x_zoa_signature):
-            log.warning("zalo: signature không hợp lệ")
-            if settings.zalo_verify_enforce:
-                return Response(status_code=status.HTTP_403_FORBIDDEN)
+        if not x_zoa_signature or not adapter_tmp.verify_signature(body, x_zoa_signature):
+            log.warning("zalo: signature thiếu/không hợp lệ")
+            return Response(status_code=status.HTTP_403_FORBIDDEN)
     import json as _json
     try:
         raw = _json.loads(body)
@@ -292,12 +319,12 @@ async def webhook_zalo_bot(
         if bot is None or bot.platform != "zalo" or bot.mode != "own":
             return Response(status_code=status.HTTP_404_NOT_FOUND)
         body = await request.body()
-        if bot.webhook_secret and x_zoa_signature:
+        if bot.webhook_secret:
             from app.token_crypto import decrypt_token
             app_secret = decrypt_token(bot.webhook_secret, settings.bot_token_enc_key)
             tmp = ZaloAdapter(app_id="", app_secret=app_secret, access_token="")
-            if not tmp.verify_signature(body, x_zoa_signature):
-                log.warning("zalo bot=%s: signature không hợp lệ", bot_id)
+            if not x_zoa_signature or not tmp.verify_signature(body, x_zoa_signature):
+                log.warning("zalo bot=%s: signature thiếu/không hợp lệ", bot_id)
                 return Response(status_code=status.HTTP_403_FORBIDDEN)
         import json as _json
         try:
@@ -342,7 +369,8 @@ async def webhook_messenger_verify(
     """Messenger webhook registration: GET hub.challenge → trả challenge thô khi verify_token khớp."""
     if not settings.messenger_enabled:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
-    if hub_mode == "subscribe" and hub_verify_token == settings.messenger_verify_token:
+    if (hub_mode == "subscribe" and settings.messenger_verify_token
+            and hmac.compare_digest(hub_verify_token or "", settings.messenger_verify_token)):
         return PlainTextResponse(hub_challenge or "")
     return Response(status_code=status.HTTP_403_FORBIDDEN)
 
@@ -356,12 +384,13 @@ async def webhook_messenger(
     if not settings.messenger_enabled:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     body = await request.body()
-    if settings.messenger_app_secret and x_hub_signature_256:
+    # Enforce khi có secret: thiếu HEADER cũng bị chặn (không fail-open). Chỉ audit-mode
+    # (messenger_verify_enforce=False) mới cho qua để debug.
+    if settings.messenger_app_secret and settings.messenger_verify_enforce:
         tmp = MessengerAdapter.from_settings(settings)
-        if not tmp.verify_signature(body, x_hub_signature_256):
-            log.warning("messenger: signature không hợp lệ")
-            if settings.messenger_verify_enforce:
-                return Response(status_code=status.HTTP_403_FORBIDDEN)
+        if not x_hub_signature_256 or not tmp.verify_signature(body, x_hub_signature_256):
+            log.warning("messenger: signature thiếu/không hợp lệ")
+            return Response(status_code=status.HTTP_403_FORBIDDEN)
     import json as _json
     try:
         data = _json.loads(body)

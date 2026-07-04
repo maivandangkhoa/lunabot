@@ -86,6 +86,7 @@ def test_build_adapter_covers_all_channels():
     đây thiếu messenger/zalo nên request Messenger bị mồ côi sau mỗi lần redeploy."""
     s = Settings(
         telegram_bot_token="t", google_chat_enabled=True,
+        google_chat_audience="https://x/webhook",
         messenger_enabled=True, messenger_page_access_token="pat",
         zalo_enabled=True, zalo_oa_access_token="z",
     )

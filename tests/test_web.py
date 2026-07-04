@@ -200,10 +200,10 @@ def test_wizard_create_rejects_forged_installation(monkeypatch, db):
     try:
         client = TestClient(app)
         cookie = sess.dumps({"tok": "dev", "login": "owner", "uid": 7, "name": "O",
-                             "state": "x"}, "sek")
+                             "csrf": "tok-csrf"}, "sek")
         client.cookies.set(sess.COOKIE_NAME, cookie)
         r = client.post("/wizard/create", follow_redirects=False, data={
-            "csrf": "x", "repo": "victim-org/private|99", "bot_choice": "shared",
+            "csrf": "tok-csrf", "repo": "victim-org/private|99", "bot_choice": "shared",
             "platform": "telegram"})
         assert r.status_code == 200                            # render lại kèm lỗi, không provision
         assert db.query(Tenant).count() == 0 and db.query(Repository).count() == 0

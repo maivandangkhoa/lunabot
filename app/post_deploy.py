@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import re
+import socket
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from sqlalchemy import select
@@ -144,11 +147,49 @@ async def _poll_deploy(github, repo: Repository, sha: str, settings: Settings) -
         await asyncio.sleep(settings.deploy_poll_interval_s)
 
 
-async def _http_ok(url: str) -> tuple[bool, str]:
-    """GET url (theo redirect). Trả (2xx/3xx?, mô tả)."""
+def _host_is_public(host: str) -> bool:
+    """False nếu host phân giải ra IP nội bộ/loopback/link-local (chống SSRF)."""
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:  # noqa: BLE001
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
+
+
+def _url_allowed(url: str) -> bool:
+    """Chỉ cho http(s) tới host CÔNG KHAI — chặn dev_url trỏ localhost/metadata (169.254.169.254)."""
+    try:
+        p = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(p.scheme in ("http", "https") and p.hostname and _host_is_public(p.hostname))
+
+
+async def _http_ok(url: str) -> tuple[bool, str]:
+    """GET url, tự theo redirect NHƯNG kiểm tra từng chặng chống SSRF. Trả (2xx/3xx?, mô tả).
+
+    dev_url do Claude dò từ repo khách (hoặc override settings_json) ⇒ không tin tuyệt đối:
+    từ chối URL trỏ mạng nội bộ, và re-validate mỗi Location của redirect (chống 302 nội bộ)."""
+    if not _url_allowed(url):
+        return False, "URL không hợp lệ hoặc trỏ mạng nội bộ (bị chặn)"
+    try:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=20) as client:
             resp = await client.get(url)
+            hops = 0
+            while resp.is_redirect and hops < 5:
+                nxt = urljoin(str(resp.url), resp.headers.get("location", ""))
+                if not _url_allowed(nxt):
+                    return False, "redirect tới mạng nội bộ (bị chặn)"
+                resp = await client.get(nxt)
+                hops += 1
         return resp.status_code < 400, f"HTTP {resp.status_code}"
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)[:200]

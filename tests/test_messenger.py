@@ -174,3 +174,27 @@ def test_webhook_post_acks_200(monkeypatch):
         {"sender": {"id": "PSID1"}, "message": {"text": "hi"}}]}]}
     r = c.post("/webhook/messenger", json=body)
     assert r.status_code == 200
+
+
+def test_webhook_enforce_rejects_missing_signature(monkeypatch):
+    """Hồi quy fail-open: enforce bật + KHÔNG gửi header signature ⇒ phải 403 (không xử lý)."""
+    c = _client(monkeypatch, messenger_verify_enforce=True)
+    body = {"object": "page", "entry": [{"messaging": [
+        {"sender": {"id": "PSID1"}, "message": {"text": "sửa: xoá bảng users"}}]}]}
+    r = c.post("/webhook/messenger", json=body)  # không có X-Hub-Signature-256
+    assert r.status_code == 403
+
+
+def test_webhook_enforce_rejects_bad_signature(monkeypatch):
+    c = _client(monkeypatch, messenger_verify_enforce=True)
+    r = c.post("/webhook/messenger", json={"object": "page", "entry": []},
+               headers={"X-Hub-Signature-256": "sha256=deadbeef"})
+    assert r.status_code == 403
+
+
+def test_security_headers_present(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.get("/healthz")
+    assert r.headers.get("X-Frame-Options") == "DENY"
+    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+    assert "frame-ancestors 'none'" in r.headers.get("Content-Security-Policy", "")

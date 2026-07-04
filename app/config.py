@@ -7,7 +7,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -131,6 +131,32 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.luna_env.lower() in {"production", "prod"}
+
+    @model_validator(mode="after")
+    def _guard_production(self) -> "Settings":
+        """Fail-fast: chặn cấu hình nguy hiểm ở production (không để lộ default secret /
+        bật cửa hậu dev / webhook không xác thực được)."""
+        if not self.is_production:
+            return self
+        weak = []
+        if self.web_session_secret in ("", "change-me-web"):
+            weak.append("WEB_SESSION_SECRET")
+        if self.secret_key in ("", "change-me"):
+            weak.append("SECRET_KEY")
+        if weak:
+            raise ValueError(
+                "Secret mặc định không được dùng ở production: " + ", ".join(weak)
+                + '. Sinh giá trị ngẫu nhiên: python -c "import secrets;'
+                ' print(secrets.token_urlsafe(32))".'
+            )
+        if self.web_dev_login:
+            raise ValueError("WEB_DEV_LOGIN không được bật ở production (cửa hậu bỏ qua OAuth).")
+        if self.google_chat_enabled and not self.google_chat_audience:
+            raise ValueError(
+                "GOOGLE_CHAT_ENABLED=true bắt buộc GOOGLE_CHAT_AUDIENCE (URL webhook) để "
+                "xác thực JWT inbound — thiếu audience = webhook không xác thực."
+            )
+        return self
 
 
 @lru_cache
