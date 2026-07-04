@@ -175,11 +175,7 @@ async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) 
         return
     # MANAGER + ADMIN: cả hai role đều có quyền duyệt merge (xem _merge_to_main), nên cả hai
     # đều phải được mời. Tenant chỉ-có-admin (không có manager) trước đây bị silent fail.
-    approvers = orch.db.scalars(
-        select(User).where(User.tenant_id == repo.tenant_id,
-                           User.role.in_((UserRole.MANAGER, UserRole.ADMIN)),
-                           User.platform_user_id.is_not(None))
-    ).all()
+    approvers = _approvers(orch, repo)
     if not approvers:
         log.warning("request %s vào AWAIT_MANAGER nhưng tenant %s không có manager/admin đã link "
                     "chat để mời duyệt", req.id, repo.tenant_id)
@@ -189,6 +185,36 @@ async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) 
         text, buttons = _mgr_packet(orch, req, repo)
         await orch.adapter.send(m.platform_user_id, text, buttons)
     set_lang_for(requester)  # trả contextvar về requester cho tin kế tiếp trong cùng luồng
+
+
+def _approvers(orch: "Orchestrator", repo: Repository) -> list[User]:
+    return list(orch.db.scalars(
+        select(User).where(User.tenant_id == repo.tenant_id,
+                           User.role.in_((UserRole.MANAGER, UserRole.ADMIN)),
+                           User.platform_user_id.is_not(None))
+    ).all())
+
+
+async def notify_other_approvers(orch: "Orchestrator", req: Request, repo: Repository,
+                                 actor: User, *, approved: bool) -> None:
+    """Sau khi 1 approver chốt (duyệt/từ chối): báo các approver CÒN LẠI đã từng được DM
+    lời mời, để lời mời trong DM của họ không thành stale ('bấm mới biết đã xử lý').
+
+    Chỉ áp dụng khi lời mời đi qua DM (request tạo từ DM) — group thì lời mời + kết quả
+    đã nằm chung trong group. Best-effort: DM 1 người lỗi không được hỏng luồng chính
+    (merge đã xong). Mỗi người nhận theo ngôn ngữ CỦA HỌ."""
+    if req.origin_is_group and req.origin_chat_id:
+        return
+    key = "ops.resolved_by_other.approved" if approved else "ops.resolved_by_other.rejected"
+    name = actor.display_name or actor.platform_user_id or "?"
+    for m in _approvers(orch, repo):
+        if m.id == actor.id:
+            continue
+        try:
+            set_lang_for(m)
+            await orch.adapter.send(m.platform_user_id, t(key, id=req.id, name=name))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("báo approver %s về req %s lỗi: %s", m.id, req.id, exc)
 
 
 async def enter_await_manager(orch: "Orchestrator", req: Request, *, user_msg: str | None = None) -> None:

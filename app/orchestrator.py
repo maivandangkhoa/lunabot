@@ -583,6 +583,8 @@ class Orchestrator:
             except Exception as exc:  # noqa: BLE001
                 log.warning("xoá nhánh %s req %s lỗi: %s", req.branch_name, req.id, exc)
         await self._say(req, self._requester(req), t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
+        # Các approver khác từng được DM lời mời → báo đã xử lý (lời mời hết stale).
+        await post_deploy.notify_other_approvers(self, req, repo, approver, approved=True)
 
     async def _ensure_release_pr(self, req: Request, repo) -> dict:
         """PR release base→prod, idempotent. Nếu create trả 422 (PR đã mở từ lần duyệt
@@ -634,3 +636,4 @@ class Orchestrator:
         if warns:
             msg += t("orch.cleanup_partial_warn", warns="; ".join(warns))
         await self._say(req, self._requester(req), msg)
+        await post_deploy.notify_other_approvers(self, req, repo, approver, approved=False)

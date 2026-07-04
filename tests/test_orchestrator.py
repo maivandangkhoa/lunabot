@@ -499,3 +499,64 @@ async def test_replies_follow_requester_language_not_actor(db, fakes, tmp_path):
     # Manager (ko) từ chối kế hoạch → tin vào thread theo ngôn ngữ requester (en).
     await orch.handle_callback(req, mgr, cb("reject", req.id))
     assert "The plan was rejected" in fakes["adapter"].sent[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_other_approvers_notified_when_resolved(db, fakes, tmp_path):
+    """Nhiều approver được DM lời mời: 1 người duyệt xong → người còn lại được báo
+    (theo ngôn ngữ CỦA HỌ), người bấm không tự nhận báo."""
+    t, repo, emp, mgr = _seed(db)
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Chief")
+    admin.platform_user_id = "admin-9"
+    admin.language = "en"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.CLOSED
+    info = [s for s in fakes["adapter"].sent if s[0] == "admin-9" and "approved and deployed" in s[1]]
+    assert len(info) == 1                                     # admin (en) được báo đúng ngôn ngữ
+    assert not any("duyệt và triển khai" in s[1] and s[0] == "mgr-1"
+                   for s in fakes["adapter"].sent)            # người bấm không tự nhận báo
+
+
+@pytest.mark.asyncio
+async def test_other_approvers_notified_on_reject(db, fakes, tmp_path):
+    t, repo, emp, mgr = _seed(db)
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Chief")
+    admin.platform_user_id = "admin-9"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    await orch.handle_callback(req, mgr, cb("mgr_reject", req.id))
+    assert req.status == RequestStatus.CANCELLED
+    assert any(s[0] == "admin-9" and "từ chối và hoàn tác" in s[1]
+               for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_group_origin_no_extra_approver_dm(db, fakes, tmp_path):
+    """Group-origin: lời mời + kết quả đã trong group → KHÔNG DM báo thêm approver nào."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y", chat_id="group-7",
+                                    platform="telegram", is_group=True)
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    before = len([s for s in fakes["adapter"].sent if s[0] == "mgr-1"])
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.CLOSED
+    assert len([s for s in fakes["adapter"].sent if s[0] == "mgr-1"]) == before
