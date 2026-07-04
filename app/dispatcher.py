@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import unicodedata
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -29,6 +28,7 @@ from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import AlreadyLinkedError, get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
+from app.textnorm import strip_symbols
 from app.web.i18n import TEXTS, detect, normalize, set_lang, t
 
 log = logging.getLogger("luna.dispatcher")
@@ -63,22 +63,10 @@ _W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT | _W_FIX_CO
 _REQ_ID_RE = re.compile(r"#(\d+)")
 
 
-def _strip_symbols(s: str) -> str:
-    """Bỏ emoji/ký hiệu khỏi text trước khi khớp từ khoá hành động.
-
-    Nhãn nút của bot có tiền tố emoji ("✅ Đạt", "🛠️ Cần sửa"...). Kênh không route click
-    về endpoint (vd Messenger: quick-reply ephemeral, user hay gõ/echo lại NHÃN nút) ⇒ inbound
-    tới dạng text "✅ Đạt", từ khoá thành "✅ đạt" KHÔNG khớp "đạt" → bị coi là feedback và chạy
-    lại EXECUTING vô tận. Giữ chữ (gồm dấu tiếng Việt/Hàn), số, khoảng trắng; bỏ phần còn lại;
-    gộp khoảng trắng. Khớp vẫn theo NGUYÊN CỤM (không tách token) nên "fix bug" vẫn không lọt."""
-    kept = "".join(ch if (unicodedata.category(ch)[0] in ("L", "N", "M") or ch.isspace())
-                   else " " for ch in s)
-    return " ".join(kept.split())
-
-
 def _norm_word(text: str) -> str:
-    """Chuẩn hoá text → từ khoá: bỏ '#id', emoji/ký hiệu, hạ thường, gộp khoảng trắng."""
-    return _strip_symbols(_REQ_ID_RE.sub("", text)).lower()
+    """Chuẩn hoá text → từ khoá: bỏ '#id', emoji/ký hiệu (nhãn nút echo — xem textnorm),
+    hạ thường, gộp khoảng trắng."""
+    return strip_symbols(_REQ_ID_RE.sub("", text)).lower()
 
 
 # action → key i18n nhãn nút khi hỏi lại lúc nhập nhằng (nhiều việc cùng khớp 1 từ khoá).

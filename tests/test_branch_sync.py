@@ -283,3 +283,31 @@ async def test_race_405_still_retries_not_offers_fix(db, fakes, tmp_path, monkey
     await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
     assert req.status == RequestStatus.CLOSED
     assert "conflict_fix" not in (req.report_json or {})
+
+
+@pytest.mark.asyncio
+async def test_sync_button_label_echo_with_emoji_confirms(db, fakes, tmp_path):
+    """Messenger/Zalo echo nhãn nút thành TEXT '✅ Gộp vào' (kèm emoji) — phải hiểu là
+    ĐỒNG Ý, không được đọc nhầm thành từ chối (bug thực tế 2026-07-04)."""
+    t, repo, emp, mgr = _seed(db)
+    fakes["git"].divergence_count = 1
+    orch = _orch(db, fakes, FakeClaude([claude_json(PLAN, "s1")]), tmp_path)
+    req = await orch.create_request(repo, emp, "X", "y")
+
+    await orch.handle_message(req, emp, "✅ Gộp vào")
+    assert req.report_json["prod_sync"]["state"] == "confirmed"
+    assert fakes["git"].pushed == ["dev"]
+    assert req.status == RequestStatus.PLAN_REVIEW
+
+
+@pytest.mark.asyncio
+async def test_sync_button_label_echo_no_declines(db, fakes, tmp_path):
+    t, repo, emp, mgr = _seed(db)
+    fakes["git"].divergence_count = 1
+    orch = _orch(db, fakes, FakeClaude([claude_json(PLAN, "s1")]), tmp_path)
+    req = await orch.create_request(repo, emp, "X", "y")
+
+    await orch.handle_message(req, emp, "⏭️ Cứ làm tiếp")
+    assert req.report_json["prod_sync"]["state"] == "declined"
+    assert fakes["git"].pushed == []
+    assert req.status == RequestStatus.PLAN_REVIEW           # vẫn phân tích tiếp

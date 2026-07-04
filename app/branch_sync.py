@@ -23,6 +23,7 @@ from app.channels.base import Button
 from app.claude_runner import PermissionMode
 from app.github_app import GitHubAppError
 from app.models import Repository, Request, RequestStatus, User, UserRole
+from app.textnorm import strip_symbols
 from app.web.i18n import t
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -93,7 +94,9 @@ async def maybe_handle_sync_reply(orch: "Orchestrator", req: Request, text: str)
     """
     if _get(req, SYNC_KEY).get("state") != "asked":
         return False
-    low = text.strip().lower()
+    # strip_symbols: Messenger/Zalo echo nhãn nút thành TEXT "✅ Gộp vào" — phải bỏ
+    # emoji/ký hiệu trước khi khớp, nếu không click nút bị đọc nhầm thành từ chối.
+    low = strip_symbols(text).lower()
     if low in _W_YES:
         await on_sync_confirm(orch, req)
         return True
