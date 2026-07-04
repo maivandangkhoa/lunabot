@@ -85,7 +85,8 @@ class FakeGitHub:
         self.deleted_branches: list[str] = []
         # Fault injection cho test idempotent merge (số lần còn phải fail).
         self.fail_create_422 = 0
-        self.fail_merge_405 = 0
+        self.fail_merge_405 = 0            # race "Base branch was modified" (retry được)
+        self.fail_merge_405_conflict = 0   # conflict thật "not mergeable" (retry vô ích)
 
     async def installation_token(self, installation_id):
         return "ghs_fake"
@@ -109,6 +110,11 @@ class FakeGitHub:
         return None
 
     async def merge_pull_request(self, installation_id, repo_full_name, number, *, method="merge"):
+        if self.fail_merge_405_conflict > 0:
+            self.fail_merge_405_conflict -= 1
+            raise GitHubAppError(
+                "PUT /merge → HTTP 405: Pull Request is not mergeable (merge conflict)",
+                status_code=405)
         if self.fail_merge_405 > 0:
             self.fail_merge_405 -= 1
             raise GitHubAppError(
@@ -134,6 +140,13 @@ class FakeGit:
 
     def __init__(self):
         self.has_changes = True
+        # branch_sync: mặc định không phân kỳ / merge sạch → mọi test cũ giữ nguyên hành vi.
+        self.divergence_count = 0
+        self.merge_conflict = False
+        self.conflict_files_list = ["src/Navbar.tsx"]
+        self.markers_after_resolve = False
+        self.pushed: list[str] = []
+        self.merge_aborted = 0
 
     async def ensure_clone(self, *a, **k):
         return None
@@ -144,8 +157,36 @@ class FakeGit:
     async def commit_all(self, *a, **k):
         return self.has_changes
 
-    async def push_branch(self, *a, **k):
+    async def push_branch(self, repo_dir, branch, *a, **k):
+        self.pushed.append(branch)
         return None
+
+    async def fetch_branch(self, *a, **k):
+        return None
+
+    async def divergence(self, *a, **k):
+        return self.divergence_count
+
+    async def merge_branch(self, *a, **k):
+        if self.merge_conflict:
+            self._conflict_calls = 0
+            return False
+        return True
+
+    async def conflicted_files(self, *a, **k):
+        # Lần gọi ĐẦU sau merge conflict (liệt kê cho Claude) → trả file; các lần sau
+        # (verify hậu-resolve) → coi như đã gỡ xong. Test ép fail bằng markers_after_resolve.
+        self._conflict_calls = getattr(self, "_conflict_calls", 0) + 1
+        if self.merge_conflict and self._conflict_calls == 1:
+            return list(self.conflict_files_list)
+        return []
+
+    async def abort_merge(self, *a, **k):
+        self.merge_aborted += 1
+        return None
+
+    def has_conflict_markers(self, *a, **k):
+        return self.markers_after_resolve
 
     async def diff_summary(self, *a, **k):
         return {"files": [{"path": "src/app.py", "status": "modified", "added": 5, "deleted": 2}],

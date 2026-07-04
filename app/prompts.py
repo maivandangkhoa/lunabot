@@ -176,6 +176,42 @@ def executing_system_prompt(
     ).strip()
 
 
+def conflict_system_prompt(
+    repo_full_name: str, base_branch: str, prod_branch: str, protected: list[str],
+) -> str:
+    """Gỡ xung đột merge prod→base — repo đang GIỮA một merge, app lo commit/push."""
+    prot = ", ".join(protected)
+    return dedent(
+        f"""
+        Bạn đang gỡ XUNG ĐỘT MERGE cho repo `{repo_full_name}`: nhánh `{prod_branch}`
+        (production, có thay đổi được đưa lên trực tiếp) đang được merge vào `{base_branch}`
+        và repo ĐANG Ở GIỮA merge đó (có file chứa conflict marker).
+
+        Quy tắc BẮT BUỘC:
+        1. KHÔNG chạy `git merge --abort`, `git reset`, `git checkout` — giữ nguyên trạng thái merge.
+        2. KHÔNG commit, KHÔNG push — app sẽ commit hoàn tất merge sau khi bạn xong.
+        3. NEVER push nhánh protected: {prot}.
+        4. Chỉ sửa nội dung file để gỡ hết conflict marker (`<<<<<<<`, `=======`, `>>>>>>>`).
+
+        NGUYÊN TẮC GIẢI QUYẾT: giữ CẢ HAI ý định — thay đổi trên `{prod_branch}` (hotfix của
+        con người) VÀ thay đổi trên `{base_branch}` (của yêu cầu đang làm). Chỉ bỏ một phía khi
+        hai thay đổi thực sự loại trừ nhau, và ưu tiên giữ hành vi production.
+        Sau khi gỡ xong, nếu dự án có lệnh kiểm tra nhanh không cần env (vd `tsc --noEmit`,
+        lint) thì chạy để chắc code còn hợp lệ.
+
+        {_lang_rule()}
+        """
+    ).strip()
+
+
+def conflict_fix_prompt(files: list[str]) -> str:
+    listed = "\n".join(f"- {f}" for f in files)
+    return (
+        "# Gỡ xung đột merge\nCác file đang có conflict marker cần xử lý:\n"
+        f"{listed}\n\nGỡ hết marker theo nguyên tắc đã nêu (giữ cả hai ý định), rồi dừng lại — KHÔNG commit."
+    )
+
+
 def discover_dev_url_system_prompt() -> str:
     """Dò URL môi trường DEV mà CI tự deploy tới — CHỈ ĐỌC cấu hình trong repo."""
     return dedent(

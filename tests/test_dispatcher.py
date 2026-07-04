@@ -745,3 +745,13 @@ def test_intent_enabled_requires_token(monkeypatch):
     assert _intent_enabled() is True
     monkeypatch.setattr(s, "intent_llm_enabled", False)
     assert _intent_enabled() is False
+
+
+def test_keyword_gop_maps_conflict_fix_only_in_await_manager():
+    """"gộp" → conflict_fix chỉ ở AWAIT_MANAGER (guard `offered` trong branch_sync mới
+    quyết có chạy thật); các trạng thái khác không map thành hành động này."""
+    from app.dispatcher import _keyword_action
+
+    assert _keyword_action("gộp", RequestStatus.AWAIT_MANAGER) == "conflict_fix"
+    assert _keyword_action("gộp", RequestStatus.PLAN_REVIEW) is None
+    assert _keyword_action("gộp", RequestStatus.VERIFY) is None

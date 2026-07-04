@@ -53,8 +53,11 @@ _W_EDIT = {"sửa", "sua", "chỉnh", "chinh", "edit", "fix"}
 _W_CANCEL = {"huỷ", "huy", "hủy", "cancel", "bỏ", "bo", "stop"}
 _W_VERIFY_OK = {"đạt", "dat", "ok", "pass", "duyệt", "duyet", "done", "xong", "good"}
 _W_REJECT = {"từ chối", "tu choi", "reject", "no", "không", "khong"}
+# Gỡ xung đột merge release (chỉ có nghĩa khi bot vừa mời — branch_sync guard `offered`).
+_W_FIX_CONFLICT = {"gộp", "gop", "gộp vào", "gop vao", "fix conflict", "resolve",
+                   "gỡ xung đột", "go xung dot"}
 # Hợp của mọi từ khoá hành động — chặn tin thường (vd "fix bug #123") lọt vào nhánh hành động.
-_W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT
+_W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT | _W_FIX_CONFLICT
 
 # Cho phép nhắm tường minh "ok #12" → tách số request khỏi câu trước khi khớp từ khoá.
 _REQ_ID_RE = re.compile(r"#(\d+)")
@@ -83,12 +86,13 @@ def _norm_word(text: str) -> str:
 _ACTION_VERB = {
     "confirm": "disp.verb_confirm", "reject": "disp.verb_reject", "cancel": "disp.verb_cancel",
     "verify_ok": "disp.verb_verify_ok", "mgr_approve": "disp.verb_mgr_approve",
-    "mgr_reject": "disp.verb_mgr_reject",
+    "mgr_reject": "disp.verb_mgr_reject", "conflict_fix": "disp.verb_conflict_fix",
 }
 # Mỗi action → 1 từ khoá đại diện (đã có trong _W_*) để _keyword_action map đúng theo status.
 _VERB_KW = {
     "confirm": "ok", "mgr_approve": "ok", "verify_ok": "đạt",
     "reject": "sửa", "cancel": "huỷ", "mgr_reject": "reject",
+    "conflict_fix": "gộp",
 }
 # Nhãn nút khử-nhập-nhằng đã chuẩn hoá (mọi ngôn ngữ) → từ khoá. Messenger gửi click dạng TEXT
 # (quick-reply ephemeral) ⇒ user echo nguyên nhãn "✅ Allow merge #53"; nếu không nhận diện sẽ
@@ -127,6 +131,7 @@ def _keyword_action(word: str, status: RequestStatus) -> str | None:
     elif status == RequestStatus.AWAIT_MANAGER:
         if word in _W_CONFIRM: return "mgr_approve"
         if word in _W_REJECT:  return "mgr_reject"
+        if word in _W_FIX_CONFLICT: return "conflict_fix"
     return None
 
 # Khoá theo user: serialize các event của cùng 1 người (mỗi event là 1 task nền + DB

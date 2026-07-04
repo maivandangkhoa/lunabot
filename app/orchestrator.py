@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import git_ops, post_deploy, prompts, report, usage
+from app import branch_sync, git_ops, post_deploy, prompts, report, usage
 from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
@@ -188,6 +188,8 @@ class Orchestrator:
         """Tin text: ý nghĩa tuỳ state hiện tại."""
         self._event(req, EventKind.MSG, EventDirection.IN, actor_id=actor.id, text=text[:500])
         if req.status == RequestStatus.CLARIFYING:
+            if await branch_sync.maybe_handle_sync_reply(self, req, text):
+                return
             await self._analyze(req, clarifications=[text], attachments=attachments)
         elif req.status == RequestStatus.VERIFY:
             await self._execute(req, fix_feedback=text)
@@ -225,7 +227,7 @@ class Orchestrator:
         action, _ = parsed
         # Nơi báo lỗi/ephemeral cho NGƯỜI BẤM (đúng chat họ bấm): group thì trong group, DM thì DM.
         target = reply_to or req.origin_chat_id or actor.platform_user_id
-        is_mgr_action = action in ("mgr_approve", "mgr_reject")
+        is_mgr_action = action in ("mgr_approve", "mgr_reject", "conflict_fix")
 
         # An ninh group: nút của request hiện công khai → người khác cũng bấm được.
         # Hành động của requester chỉ requester (hoặc manager/admin) mới được thao tác.
@@ -251,10 +253,16 @@ class Orchestrator:
         elif action == "verify_fix" and req.status == RequestStatus.VERIFY:
             self.db.commit()
             await self._say(req, self._requester(req), t("orch.verify_fix_prompt"))
+        elif action == "sync_yes" and req.status == RequestStatus.CLARIFYING:
+            await branch_sync.on_sync_confirm(self, req)
+        elif action == "sync_no" and req.status == RequestStatus.CLARIFYING:
+            await branch_sync.on_sync_decline(self, req)
         elif action == "mgr_approve" and req.status == RequestStatus.AWAIT_MANAGER:
             await self._merge_to_main(req, actor, target)
         elif action == "mgr_reject" and req.status == RequestStatus.AWAIT_MANAGER:
             await self._manager_reject(req, actor, target)
+        elif action == "conflict_fix" and req.status == RequestStatus.AWAIT_MANAGER:
+            await branch_sync.resolve_conflict_and_merge(self, req, actor, target)
         elif action == "cancel":
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
@@ -327,6 +335,11 @@ class Orchestrator:
             self.db.commit()
             await self._say(req, requester, friendly_repo_error(
                 exc, repo, retry_hint=t("orch.retry_hint.analyze")))
+            return
+
+        # prod có commit đi thẳng (không qua bot) chưa nằm trong base? → hỏi requester
+        # trước khi gộp (KHÔNG tự ý merge). Đã hỏi thì dừng, chờ xác nhận.
+        if await branch_sync.check_divergence_at_intake(self, req, repo, repo_dir):
             return
 
         # "chạy lại"/"thử lại"… chỉ là tín hiệu retry sau khi khách sửa repo — không phải nội
@@ -530,6 +543,11 @@ class Orchestrator:
         except Exception as exc:
             log.warning("merge main req %s lỗi: %s", req.id, exc)
             self.db.commit()
+            if branch_sync.is_merge_conflict_405(exc):
+                # Conflict thật (prod bị sửa trực tiếp, đụng cùng chỗ) → mời manager
+                # xác nhận cho bot gộp rồi merge lại, thay vì lỗi chung "thử duyệt lại".
+                await branch_sync.ask_conflict_fix(self, req, repo, reply_to)
+                return
             await self._say(req, approver, t("orch.merge_main_error", prod=repo.prod_branch))
             return
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
@@ -572,7 +590,8 @@ class Orchestrator:
                     repo.gh_installation_id, repo.repo_full_name, number)
                 return
             except GitHubAppError as exc:
-                if exc.status_code == 405 and attempt == 0:
+                if exc.status_code == 405 and attempt == 0 \
+                        and not branch_sync.is_merge_conflict_405(exc):
                     log.info("merge PR #%s 405, thử lại: %s", number, exc)
                     await asyncio.sleep(2)
                     continue
