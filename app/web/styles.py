@@ -309,6 +309,7 @@ _ICONS = {
     "chat": '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     "info": '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     "trash": '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+    "usage": '<line x1="6" x2="6" y1="20" y2="14"/><line x1="12" x2="12" y1="20" y2="8"/><line x1="18" x2="18" y1="20" y2="4"/><path d="M3 20h18"/>',
 }
 
 
@@ -421,6 +422,7 @@ _NAV = [
     ("repo", "nav.repositories", "/repositories"),
     ("requests", "nav.requests", "/requests"),
     ("activity", "nav.activity", "/activity"),
+    ("usage", "nav.usage", "/usage"),
     ("users", "nav.users", "/users"),
     ("settings", "nav.settings", "/settings"),
 ]
@@ -434,8 +436,11 @@ def _sidebar(active: str) -> str:
     admin = ""
     if _show_admin.get():
         cls = "nav-item active" if active == "admin" else "nav-item"
+        cls_u = "nav-item active" if active == "admin_usage" else "nav-item"
         admin = (f"<div class='nav-label'>{t('nav.platform')}</div>"
-                 f"<a class='{cls}' href='/admin'>{icon('shield')}<span>{t('nav.admin')}</span></a>")
+                 f"<a class='{cls}' href='/admin'>{icon('shield')}<span>{t('nav.admin')}</span></a>"
+                 f"<a class='{cls_u}' href='/admin/usage'>{icon('usage')}"
+                 f"<span>{t('nav.admin_usage')}</span></a>")
     foot = (f"<div class='sidebar-foot'><a class='nav-item' href='/logout'>"
             f"{icon('logout')}<span>{t('common.logout')}</span></a></div>")
     return (f"<aside class='sidebar' id='sidebar'>{brand()}"

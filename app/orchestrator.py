@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import git_ops, post_deploy, prompts, report
+from app import git_ops, post_deploy, prompts, report, usage
 from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
@@ -303,6 +303,7 @@ class Orchestrator:
                 prompt=question, cwd=repo_dir,
                 permission_mode=PermissionMode.READONLY, system_prompt=sysp,
             )
+        usage.record(self.db, tenant_id=repo.tenant_id, phase="ask", res=res)
         if not res.ok:
             await self.adapter.send(target, t("orch.ask_failed", detail=res.result[:800]))
             return
@@ -341,6 +342,8 @@ class Orchestrator:
             session_id=req.claude_session_id, system_prompt=sysp,
         )
         req.claude_session_id = res.session_id
+        usage.record(self.db, tenant_id=req.tenant_id, request_id=req.id,
+                     phase="analyze", res=res)
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, ok=res.ok, result=res.result[:500])
 
         if not res.ok:
@@ -431,6 +434,8 @@ class Orchestrator:
                 session_id=req.claude_session_id, system_prompt=sysp,
             )
             req.claude_session_id = res.session_id
+            usage.record(self.db, tenant_id=req.tenant_id, request_id=req.id,
+                         phase="execute", res=res)
             if not res.ok or not parse_signal(res.result).ok:
                 log.warning("execute req %s lỗi: %s", req.id, res.result[:800])
                 await self._fail_to_plan_review(req, requester, "orch.execute_failed")

@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # KHÔNG hoàn tác (merge production) thì LUÔN xác nhận bất kể điểm (xem dispatcher._IRREVERSIBLE).
     intent_confidence_threshold: float = 0.75
 
+    # --- Usage metering / quota subscription ---
+    # Trần QUY ĐỔI USD của account Claude subscription theo cửa sổ trượt 5h / 7 ngày —
+    # KHÔNG có API công khai để hỏi, calibrate thực nghiệm: tổng cost_usd tích luỹ tới lúc
+    # đụng trần (usage_records.status="limit") ≈ trần. Để trống = chưa biết (trang admin
+    # chỉ hiện số đã dùng, không hiện %).
+    sub_quota_usd_5h: float | None = None
+    sub_quota_usd_week: float | None = None
+
     # --- Deploy verify (sau merge dev) ---
     # Bật: sau khi merge vào dev, chờ GitHub Action build+deploy xong + curl URL dev (200)
     # rồi mới mời manager. Tắt = giữ hành vi cũ (merge xong mời manager ngay).

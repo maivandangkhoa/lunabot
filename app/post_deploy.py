@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import httpx
 from sqlalchemy import select
 
-from app import prompts, report
+from app import prompts, report, usage
 from app.channels.base import Button
 from app.claude_runner import PermissionMode
 from app.config import Settings, get_settings
@@ -74,6 +74,7 @@ async def _discover_dev_url(orch: "Orchestrator", repo: Repository) -> str | Non
     except Exception as exc:  # noqa: BLE001
         log.warning("dò dev_url repo %s lỗi: %s", repo.repo_full_name, exc)
         return None
+    usage.record(orch.db, tenant_id=repo.tenant_id, phase="discover_dev_url", res=res)
     return _parse_dev_url(res.result) if res.ok else None
 
 
@@ -335,6 +336,8 @@ async def _auto_fix_round(orch: "Orchestrator", req: Request, repo: Repository,
             permission_mode=PermissionMode.BYPASS,
             session_id=req.claude_session_id, system_prompt=sysp)
         req.claude_session_id = res.session_id
+        usage.record(orch.db, tenant_id=repo.tenant_id, request_id=req.id,
+                     phase="auto_fix", res=res)
         if not res.ok or not parse_signal(res.result).ok:
             orch.db.commit()
             log.warning("auto-fix req %s: Claude không cho tín hiệu hợp lệ", req.id)

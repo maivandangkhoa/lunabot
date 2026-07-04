@@ -17,7 +17,9 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -304,6 +306,44 @@ class Approval(Base):
     created_at: Mapped[datetime] = _created_at()
 
     request: Mapped[Request] = relationship(back_populates="approvals")
+
+
+class UsageRecord(Base):
+    """1 dòng = 1 lần chạy Claude CLI — đo lượng dùng per-tenant để tính tiền.
+
+    Nguồn: JSON output của `claude -p` (usage/modelUsage/total_cost_usd). `cost_usd` là chi
+    phí QUY ĐỔI API (kể cả khi chạy bằng OAuth subscription) — đơn vị chuẩn để so tenant với
+    quota account & định giá. Ghi best-effort (app/usage.py): lỗi ghi KHÔNG được chặn FSM.
+    `status="limit"` đánh dấu lần chạy đụng trần subscription (calibrate quota thực tế).
+    """
+
+    __tablename__ = "usage_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    # NULL khi lần chạy không gắn request (intent classify, /ask, dò dev_url).
+    request_id: Mapped[int | None] = mapped_column(
+        ForeignKey("requests.id", ondelete="SET NULL"), nullable=True
+    )
+    phase: Mapped[str] = mapped_column(String(32))          # analyze/execute/ask/intent/…
+    status: Mapped[str] = mapped_column(String(16), default="ok")  # ok | error | limit
+    auth_mode: Mapped[str] = mapped_column(String(16), default="subscription")  # subscription | api
+    input_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cache_creation_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger)
+    num_turns: Mapped[int | None] = mapped_column(Integer)
+    model_usage: Mapped[dict | None] = mapped_column(JSONB)  # breakdown theo model (raw)
+    created_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        # Query tổng hợp chính: SUM(cost) theo tenant trong cửa sổ thời gian.
+        Index("ix_usage_tenant_created", "tenant_id", "created_at"),
+    )
 
 
 class PlatformAdmin(Base):

@@ -19,8 +19,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import usage
 from app.admin_commands import handle_command, help_text, is_command
 from app.channels.base import Button, ChannelAdapter
+from app.claude_runner import run_claude
 from app.config import get_settings
 from app.intent import Intent, classify_intent
 from app.models import Repository, Request, RequestStatus, User, UserRole
@@ -333,6 +335,16 @@ def _actionable(db: Session, user: User, word: str,
             if (act := _keyword_action(word, r.status))]
 
 
+def _recording_run(db: Session, *, tenant_id: int):
+    """Bọc run_claude để GHI usage (phase=intent) cho lần phân loại LLM Lớp 2 — classify_intent
+    thuần (không biết db/tenant) nên đo lường luồn qua tham số `run` thay vì sửa chữ ký."""
+    async def _run(**kw):
+        res = await run_claude(**kw)
+        usage.record(db, tenant_id=tenant_id, phase="intent", res=res)
+        return res
+    return _run
+
+
 async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str,
                            reply_to: str, inbound=None) -> bool:
     """Map text từ khoá → hành động nút (cho kênh không route click, vd Google Chat add-on).
@@ -358,7 +370,9 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
                    if r.status in _LLM_GATE_STATUSES]
         if not pending:                                # không ở cổng thuần quyết định → luồng cũ
             return False
-        intent = await classify_intent(text, [r.status.value for r in pending])
+        intent = await classify_intent(
+            text, [r.status.value for r in pending],
+            run=_recording_run(db, tenant_id=user.tenant_id))
         if intent is None:                             # không phải hành động cổng → luồng cũ
             return False
         word = intent.word

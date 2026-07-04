@@ -34,6 +34,7 @@ from app.web.admin import router as web_admin_router
 from app.web.approvals import router as web_approvals_router
 from app.web.routes import router as web_router
 from app.web.team import router as web_team_router
+from app.web.usage import router as web_usage_router
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -71,6 +72,7 @@ app.include_router(web_team_router)  # quản lý người dùng + workspace (/u
 app.include_router(web_approvals_router)  # duyệt/từ chối merge production qua web (/requests/{id}/…)
 app.include_router(web_activity_router)  # dòng sự kiện + bộ lọc & xoá log (/activity, /activity/clear)
 app.include_router(web_admin_router)  # super admin nền tảng — xem mọi tenant (/admin)
+app.include_router(web_usage_router)  # đo lượng dùng Claude per-tenant (/usage, /admin/usage)
 
 
 @app.get("/healthz")
