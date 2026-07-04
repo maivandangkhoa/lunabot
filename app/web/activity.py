@@ -9,6 +9,7 @@ Tách khỏi routes.py để giữ mỗi file ≤500 LOC; tái dùng _auth/_csrf
 """
 from __future__ import annotations
 
+import hmac
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -87,7 +88,7 @@ async def clear(request: Request, db: Session = Depends(get_db)):
     if not data:
         return RedirectResponse("/", status_code=303)
     form = await _form(request)
-    if form.get("csrf") != _csrf(data, get_settings()):
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
         return RedirectResponse("/activity", status_code=303)
     f = _parse_filters(form.get("time", "all"), form.get("kind", "all"),
                        form.get("status", "all"))

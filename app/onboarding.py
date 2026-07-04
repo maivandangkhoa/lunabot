@@ -5,6 +5,7 @@ admin tạo user với `link_token`, nhân viên gửi `/start <token>` → map 
 """
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import datetime, timezone
 
@@ -16,6 +17,23 @@ from app.models import Repository, Tenant, User, UserRole
 
 class AlreadyLinkedError(RuntimeError):
     """Tài khoản chat này đã liên kết với 1 user khác (cùng bot) — không link chồng."""
+
+
+class InvalidBranchError(ValueError):
+    """Tên nhánh không hợp lệ (chặn arg-injection vào lệnh git: giá trị bắt đầu bằng '-'…)."""
+
+
+# Tên nhánh git hợp lệ + KHÔNG bắt đầu bằng '-' (nếu không `git checkout <val>` hiểu là option).
+_BRANCH_RE = re.compile(r"^(?!-)[A-Za-z0-9._/-]{1,200}$")
+
+
+def valid_branch(name: str) -> str:
+    """Chuẩn hoá + kiểm tra tên nhánh trước khi đưa vào lệnh git (chống arg-injection)."""
+    n = (name or "").strip()
+    if (not _BRANCH_RE.match(n) or ".." in n or n.endswith(".lock")
+            or n.endswith("/") or "//" in n):
+        raise InvalidBranchError(f"Tên nhánh không hợp lệ: {name!r}")
+    return n
 
 
 def create_tenant(db: Session, name: str, *, plan: str = "free") -> Tenant:
@@ -32,7 +50,7 @@ def add_repository(
     r = Repository(
         tenant_id=tenant.id, repo_full_name=repo_full_name,
         gh_installation_id=gh_installation_id,
-        base_branch=base_branch, prod_branch=prod_branch,
+        base_branch=valid_branch(base_branch), prod_branch=valid_branch(prod_branch),
     )
     db.add(r)
     db.flush()

@@ -17,11 +17,12 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import git_ops, post_deploy, prompts, report
+from app import branch_sync, git_ops, post_deploy, prompts, report, usage
 from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
 from app.config import get_settings
+from app.github_app import GitHubAppError
 from app.models import (
     Approval,
     ApprovalDecision,
@@ -35,7 +36,7 @@ from app.models import (
     UserRole,
 )
 from app.parsing import Action, parse_signal, strip_json_block
-from app.web.i18n import t
+from app.web.i18n import set_lang_for, t
 
 log = logging.getLogger("luna.orchestrator")
 
@@ -92,6 +93,16 @@ def friendly_repo_error(exc: Exception, repo: Repository, *, retry_hint: str) ->
     # Mặc định: gọn, kèm ít chi tiết để debug nhưng không dài dòng.
     return t("orch.repo_err.generic", repo=repo.repo_full_name,
              detail=str(exc)[:300], retry_hint=retry_hint)
+
+
+def classify_push_error(exc: Exception) -> str:
+    """Chọn i18n key cho lỗi push/PR. Nhận diện lỗi CI-workflow (GitHub chặn app token
+    không có quyền `workflows` khi push .github/workflows/*) để báo đúng lý do, tránh vòng
+    lặp Confirm mù mờ. Mặc định về push_pr_error chung."""
+    low = str(exc).lower()
+    if "workflow" in low and "permission" in low:
+        return "orch.push_workflows_perm"
+    return "orch.push_pr_error"
 
 
 class Orchestrator:
@@ -161,6 +172,7 @@ class Orchestrator:
                              title: str, body: str | None, attachments=None,
                              *, chat_id: str | None = None, platform: str | None = None,
                              is_group: bool = False) -> Request:
+        set_lang_for(requester)
         req = Request(
             tenant_id=repo.tenant_id, repo_id=repo.id, requester_user_id=requester.id,
             title=title, body=body, status=RequestStatus.NEW,
@@ -175,8 +187,13 @@ class Orchestrator:
 
     async def handle_message(self, req: Request, actor: User, text: str, attachments=None) -> None:
         """Tin text: ý nghĩa tuỳ state hiện tại."""
+        # Reply đi vào thread của request → ngôn ngữ REQUESTER (actor có thể là manager
+        # gõ thay trong group, contextvar đang mang ngôn ngữ của HỌ).
+        set_lang_for(self._requester(req))
         self._event(req, EventKind.MSG, EventDirection.IN, actor_id=actor.id, text=text[:500])
         if req.status == RequestStatus.CLARIFYING:
+            if await branch_sync.maybe_handle_sync_reply(self, req, text):
+                return
             await self._analyze(req, clarifications=[text], attachments=attachments)
         elif req.status == RequestStatus.VERIFY:
             await self._execute(req, fix_feedback=text)
@@ -214,7 +231,10 @@ class Orchestrator:
         action, _ = parsed
         # Nơi báo lỗi/ephemeral cho NGƯỜI BẤM (đúng chat họ bấm): group thì trong group, DM thì DM.
         target = reply_to or req.origin_chat_id or actor.platform_user_id
-        is_mgr_action = action in ("mgr_approve", "mgr_reject")
+        # Lỗi guard bên dưới gửi cho NGƯỜI BẤM → ngôn ngữ của họ. (Cũng ghi đè contextvar
+        # cookie web khi duyệt qua web — approvals._act gọi thẳng vào đây.)
+        set_lang_for(actor)
+        is_mgr_action = action in ("mgr_approve", "mgr_reject", "conflict_fix")
 
         # An ninh group: nút của request hiện công khai → người khác cũng bấm được.
         # Hành động của requester chỉ requester (hoặc manager/admin) mới được thao tác.
@@ -228,6 +248,9 @@ class Orchestrator:
             return
 
         self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=actor.id, action=action)
+        # Qua guard: phần còn lại là tin hướng-requester (vào thread/DM requester).
+        # Các nhánh manager (_merge_to_main/_manager_reject/conflict_fix) tự set lại theo actor.
+        set_lang_for(self._requester(req))
 
         if action == "confirm" and req.status == RequestStatus.PLAN_REVIEW:
             await self._execute(req)
@@ -240,10 +263,16 @@ class Orchestrator:
         elif action == "verify_fix" and req.status == RequestStatus.VERIFY:
             self.db.commit()
             await self._say(req, self._requester(req), t("orch.verify_fix_prompt"))
+        elif action == "sync_yes" and req.status == RequestStatus.CLARIFYING:
+            await branch_sync.on_sync_confirm(self, req)
+        elif action == "sync_no" and req.status == RequestStatus.CLARIFYING:
+            await branch_sync.on_sync_decline(self, req)
         elif action == "mgr_approve" and req.status == RequestStatus.AWAIT_MANAGER:
             await self._merge_to_main(req, actor, target)
         elif action == "mgr_reject" and req.status == RequestStatus.AWAIT_MANAGER:
             await self._manager_reject(req, actor, target)
+        elif action == "conflict_fix" and req.status == RequestStatus.AWAIT_MANAGER:
+            await branch_sync.resolve_conflict_and_merge(self, req, actor, target)
         elif action == "cancel":
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
@@ -259,6 +288,7 @@ class Orchestrator:
         Dùng được ở MỌI trạng thái blocking (kể cả ANALYZING/EXECUTING, nơi không có nút huỷ).
         Chỉ dừng FSM + đóng session Claude hiện tại — KHÔNG đụng nhánh dev/commit đã tạo.
         """
+        set_lang_for(user)
         target = reply_to or user.platform_user_id
         req = self.db.scalars(
             select(Request).where(
@@ -279,6 +309,7 @@ class Orchestrator:
         """Lệnh /ask: hỏi-đáp CHỈ-ĐỌC về dự án, KHÔNG qua FSM (không tạo request, không
         nhánh/commit/PR, không neo session). Tái dùng bản clone sẵn (fetch nhẹ), chạy Claude
         read-only một lần. Giữ lock per-repo để không đọc lúc một request khác đang EXECUTING."""
+        set_lang_for(user)
         target = reply_to or user.platform_user_id
         async with _repo_locks[repo.id]:
             try:
@@ -292,6 +323,7 @@ class Orchestrator:
                 prompt=question, cwd=repo_dir,
                 permission_mode=PermissionMode.READONLY, system_prompt=sysp,
             )
+        usage.record(self.db, tenant_id=repo.tenant_id, phase="ask", res=res)
         if not res.ok:
             await self.adapter.send(target, t("orch.ask_failed", detail=res.result[:800]))
             return
@@ -302,6 +334,9 @@ class Orchestrator:
                        attachments=None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
+        # Mọi đường vào (dispatcher/web/callback/nền) đều compose tin + prompt Claude
+        # (_lang_rule) theo ngôn ngữ requester.
+        set_lang_for(requester)
         self._set_status(req, RequestStatus.ANALYZING)
         self.db.commit()
         await self._say(req, requester, t("orch.received"))
@@ -317,6 +352,11 @@ class Orchestrator:
                 exc, repo, retry_hint=t("orch.retry_hint.analyze")))
             return
 
+        # prod có commit đi thẳng (không qua bot) chưa nằm trong base? → hỏi requester
+        # trước khi gộp (KHÔNG tự ý merge). Đã hỏi thì dừng, chờ xác nhận.
+        if await branch_sync.check_divergence_at_intake(self, req, repo, repo_dir):
+            return
+
         # "chạy lại"/"thử lại"… chỉ là tín hiệu retry sau khi khách sửa repo — không phải nội
         # dung làm rõ, lọc bỏ để không lẫn vào prompt gửi Claude.
         clarifications = [c for c in (clarifications or []) if c.strip().lower() not in RETRY_WORDS]
@@ -330,6 +370,8 @@ class Orchestrator:
             session_id=req.claude_session_id, system_prompt=sysp,
         )
         req.claude_session_id = res.session_id
+        usage.record(self.db, tenant_id=req.tenant_id, request_id=req.id,
+                     phase="analyze", res=res)
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, ok=res.ok, result=res.result[:500])
 
         if not res.ok:
@@ -395,6 +437,7 @@ class Orchestrator:
     async def _execute(self, req: Request, fix_feedback: str | None = None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
+        set_lang_for(requester)
         await self._say(req, requester, t("orch.executing"))
         async with _repo_locks[repo.id]:
             self._set_status(req, RequestStatus.EXECUTING)
@@ -420,6 +463,8 @@ class Orchestrator:
                 session_id=req.claude_session_id, system_prompt=sysp,
             )
             req.claude_session_id = res.session_id
+            usage.record(self.db, tenant_id=req.tenant_id, request_id=req.id,
+                         phase="execute", res=res)
             if not res.ok or not parse_signal(res.result).ok:
                 log.warning("execute req %s lỗi: %s", req.id, res.result[:800])
                 await self._fail_to_plan_review(req, requester, "orch.execute_failed")
@@ -440,7 +485,7 @@ class Orchestrator:
                 req.report_json = report.build_report(parse_signal(res.result).data, diff)
             except Exception as exc:
                 log.warning("push/PR req %s lỗi: %s", req.id, exc)
-                await self._fail_to_plan_review(req, requester, "orch.push_pr_error")
+                await self._fail_to_plan_review(req, requester, classify_push_error(exc))
                 return
 
         self._set_status(req, RequestStatus.VERIFY)
@@ -503,20 +548,26 @@ class Orchestrator:
             await post_deploy.enter_await_manager(self, req)
 
     async def _merge_to_main(self, req: Request, approver: User, reply_to: str | None = None) -> None:
+        set_lang_for(approver)                       # lỗi quyền gửi cho NGƯỜI BẤM
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
             await self.adapter.send(reply_to or approver.platform_user_id,
                                     t("orch.only_manager"))
             return
+        set_lang_for(self._requester(req))           # tin còn lại vào thread requester
         repo = self._repo(req)
         try:
-            pr = await self.github.create_pull_request(
-                repo.gh_installation_id, repo.repo_full_name,
-                head=repo.base_branch, base=repo.prod_branch,
-                title=f"[luna] release req-{req.id}", body=req.title)
-            await self.github.merge_pull_request(repo.gh_installation_id, repo.repo_full_name, pr["number"])
+            pr = await self._ensure_release_pr(req, repo)
+            await self._merge_release_pr(repo, pr["number"])
         except Exception as exc:
             log.warning("merge main req %s lỗi: %s", req.id, exc)
             self.db.commit()
+            if branch_sync.is_merge_conflict_405(exc):
+                # Conflict thật (prod bị sửa trực tiếp, đụng cùng chỗ) → mời manager
+                # xác nhận cho bot gộp rồi merge lại, thay vì lỗi chung "thử duyệt lại".
+                # Lời mời: group → ngôn ngữ requester (chủ thread); DM → ngôn ngữ approver.
+                set_lang_for(self._requester(req) if req.origin_is_group else approver)
+                await branch_sync.ask_conflict_fix(self, req, repo, reply_to)
+                return
             await self._say(req, approver, t("orch.merge_main_error", prod=repo.prod_branch))
             return
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
@@ -532,12 +583,49 @@ class Orchestrator:
             except Exception as exc:  # noqa: BLE001
                 log.warning("xoá nhánh %s req %s lỗi: %s", req.branch_name, req.id, exc)
         await self._say(req, self._requester(req), t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
+        # Các approver khác từng được DM lời mời → báo đã xử lý (lời mời hết stale).
+        await post_deploy.notify_other_approvers(self, req, repo, approver, approved=True)
+
+    async def _ensure_release_pr(self, req: Request, repo) -> dict:
+        """PR release base→prod, idempotent. Nếu create trả 422 (PR đã mở từ lần duyệt
+        trước thất bại), tra lại PR cũ để merge thay vì kẹt vòng lặp tạo-PR-lỗi."""
+        try:
+            return await self.github.create_pull_request(
+                repo.gh_installation_id, repo.repo_full_name,
+                head=repo.base_branch, base=repo.prod_branch,
+                title=f"[luna] release req-{req.id}", body=req.title)
+        except GitHubAppError as exc:
+            if exc.status_code == 422:
+                existing = await self.github.find_open_pull_request(
+                    repo.gh_installation_id, repo.repo_full_name,
+                    head=repo.base_branch, base=repo.prod_branch)
+                if existing:
+                    return existing
+            raise
+
+    async def _merge_release_pr(self, repo, number: int) -> None:
+        """Merge PR, retry 1 lần khi GitHub trả 405 'Base branch was modified' (race
+        khi prod bị đẩy commit ngay giữa lúc tạo PR và merge)."""
+        for attempt in range(2):
+            try:
+                await self.github.merge_pull_request(
+                    repo.gh_installation_id, repo.repo_full_name, number)
+                return
+            except GitHubAppError as exc:
+                if exc.status_code == 405 and attempt == 0 \
+                        and not branch_sync.is_merge_conflict_405(exc):
+                    log.info("merge PR #%s 405, thử lại: %s", number, exc)
+                    await asyncio.sleep(2)
+                    continue
+                raise
 
     async def _manager_reject(self, req: Request, approver: User, reply_to: str | None = None) -> None:
+        set_lang_for(approver)                       # lỗi quyền gửi cho NGƯỜI BẤM
         if approver.role not in (UserRole.MANAGER, UserRole.ADMIN):
             await self.adapter.send(reply_to or approver.platform_user_id,
                                     t("orch.only_manager"))
             return
+        set_lang_for(self._requester(req))           # tin còn lại vào thread requester
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.REJECTED))
         self._set_status(req, RequestStatus.CANCELLED)
@@ -548,3 +636,4 @@ class Orchestrator:
         if warns:
             msg += t("orch.cleanup_partial_warn", warns="; ".join(warns))
         await self._say(req, self._requester(req), msg)
+        await post_deploy.notify_other_approvers(self, req, repo, approver, approved=False)

@@ -32,6 +32,10 @@ _TOKEN_REFRESH_BUFFER_S = 300  # sinh lại nếu còn < 5 phút
 class GitHubAppError(RuntimeError):
     """Lỗi gọi GitHub API (kèm status + message đã loại token)."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 @dataclass
 class _CachedToken:
@@ -120,7 +124,10 @@ class GitHubApp:
             **kw,
         )
         if resp.status_code >= 300:
-            raise GitHubAppError(f"{method} {path} → HTTP {resp.status_code}: {_safe_msg(resp)}")
+            raise GitHubAppError(
+                f"{method} {path} → HTTP {resp.status_code}: {_safe_msg(resp)}",
+                status_code=resp.status_code,
+            )
         return resp.json() if resp.content else {}
 
     async def create_pull_request(
@@ -132,6 +139,21 @@ class GitHubApp:
             installation_id, "POST", f"/repos/{repo_full_name}/pulls",
             json={"title": title, "head": head, "base": base, "body": body},
         )
+
+    async def find_open_pull_request(
+        self, installation_id: int, repo_full_name: str, *, head: str, base: str,
+    ) -> dict | None:
+        """PR đang mở cho head→base (cùng repo) nếu có, ngược lại None.
+
+        Dùng để idempotent hoá merge: nếu create_pull_request trả 422 vì PR đã tồn
+        tại, tra lại PR cũ để merge thay vì kẹt."""
+        owner = repo_full_name.split("/")[0]
+        data = await self._request(
+            installation_id, "GET", f"/repos/{repo_full_name}/pulls",
+            params={"state": "open", "head": f"{owner}:{head}", "base": base, "per_page": 1},
+        )
+        items = data if isinstance(data, list) else []
+        return items[0] if items else None
 
     async def merge_pull_request(
         self, installation_id: int, repo_full_name: str, number: int,

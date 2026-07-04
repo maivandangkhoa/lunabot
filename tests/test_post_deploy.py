@@ -258,3 +258,48 @@ async def test_optout_repo_invites_manager_immediately(db, fakes):
 
     assert req.status == RequestStatus.AWAIT_MANAGER
     assert any(s[0] == "mgr-1" for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_notify_managers_dm_each_in_own_language(db, fakes):
+    """Requester 'en', 2 approver 'ko'/'vi' → mỗi DM compose theo ngôn ngữ NGƯỜI NHẬN,
+    không phải ngôn ngữ requester đang nằm trong contextvar."""
+    t, repo, emp, mgr = _seed(db)
+    emp.language = "en"
+    mgr.language = "ko"
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Chief")
+    admin.platform_user_id = "admin-9"
+    admin.language = "vi"
+    db.commit()
+    req = _merged_req(db, t, repo, emp)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"],
+                        claude_run=FakeClaude([]), git=fakes["git"])
+
+    await post_deploy.notify_managers(orch, req, repo)
+
+    mgr_msg = next(s for s in fakes["adapter"].sent if s[0] == "mgr-1")
+    admin_msg = next(s for s in fakes["adapter"].sent if s[0] == "admin-9")
+    assert "머지" in mgr_msg[1] or "승인" in mgr_msg[1]        # tiếng Hàn
+    assert "sẵn sàng merge" in admin_msg[1]                     # tiếng Việt
+    # Nút cũng theo ngôn ngữ từng người.
+    assert any("머지 승인" in b.text for row in mgr_msg[2] for b in row)
+    assert any("Cho merge" in b.text for row in admin_msg[2] for b in row)
+
+
+@pytest.mark.asyncio
+async def test_notify_managers_group_uses_requester_language(db, fakes):
+    t, repo, emp, mgr = _seed(db)
+    emp.language = "en"
+    mgr.language = "ko"
+    db.commit()
+    req = _merged_req(db, t, repo, emp)
+    req.origin_is_group = True
+    req.origin_chat_id = "group-1"
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"],
+                        claude_run=FakeClaude([]), git=fakes["git"])
+
+    await post_deploy.notify_managers(orch, req, repo)
+
+    g = next(s for s in fakes["adapter"].sent if s[0] == "group-1")
+    assert "ready to merge" in g[1]                             # tiếng Anh (requester)

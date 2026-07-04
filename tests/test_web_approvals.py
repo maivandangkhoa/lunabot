@@ -77,13 +77,17 @@ def _seed(db, *, uid=OWNER_UID, status=RequestStatus.AWAIT_MANAGER, with_admin=T
     return tn, repo, req
 
 
+_SESS_CSRF = "sess-csrf-token"
+
+
 def _login(client, uid=OWNER_UID):
     client.cookies.set(sess.COOKIE_NAME, sess.dumps(
-        {"tok": "t", "login": "owner", "uid": uid, "name": "Owner"}, SECRET))
+        {"tok": "t", "login": "owner", "uid": uid, "name": "Owner", "csrf": _SESS_CSRF},
+        SECRET))
 
 
 def _csrf(uid=OWNER_UID):
-    return routes._csrf({"uid": uid}, Settings(_env_file=None, web_session_secret=SECRET))
+    return _SESS_CSRF
 
 
 def test_approve_merges_to_main_and_closes(client, db, gh):

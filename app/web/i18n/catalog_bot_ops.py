@@ -6,6 +6,18 @@ TEXTS: dict[str, dict[str, str]] = {
     "ops.btn.approve_merge": {"vi": "✅ Cho merge", "en": "✅ Approve merge", "ko": "✅ 머지 승인"},
     "ops.btn.reject": {"vi": "❌ Từ chối", "en": "❌ Reject", "ko": "❌ 거절"},
 
+    # ── post_deploy: notify_other_approvers — báo approver còn lại khi request đã chốt ──
+    "ops.resolved_by_other.approved": {
+        "vi": "ℹ️ Yêu cầu #{id} đã được {name} duyệt và triển khai lên production.",
+        "en": "ℹ️ Request #{id} was approved and deployed to production by {name}.",
+        "ko": "ℹ️ #{id} 요청은 {name}님이 승인하여 운영 환경에 배포되었습니다.",
+    },
+    "ops.resolved_by_other.rejected": {
+        "vi": "ℹ️ Yêu cầu #{id} đã bị {name} từ chối và hoàn tác.",
+        "en": "ℹ️ Request #{id} was rejected and rolled back by {name}.",
+        "ko": "ℹ️ #{id} 요청은 {name}님이 거절하여 되돌려졌습니다.",
+    },
+
     # ── post_deploy: enter_await_manager ──
     "ops.await_manager.default": {
         "vi": "✅ Đã merge vào `{base}`. Đang chờ manager duyệt.",

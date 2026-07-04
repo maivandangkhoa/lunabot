@@ -131,6 +131,14 @@ TEXTS: dict[str, dict[str, str]] = {
     "chan.gc.tag1": {"vi": "Spaces", "en": "Spaces", "ko": "Spaces"},
     "chan.gc.tag2": {"vi": "Thread", "en": "Threads", "ko": "스레드"},
     "chan.gc.tag3": {"vi": "Workspace", "en": "Workspace", "ko": "Workspace"},
+    "chan.fb.desc": {"vi": "Khách hàng & team nhắn Luna ngay trên Facebook Messenger của Trang doanh nghiệp.", "en": "Customers & team message Luna right on your business Page's Facebook Messenger.", "ko": "고객과 팀이 비즈니스 페이지의 Facebook Messenger에서 바로 Luna에게 메시지를 보냅니다."},
+    "chan.fb.tag1": {"vi": "Trang FB", "en": "FB Page", "ko": "FB 페이지"},
+    "chan.fb.tag2": {"vi": "Nhắn 1:1", "en": "1:1 chat", "ko": "1:1 대화"},
+    "chan.fb.tag3": {"vi": "Quick reply", "en": "Quick reply", "ko": "Quick reply"},
+    "chan.zl.desc": {"vi": "Tiếp cận người dùng Việt qua Zalo Official Account — kênh chat phổ biến nhất tại Việt Nam.", "en": "Reach Vietnamese users via a Zalo Official Account — the most popular chat app in Vietnam.", "ko": "Zalo 공식 계정으로 베트남 사용자에게 도달 — 베트남에서 가장 인기 있는 채팅 앱."},
+    "chan.zl.tag1": {"vi": "Official Account", "en": "Official Account", "ko": "공식 계정"},
+    "chan.zl.tag2": {"vi": "Nhắn 1:1", "en": "1:1 chat", "ko": "1:1 대화"},
+    "chan.zl.tag3": {"vi": "Phổ biến ở VN", "en": "Popular in VN", "ko": "베트남 인기"},
     "chan.soon.label": {"vi": "Sắp ra mắt", "en": "Coming soon", "ko": "출시 예정"},
 
     # ── Dashboard preview section ──

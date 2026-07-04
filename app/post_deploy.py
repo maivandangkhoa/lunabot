@@ -13,24 +13,27 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import re
+import socket
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from sqlalchemy import select
 
-from app import prompts, report
+from app import prompts, report, usage
 from app.channels.base import Button
 from app.claude_runner import PermissionMode
 from app.config import Settings, get_settings
 from app.github_app import GitHubApp
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.parsing import parse_signal
-from app.web.i18n import set_lang, t
+from app.web.i18n import set_lang, set_lang_for, t
 
 if TYPE_CHECKING:
     from app.orchestrator import Orchestrator
@@ -74,6 +77,7 @@ async def _discover_dev_url(orch: "Orchestrator", repo: Repository) -> str | Non
     except Exception as exc:  # noqa: BLE001
         log.warning("dò dev_url repo %s lỗi: %s", repo.repo_full_name, exc)
         return None
+    usage.record(orch.db, tenant_id=repo.tenant_id, phase="discover_dev_url", res=res)
     return _parse_dev_url(res.result) if res.ok else None
 
 
@@ -143,39 +147,115 @@ async def _poll_deploy(github, repo: Repository, sha: str, settings: Settings) -
         await asyncio.sleep(settings.deploy_poll_interval_s)
 
 
-async def _http_ok(url: str) -> tuple[bool, str]:
-    """GET url (theo redirect). Trả (2xx/3xx?, mô tả)."""
+def _host_is_public(host: str) -> bool:
+    """False nếu host phân giải ra IP nội bộ/loopback/link-local (chống SSRF)."""
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:  # noqa: BLE001
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
+
+
+def _url_allowed(url: str) -> bool:
+    """Chỉ cho http(s) tới host CÔNG KHAI — chặn dev_url trỏ localhost/metadata (169.254.169.254)."""
+    try:
+        p = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(p.scheme in ("http", "https") and p.hostname and _host_is_public(p.hostname))
+
+
+async def _http_ok(url: str) -> tuple[bool, str]:
+    """GET url, tự theo redirect NHƯNG kiểm tra từng chặng chống SSRF. Trả (2xx/3xx?, mô tả).
+
+    dev_url do Claude dò từ repo khách (hoặc override settings_json) ⇒ không tin tuyệt đối:
+    từ chối URL trỏ mạng nội bộ, và re-validate mỗi Location của redirect (chống 302 nội bộ)."""
+    if not _url_allowed(url):
+        return False, "URL không hợp lệ hoặc trỏ mạng nội bộ (bị chặn)"
+    try:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=20) as client:
             resp = await client.get(url)
+            hops = 0
+            while resp.is_redirect and hops < 5:
+                nxt = urljoin(str(resp.url), resp.headers.get("location", ""))
+                if not _url_allowed(nxt):
+                    return False, "redirect tới mạng nội bộ (bị chặn)"
+                resp = await client.get(nxt)
+                hops += 1
         return resp.status_code < 400, f"HTTP {resp.status_code}"
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)[:200]
 
 
 # ---------------- notify / chuyển trạng thái (tách khỏi orchestrator để file < 500 LOC) ----------------
-async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) -> None:
-    """Báo (các) manager: gói duyệt 10.x (loại thay đổi/nguyên nhân/giải pháp/phạm vi/test/
-    file/thống kê/diff) + nút duyệt. Group → đăng công khai; DM → từng manager."""
+def _mgr_packet(orch: "Orchestrator", req: Request, repo: Repository):
+    """Compose gói duyệt + nút DƯỚI ngôn ngữ contextvar hiện tại (caller set theo người nhận)."""
     text = report.manager_packet(req, repo, requester=orch._requester(req))
     buttons = [[Button(t("ops.btn.approve_merge"), f"mgr_approve:{req.id}"),
                 Button(t("ops.btn.reject"), f"mgr_reject:{req.id}")]]
+    return text, buttons
+
+
+async def notify_managers(orch: "Orchestrator", req: Request, repo: Repository) -> None:
+    """Báo (các) manager: gói duyệt 10.x (loại thay đổi/nguyên nhân/giải pháp/phạm vi/test/
+    file/thống kê/diff) + nút duyệt. Group → đăng công khai NGÔN NGỮ REQUESTER (chủ thread);
+    DM → từng manager, compose lại theo NGÔN NGỮ TỪNG NGƯỜI."""
+    requester = orch._requester(req)
     if req.origin_is_group and req.origin_chat_id:
+        set_lang_for(requester)
+        text, buttons = _mgr_packet(orch, req, repo)
         await orch.adapter.send(req.origin_chat_id, text, buttons)
         return
     # MANAGER + ADMIN: cả hai role đều có quyền duyệt merge (xem _merge_to_main), nên cả hai
     # đều phải được mời. Tenant chỉ-có-admin (không có manager) trước đây bị silent fail.
-    approvers = orch.db.scalars(
-        select(User).where(User.tenant_id == repo.tenant_id,
-                           User.role.in_((UserRole.MANAGER, UserRole.ADMIN)),
-                           User.platform_user_id.is_not(None))
-    ).all()
+    approvers = _approvers(orch, repo)
     if not approvers:
         log.warning("request %s vào AWAIT_MANAGER nhưng tenant %s không có manager/admin đã link "
                     "chat để mời duyệt", req.id, repo.tenant_id)
         return
     for m in approvers:
+        set_lang_for(m)
+        text, buttons = _mgr_packet(orch, req, repo)
         await orch.adapter.send(m.platform_user_id, text, buttons)
+    set_lang_for(requester)  # trả contextvar về requester cho tin kế tiếp trong cùng luồng
+
+
+def _approvers(orch: "Orchestrator", repo: Repository) -> list[User]:
+    return list(orch.db.scalars(
+        select(User).where(User.tenant_id == repo.tenant_id,
+                           User.role.in_((UserRole.MANAGER, UserRole.ADMIN)),
+                           User.platform_user_id.is_not(None))
+    ).all())
+
+
+async def notify_other_approvers(orch: "Orchestrator", req: Request, repo: Repository,
+                                 actor: User, *, approved: bool) -> None:
+    """Sau khi 1 approver chốt (duyệt/từ chối): báo các approver CÒN LẠI đã từng được DM
+    lời mời, để lời mời trong DM của họ không thành stale ('bấm mới biết đã xử lý').
+
+    Chỉ áp dụng khi lời mời đi qua DM (request tạo từ DM) — group thì lời mời + kết quả
+    đã nằm chung trong group. Best-effort: DM 1 người lỗi không được hỏng luồng chính
+    (merge đã xong). Mỗi người nhận theo ngôn ngữ CỦA HỌ."""
+    if req.origin_is_group and req.origin_chat_id:
+        return
+    key = "ops.resolved_by_other.approved" if approved else "ops.resolved_by_other.rejected"
+    name = actor.display_name or actor.platform_user_id or "?"
+    for m in _approvers(orch, repo):
+        if m.id == actor.id:
+            continue
+        try:
+            set_lang_for(m)
+            await orch.adapter.send(m.platform_user_id, t(key, id=req.id, name=name))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("báo approver %s về req %s lỗi: %s", m.id, req.id, exc)
 
 
 async def enter_await_manager(orch: "Orchestrator", req: Request, *, user_msg: str | None = None) -> None:
@@ -335,6 +415,8 @@ async def _auto_fix_round(orch: "Orchestrator", req: Request, repo: Repository,
             permission_mode=PermissionMode.BYPASS,
             session_id=req.claude_session_id, system_prompt=sysp)
         req.claude_session_id = res.session_id
+        usage.record(orch.db, tenant_id=repo.tenant_id, request_id=req.id,
+                     phase="auto_fix", res=res)
         if not res.ok or not parse_signal(res.result).ok:
             orch.db.commit()
             log.warning("auto-fix req %s: Claude không cho tín hiệu hợp lệ", req.id)

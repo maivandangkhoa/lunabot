@@ -131,6 +131,30 @@ async def test_execute_failure_is_retriable_via_confirm(db, fakes, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_push_workflows_permission_reports_reason(db, fakes, tmp_path):
+    """Push bị GitHub chặn vì app token thiếu quyền `workflows` (đụng .github/workflows/*):
+    báo đúng lý do + cách xử lý, KHÔNG lặp câu 'problem saving' mù mờ."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    async def _reject(*a, **k):
+        raise RuntimeError(
+            "git push lỗi (code 1): ! [remote rejected] bot/req-1 -> bot/req-1 "
+            "(refusing to allow a GitHub App to create or update workflow "
+            "`.github/workflows/ci.yml` without `workflows` permission)")
+    fakes["git"].push_branch = _reject
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    assert req.status == RequestStatus.PLAN_REVIEW
+    last = fakes["adapter"].sent[-1][1]
+    assert "Workflows" in last and "problem saving" not in last
+
+
+@pytest.mark.asyncio
 async def test_full_happy_path(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
     claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
@@ -159,6 +183,61 @@ async def test_full_happy_path(db, fakes, tmp_path):
     assert any(a.decision == ApprovalDecision.APPROVED for a in req.approvals)
     # Nhánh feature đã merge xong → bị dọn (không tích tụ bot/req-* trên repo khách).
     assert req.branch_name in fakes["github"].deleted_branches
+
+
+@pytest.mark.asyncio
+async def test_merge_main_retries_once_on_405(db, fakes, tmp_path, monkeypatch):
+    """GitHub trả 405 'Base branch was modified' (race) → bot thử lại 1 lần và merge xong."""
+    import asyncio as _aio
+    monkeypatch.setattr(_aio, "sleep", lambda *_: _noop())
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+    assert req.status == RequestStatus.AWAIT_MANAGER
+
+    fakes["github"].fail_merge_405 = 1  # lần merge đầu 405, lần sau OK
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.CLOSED
+    # PR release (head=dev base=main) đã merge dù lần đầu 405.
+    assert any(p["base"] == "main" for p in fakes["github"].created_prs)
+
+
+@pytest.mark.asyncio
+async def test_merge_main_idempotent_reuses_open_pr(db, fakes, tmp_path, monkeypatch):
+    """Lần duyệt đầu thất bại để lại PR release đang mở. Lần bấm sau create trả 422
+    (đã có PR) → bot tra lại PR cũ và merge, thay vì kẹt vòng lặp tạo-PR-lỗi vĩnh viễn."""
+    import asyncio as _aio
+    monkeypatch.setattr(_aio, "sleep", lambda *_: _noop())
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    # Lần 1: tạo PR release rồi merge fail (405 cả 2 lần) → kẹt AWAIT_MANAGER, PR còn mở.
+    fakes["github"].fail_merge_405 = 2
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.AWAIT_MANAGER
+    release_prs = [p for p in fakes["github"].created_prs if p["base"] == "main"]
+    assert len(release_prs) == 1
+
+    # Lần 2: create trả 422 (PR đã tồn tại) → tra lại PR cũ và merge xong.
+    fakes["github"].fail_create_422 = 1
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.CLOSED
+    assert release_prs[0]["number"] in fakes["github"].merged
+    # Không tạo PR release thứ 2.
+    assert len([p for p in fakes["github"].created_prs if p["base"] == "main"]) == 1
+
+
+async def _noop():
+    return None
 
 
 @pytest.mark.asyncio
@@ -395,3 +474,89 @@ async def test_verify_proceeds_when_slot_free(db, fakes, tmp_path):
 
     assert waiter.status == RequestStatus.AWAIT_MANAGER
     assert 9 in fakes["github"].merged
+
+
+@pytest.mark.asyncio
+async def test_replies_follow_requester_language_not_actor(db, fakes, tmp_path):
+    """Manager (ko) thao tác trên request của requester (en): tin vào thread phải theo
+    ngôn ngữ REQUESTER; riêng lỗi guard cho người bấm theo ngôn ngữ NGƯỜI BẤM."""
+    t, repo, emp, mgr = _seed(db)
+    emp.language = "en"
+    mgr.language = "ko"
+    emp2 = create_user(db, t, role=UserRole.EMPLOYEE, display_name="Eve")
+    emp2.platform_user_id = "emp-2"
+    emp2.language = "ko"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "Fix login please right now", "detail")
+
+    # Người khác (không phải owner, không phải manager) bấm nút → lỗi theo ngôn ngữ NGƯỜI BẤM (ko).
+    await orch.handle_callback(req, emp2, cb("confirm", req.id))
+    assert "요청은 당신의 것이 아닙니다" in fakes["adapter"].sent[-1][1]
+
+    # Manager (ko) từ chối kế hoạch → tin vào thread theo ngôn ngữ requester (en).
+    await orch.handle_callback(req, mgr, cb("reject", req.id))
+    assert "The plan was rejected" in fakes["adapter"].sent[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_other_approvers_notified_when_resolved(db, fakes, tmp_path):
+    """Nhiều approver được DM lời mời: 1 người duyệt xong → người còn lại được báo
+    (theo ngôn ngữ CỦA HỌ), người bấm không tự nhận báo."""
+    t, repo, emp, mgr = _seed(db)
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Chief")
+    admin.platform_user_id = "admin-9"
+    admin.language = "en"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.CLOSED
+    info = [s for s in fakes["adapter"].sent if s[0] == "admin-9" and "approved and deployed" in s[1]]
+    assert len(info) == 1                                     # admin (en) được báo đúng ngôn ngữ
+    assert not any("duyệt và triển khai" in s[1] and s[0] == "mgr-1"
+                   for s in fakes["adapter"].sent)            # người bấm không tự nhận báo
+
+
+@pytest.mark.asyncio
+async def test_other_approvers_notified_on_reject(db, fakes, tmp_path):
+    t, repo, emp, mgr = _seed(db)
+    admin = create_user(db, t, role=UserRole.ADMIN, display_name="Chief")
+    admin.platform_user_id = "admin-9"
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    await orch.handle_callback(req, mgr, cb("mgr_reject", req.id))
+    assert req.status == RequestStatus.CANCELLED
+    assert any(s[0] == "admin-9" and "từ chối và hoàn tác" in s[1]
+               for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_group_origin_no_extra_approver_dm(db, fakes, tmp_path):
+    """Group-origin: lời mời + kết quả đã trong group → KHÔNG DM báo thêm approver nào."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y", chat_id="group-7",
+                                    platform="telegram", is_group=True)
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+
+    before = len([s for s in fakes["adapter"].sent if s[0] == "mgr-1"])
+    await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
+    assert req.status == RequestStatus.CLOSED
+    assert len([s for s in fakes["adapter"].sent if s[0] == "mgr-1"]) == before

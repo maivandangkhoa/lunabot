@@ -10,6 +10,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/clear — đóng yêu cầu đang mở, bắt đầu session mới\n"
             "/repos — liệt kê dự án (repo) của tenant\n"
             "/repo <tên|số> — chọn dự án để gửi yêu cầu\n"
+            "/lang <vi|en|ko> — đổi ngôn ngữ bot trả lời\n"
             "/users — liệt kê user (admin)\n"
             "/invite <role> <tên> — tạo user + link (admin)\n"
             "/addrepo <owner/repo> <installation_id> [base] [prod] — thêm dự án (admin)\n"
@@ -24,6 +25,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/clear — close the open request, start a new session\n"
             "/repos — list the tenant's projects (repos)\n"
             "/repo <name|number> — pick a project to send requests to\n"
+            "/lang <vi|en|ko> — change the bot's reply language\n"
             "/users — list users (admin)\n"
             "/invite <role> <name> — create user + link (admin)\n"
             "/addrepo <owner/repo> <installation_id> [base] [prod] — add a project (admin)\n"
@@ -38,6 +40,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/clear — 열린 요청을 닫고 새 세션 시작\n"
             "/repos — 테넌트의 프로젝트(repo) 목록\n"
             "/repo <이름|번호> — 요청을 보낼 프로젝트 선택\n"
+            "/lang <vi|en|ko> — 봇 응답 언어 변경\n"
             "/users — 사용자 목록 (admin)\n"
             "/invite <role> <이름> — 사용자 생성 + 링크 (admin)\n"
             "/addrepo <owner/repo> <installation_id> [base] [prod] — 프로젝트 추가 (admin)\n"
@@ -45,6 +48,21 @@ TEXTS: dict[str, dict[str, str]] = {
             "/unlink <user_id> — 링크 해제, 새 토큰 발급 (admin)\n"
             "role ∈ employee|manager|admin"
         ),
+    },
+    "admin.lang_usage": {
+        "vi": "Cách dùng: /lang vi|en|ko — đổi ngôn ngữ bot trả lời.",
+        "en": "Usage: /lang vi|en|ko — change the bot's reply language.",
+        "ko": "사용법: /lang vi|en|ko — 봇 응답 언어를 변경합니다.",
+    },
+    "admin.lang_current": {
+        "vi": "Ngôn ngữ hiện tại: {name} ({code})",
+        "en": "Current language: {name} ({code})",
+        "ko": "현재 언어: {name} ({code})",
+    },
+    "admin.lang_changed": {
+        "vi": "✅ Đã chuyển ngôn ngữ sang {name}.",
+        "en": "✅ Language switched to {name}.",
+        "ko": "✅ 언어를 {name}(으)로 변경했습니다.",
     },
     "admin.whoami": {
         "vi": "id={id} · vai trò={role} · tenant={tenant} · {name}",
@@ -64,7 +82,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "admin.repos_empty": {
         "vi": "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.",
         "en": "This tenant has no projects yet. An admin can add one with /addrepo.",
-        "ko": "이 테넌트에는 아직 프로젝트가 없습니다. admin이 /addrepo로 추가할 수 있습니다.",
+        "ko": "이 테넌트에는 아직 프로젝트가 없는 상태입니다. admin이 /addrepo로 추가할 수 있습니다.",
     },
     "admin.repos_list": {
         "vi": "📦 Dự án:\n{body}\n\nChọn: /repo <số hoặc tên>",
@@ -72,14 +90,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "📦 프로젝트:\n{body}\n\n선택: /repo <번호 또는 이름>",
     },
     "admin.repo_usage": {
-        "vi": "Cú pháp: /repo <số hoặc tên>. Xem danh sách: /repos",
-        "en": "Usage: /repo <number or name>. See the list: /repos",
-        "ko": "사용법: /repo <번호 또는 이름>. 목록 보기: /repos",
+        "vi": "Hướng dẫn sử dụng: /repo <số hoặc tên>. Xem danh sách: /repos",
+        "en": "How to use: /repo <number or name>. See the list: /repos",
+        "ko": "이용 방법: /repo <번호 또는 이름>. 목록 보기: /repos",
     },
     "admin.repo_not_found": {
-        "vi": "Không tìm thấy dự án '{key}'. Xem /repos.",
+        "vi": "Hiện chưa tìm thấy dự án '{key}'. Xem /repos.",
         "en": "Project '{key}' not found. See /repos.",
-        "ko": "프로젝트 '{key}'를 찾을 수 없습니다. /repos를 확인하세요.",
+        "ko": "프로젝트 '{key}'를 찾을 수 없는 상태입니다. /repos를 확인하세요.",
     },
     "admin.repo_chosen": {
         "vi": "✅ Đã chọn dự án: {name}. Gửi yêu cầu bảo trì để bắt đầu.",
@@ -87,9 +105,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "✅ 프로젝트 선택됨: {name}. 유지보수 요청을 보내 시작하세요.",
     },
     "admin.addrepo_usage": {
-        "vi": "Cú pháp: /addrepo <owner/repo> <installation_id> [base_branch] [prod_branch]",
-        "en": "Usage: /addrepo <owner/repo> <installation_id> [base_branch] [prod_branch]",
-        "ko": "사용법: /addrepo <owner/repo> <installation_id> [base_branch] [prod_branch]",
+        "vi": "Hướng dẫn sử dụng: /addrepo <owner/repo> <installation_id> [base_branch] [prod_branch]",
+        "en": "How to use: /addrepo <owner/repo> <installation_id> [base_branch] [prod_branch]",
+        "ko": "이용 방법: /addrepo <owner/repo> <installation_id> [base_branch] [prod_branch]",
     },
     "admin.repo_exists": {
         "vi": "Dự án {name} đã tồn tại trong tenant.",
@@ -116,9 +134,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "👥 사용자:\n{body}",
     },
     "admin.users_empty": {
-        "vi": "Chưa có user.",
-        "en": "No users yet.",
-        "ko": "아직 사용자가 없습니다.",
+        "vi": "Hiện chưa có user.",
+        "en": "There are no users yet.",
+        "ko": "아직 사용자가 없는 상태입니다.",
     },
     "admin.user_linked": {
         "vi": "đã link",
@@ -131,9 +149,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "token: {token}",
     },
     "admin.invite_usage": {
-        "vi": "Cú pháp: /invite <employee|manager|admin> <tên>",
-        "en": "Usage: /invite <employee|manager|admin> <name>",
-        "ko": "사용법: /invite <employee|manager|admin> <이름>",
+        "vi": "Hướng dẫn sử dụng: /invite <employee|manager|admin> <tên>",
+        "en": "How to use: /invite <employee|manager|admin> <name>",
+        "ko": "이용 방법: /invite <employee|manager|admin> <이름>",
     },
     "admin.invite_created": {
         "vi": "✅ Tạo {role} '{name}' (#{id}).\nGửi họ: /start {token}",
@@ -141,14 +159,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "✅ {role} '{name}' (#{id}) 생성됨.\n다음을 전달하세요: /start {token}",
     },
     "admin.role_usage": {
-        "vi": "Cú pháp: /role <user_id> <employee|manager|admin>",
-        "en": "Usage: /role <user_id> <employee|manager|admin>",
-        "ko": "사용법: /role <user_id> <employee|manager|admin>",
+        "vi": "Hướng dẫn sử dụng: /role <user_id> <employee|manager|admin>",
+        "en": "How to use: /role <user_id> <employee|manager|admin>",
+        "ko": "이용 방법: /role <user_id> <employee|manager|admin>",
     },
     "admin.user_not_in_tenant": {
-        "vi": "Không tìm thấy user trong tenant của anh/chị.",
-        "en": "No such user in your tenant.",
-        "ko": "당신의 테넌트에 해당 사용자가 없습니다.",
+        "vi": "Hiện chưa tìm thấy user trong tenant của anh/chị.",
+        "en": "There are no such user in your tenant.",
+        "ko": "당신의 테넌트에 해당 사용자가 없는 상태입니다.",
     },
     "admin.role_changed": {
         "vi": "✅ #{id} '{name}' → {role}",
@@ -156,9 +174,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "✅ #{id} '{name}' → {role}",
     },
     "admin.unlink_usage": {
-        "vi": "Cú pháp: /unlink <user_id>",
-        "en": "Usage: /unlink <user_id>",
-        "ko": "사용법: /unlink <user_id>",
+        "vi": "Hướng dẫn sử dụng: /unlink <user_id>",
+        "en": "How to use: /unlink <user_id>",
+        "ko": "이용 방법: /unlink <user_id>",
     },
     "admin.unlinked": {
         "vi": "✅ Đã gỡ liên kết #{id}. Token mới: /start {token}",

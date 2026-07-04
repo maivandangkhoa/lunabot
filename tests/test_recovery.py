@@ -5,7 +5,8 @@ from sqlalchemy import select
 
 from app.models import EventKind, Request, RequestEvent, RequestStatus, UserRole
 from app.onboarding import add_repository, create_tenant, create_user
-from app.recovery import close_interrupted, recover_interrupted_requests
+from app.config import Settings
+from app.recovery import _build_adapter, close_interrupted, recover_interrupted_requests
 
 
 def _seed(db):
@@ -77,3 +78,22 @@ async def test_recover_no_interrupted_noop(db):
     _seed(db)
     n = await recover_interrupted_requests(None, db=db, adapter_factory=lambda p: None)
     assert n == 0
+
+
+def test_build_adapter_covers_all_channels():
+    """_build_adapter phải dựng được adapter cho MỌI kênh đang dùng — nếu thiếu, deploy-gate
+    sau restart không gửi được thông báo → request kẹt ở MERGED_DEV (orphan). Hồi quy: trước
+    đây thiếu messenger/zalo nên request Messenger bị mồ côi sau mỗi lần redeploy."""
+    s = Settings(
+        telegram_bot_token="t", google_chat_enabled=True,
+        google_chat_audience="https://x/webhook",
+        messenger_enabled=True, messenger_page_access_token="pat",
+        zalo_enabled=True, zalo_oa_access_token="z",
+    )
+    assert _build_adapter("telegram", s) is not None
+    assert _build_adapter("google_chat", s) is not None
+    assert _build_adapter("messenger", s) is not None
+    assert _build_adapter("zalo", s) is not None
+    assert _build_adapter("unknown", s) is None
+    # Kênh tắt cờ → None (không dựng nhầm bằng token rỗng).
+    assert _build_adapter("messenger", Settings(messenger_enabled=False)) is None

@@ -5,7 +5,6 @@ Cố tình KHÔNG thêm dep: form parse thủ công (urllib) thay python-multipa
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import logging
 import secrets
@@ -22,7 +21,7 @@ from app.github_oauth import GitHubOAuth, GitHubOAuthError
 from app.models import (
     Bot, PlatformAdmin, Repository, Request as MaintRequest, Tenant,
 )
-from app.onboarding import add_repository
+from app.onboarding import InvalidBranchError, add_repository
 from app.provisioning import ProvisioningError, provision
 from app.web import i18n
 from app.web import pages
@@ -45,14 +44,21 @@ def _redirect_uri(s) -> str:
     return f"{s.public_base_url.rstrip('/')}/oauth/github/callback"
 
 
+def _secure_cookie(s) -> bool:
+    """Cookie phải Secure ở production (đứng sau HTTPS) — không phụ thuộc chuỗi URL cấu hình."""
+    return s.is_production or bool(s.public_base_url and s.public_base_url.startswith("https"))
+
+
 def _read_session(request: Request, s) -> dict | None:
-    return sess.loads(request.cookies.get(sess.COOKIE_NAME), s.web_session_secret)
+    return sess.loads(request.cookies.get(sess.COOKIE_NAME), s.web_session_secret,
+                      enc_key=s.bot_token_enc_key)
 
 
 def _attach_session(resp, data: dict, s) -> None:
-    resp.set_cookie(sess.COOKIE_NAME, sess.dumps(data, s.web_session_secret),
+    resp.set_cookie(sess.COOKIE_NAME,
+                    sess.dumps(data, s.web_session_secret, enc_key=s.bot_token_enc_key),
                     httponly=True, samesite="lax", max_age=8 * 3600,
-                    secure=s.public_base_url.startswith("https"))
+                    secure=_secure_cookie(s))
 
 
 async def _form(request: Request) -> dict:
@@ -60,11 +66,15 @@ async def _form(request: Request) -> dict:
     return {k: v[0] for k, v in parse_qs(raw).items()}
 
 
-def _csrf(data: dict, s) -> str:
-    """Token CSRF ổn định cho phiên: HMAC(secret, uid). Không cần ghi lại session — hợp lệ
-    cho mọi phiên đã đăng nhập. Dùng chung cho team.py / approvals.py."""
-    raw = f"csrf:{data.get('uid')}".encode()
-    return hmac.new(s.web_session_secret.encode(), raw, hashlib.sha256).hexdigest()[:32]
+def _csrf(data: dict, s=None) -> str:
+    """Token CSRF NGẪU NHIÊN theo phiên, lưu trong cookie đã ký HMAC (client không giả được,
+    xoay theo mỗi lần đăng nhập, không suy ra được từ uid). Dùng chung team/activity/approvals.
+    Phiên cũ chưa có 'csrf' → chuỗi rỗng (SameSite=lax vẫn đỡ tới khi đăng nhập lại)."""
+    return data.get("csrf") or ""
+
+
+def _new_csrf() -> str:
+    return secrets.token_urlsafe(24)
 
 
 def _lang(request: Request) -> None:
@@ -78,10 +88,12 @@ def _lang(request: Request) -> None:
 async def set_language(code: str, next: str = "/"):
     """Lưu ngôn ngữ người dùng chọn vào cookie rồi quay lại trang trước (chỉ path nội bộ)."""
     lang = i18n.normalize(code)
-    target = next if next.startswith("/") else "/"
+    # Chỉ redirect nội bộ: chặn cả URL protocol-relative (//evil.com) và backslash-trick.
+    safe = next.startswith("/") and not next.startswith(("//", "/\\"))
+    target = next if safe else "/"
     resp = RedirectResponse(target, status_code=303)
     resp.set_cookie(i18n.COOKIE, lang, max_age=365 * 24 * 3600, samesite="lax",
-                    secure=get_settings().public_base_url.startswith("https"))
+                    secure=_secure_cookie(get_settings()))
     return resp
 
 
@@ -120,7 +132,8 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
                          db: Session = Depends(get_db)):
     s = get_settings()
     data = _read_session(request, s)
-    if not data or not state or state != data.get("state") or not code:
+    if (not data or not state or not code
+            or not hmac.compare_digest(state, data.get("state") or "")):
         return RedirectResponse("/", status_code=303)
     oauth = GitHubOAuth.from_settings(s)
     try:
@@ -132,7 +145,7 @@ async def oauth_callback(request: Request, code: str = "", state: str = "",
     finally:
         await oauth.aclose()
     new_data = {"login": user["login"], "uid": user["id"],
-                "name": user["name"], "tok": token}
+                "name": user["name"], "tok": token, "csrf": _new_csrf()}
     resp = RedirectResponse(_home(db, new_data), status_code=303)
     _attach_session(resp, new_data, s)
     return resp
@@ -152,7 +165,8 @@ async def dev_login():
         return RedirectResponse("/", status_code=303)
     resp = RedirectResponse("/wizard", status_code=303)
     _attach_session(resp, {"login": "dev", "uid": 0, "name": "Dev User",
-                           "tok": "dev", "state": "devstate"}, s)
+                           "tok": "dev", "state": secrets.token_urlsafe(16),
+                           "csrf": _new_csrf()}, s)
     return resp
 
 
@@ -198,9 +212,8 @@ async def wizard(request: Request, db: Session = Depends(get_db)):
     if not data or not data.get("tok"):
         return RedirectResponse("/", status_code=303)
     repos, install_url = await _list_repos(s, data)
-    csrf = data.get("state", "")
     return HTMLResponse(tpl.wizard(data.get("name") or data["login"], repos, install_url,
-                                   csrf, s.dedicated_container_enabled,
+                                   _csrf(data), s.dedicated_container_enabled,
                                    gchat_enabled=s.google_chat_enabled,
                                    zalo_enabled=s.zalo_enabled,
                                    messenger_enabled=s.messenger_enabled,
@@ -215,7 +228,7 @@ async def wizard_create(request: Request, db: Session = Depends(get_db)):
     if not data or not data.get("tok"):
         return RedirectResponse("/", status_code=303)
     form = await _form(request)
-    if form.get("csrf") != data.get("state"):
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
         return RedirectResponse("/wizard", status_code=303)
 
     repo_val = form.get("repo", "")
@@ -253,7 +266,7 @@ def _wizard_err(s, data: dict, msg: str) -> str:
     oauth = GitHubOAuth.from_settings(s)
     install_url = oauth.install_url(data.get("state", ""))
     return tpl.wizard(data.get("name") or data["login"], [], install_url,
-                      data.get("state", ""), s.dedicated_container_enabled,
+                      _csrf(data), s.dedicated_container_enabled,
                       gchat_enabled=s.google_chat_enabled,
                       zalo_enabled=s.zalo_enabled, messenger_enabled=s.messenger_enabled,
                       error=msg)
@@ -391,7 +404,7 @@ async def repo_add(request: Request, tenant: str = "", db: Session = Depends(get
     sel = tenant if any(str(t.id) == tenant for t in tenants) else ""
     return HTMLResponse(tpl.add_repo(
         data.get("name") or data["login"], _tenant_dicts(tenants), repos, install_url,
-        data.get("state", ""), selected_tenant=sel))
+        _csrf(data), selected_tenant=sel))
 
 
 @router.post("/repo/add", response_class=HTMLResponse)
@@ -401,7 +414,7 @@ async def repo_add_create(request: Request, db: Session = Depends(get_db)):
     if not data or not data.get("tok"):
         return RedirectResponse("/", status_code=303)
     form = await _form(request)
-    if form.get("csrf") != data.get("state"):
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
         return RedirectResponse("/repo/add", status_code=303)
     tenants = _tenants(db, data)
     tid = form.get("tenant_id", "")
@@ -422,15 +435,20 @@ async def repo_add_create(request: Request, db: Session = Depends(get_db)):
         elif not await _verify_repo_grant(s, data, repo_full_name, int(inst)):
             err = t("repoadd.err.repo")
         else:
-            add_repository(db, tenant, repo_full_name, int(inst),
-                           base_branch=(form.get("base_branch") or "dev").strip(),
-                           prod_branch=(form.get("prod_branch") or "main").strip())
-            db.commit()
-            return RedirectResponse("/repositories", status_code=303)
+            try:
+                add_repository(db, tenant, repo_full_name, int(inst),
+                               base_branch=(form.get("base_branch") or "dev").strip(),
+                               prod_branch=(form.get("prod_branch") or "main").strip())
+            except InvalidBranchError as exc:
+                db.rollback()
+                err = str(exc)
+            else:
+                db.commit()
+                return RedirectResponse("/repositories", status_code=303)
     repos, install_url = await _list_repos(s, data)
     return HTMLResponse(tpl.add_repo(
         data.get("name") or data["login"], _tenant_dicts(tenants), repos, install_url,
-        data.get("state", ""), selected_tenant=tid, error=err))
+        _csrf(data), selected_tenant=tid, error=err))
 
 
 @router.get("/requests", response_class=HTMLResponse)

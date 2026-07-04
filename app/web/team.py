@@ -7,6 +7,8 @@ mỗi file ≤500 LOC; dùng lại helper phiên (_auth/_tenants/_form) từ rou
 """
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
@@ -82,7 +84,7 @@ async def _guard(request: Request) -> tuple[dict | None, dict]:
     if not data:
         return None, {}
     form = await _form(request)
-    if form.get("csrf") != _csrf(data, get_settings()):
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
         return None, form
     return data, form
 

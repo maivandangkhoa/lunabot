@@ -173,14 +173,16 @@ select.input{appearance:none;cursor:pointer;
 .nav-item svg{width:18px;height:18px;color:var(--text-3)}
 .sidebar-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:14px}
 .main{display:flex;flex-direction:column;min-width:0}
-.topbar{display:flex;align-items:center;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border);
+.topbar{display:flex;padding:14px 0;border-bottom:1px solid var(--border);
   position:sticky;top:0;background:rgba(11,15,25,.72);backdrop-filter:blur(12px);z-index:5}
+.topbar-inner{display:flex;align-items:center;gap:16px;width:100%;max-width:1400px;margin:0 auto;padding:0 28px}
 .workspace{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;min-width:0}
 .workspace .ws-ico{width:26px;height:26px;border-radius:8px;background:var(--elevated);flex:none;
   border:1px solid var(--border);display:grid;place-items:center;color:var(--text-2)}
 .workspace .ws-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search{flex:1;max-width:420px;display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;
   background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text-3);font-size:14px}
+.topbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto}
 .icon-btn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--text-2);
   border:1px solid var(--border);background:var(--surface);cursor:pointer;transition:.13s}
 .icon-btn:hover{color:var(--text);border-color:var(--border-2)}
@@ -265,7 +267,8 @@ select.input{appearance:none;cursor:pointer;
   .step-name{display:none}
   .card{padding:20px} .content{padding:22px 16px}
   .search{display:none}
-  .topbar{padding:12px 16px;gap:10px}
+  .topbar{padding:12px 0}
+  .topbar-inner{padding:0 16px;gap:10px}
   .page-head{flex-wrap:wrap}
 }
 """
@@ -306,6 +309,7 @@ _ICONS = {
     "chat": '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     "info": '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     "trash": '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+    "usage": '<line x1="6" x2="6" y1="20" y2="14"/><line x1="12" x2="12" y1="20" y2="8"/><line x1="18" x2="18" y1="20" y2="4"/><path d="M3 20h18"/>',
 }
 
 
@@ -418,6 +422,7 @@ _NAV = [
     ("repo", "nav.repositories", "/repositories"),
     ("requests", "nav.requests", "/requests"),
     ("activity", "nav.activity", "/activity"),
+    ("usage", "nav.usage", "/usage"),
     ("users", "nav.users", "/users"),
     ("settings", "nav.settings", "/settings"),
 ]
@@ -431,8 +436,11 @@ def _sidebar(active: str) -> str:
     admin = ""
     if _show_admin.get():
         cls = "nav-item active" if active == "admin" else "nav-item"
+        cls_u = "nav-item active" if active == "admin_usage" else "nav-item"
         admin = (f"<div class='nav-label'>{t('nav.platform')}</div>"
-                 f"<a class='{cls}' href='/admin'>{icon('shield')}<span>{t('nav.admin')}</span></a>")
+                 f"<a class='{cls}' href='/admin'>{icon('shield')}<span>{t('nav.admin')}</span></a>"
+                 f"<a class='{cls_u}' href='/admin/usage'>{icon('usage')}"
+                 f"<span>{t('nav.admin_usage')}</span></a>")
     foot = (f"<div class='sidebar-foot'><a class='nav-item' href='/logout'>"
             f"{icon('logout')}<span>{t('common.logout')}</span></a></div>")
     return (f"<aside class='sidebar' id='sidebar'>{brand()}"
@@ -443,16 +451,18 @@ def shell(title: str, *, active: str, user_name: str, body: str) -> str:
     initial = esc((user_name or "U").strip()[:1].upper())
     ws = esc(user_name or "Workspace")
     topbar = (
-        "<header class='topbar'>"
+        "<header class='topbar'><div class='topbar-inner'>"
         f"<button class='icon-btn menu-btn' onclick=\"document.getElementById('sidebar').classList.toggle('open')\" "
         f"aria-label='{esc(t('shell.menu'))}'>{icon('menu', 18)}</button>"
         f"<div class='workspace'><span class='ws-ico'>{icon('moon', 15)}</span>"
         f"<span class='ws-name'>{ws}</span></div>"
         f"<div class='search'>{icon('search', 15)}<span>{t('shell.search')}</span></div>"
+        "<div class='topbar-actions'>"
         f"{lang_switcher()}"
         f"<button class='icon-btn' aria-label='{esc(t('shell.notifications'))}'>{icon('bell', 18)}</button>"
         f"<div class='avatar' title='{ws}'>{initial}</div>"
-        "</header>"
+        "</div>"
+        "</div></header>"
     )
     return doc(title, (
         f"<div class='shell'>{_sidebar(active)}"

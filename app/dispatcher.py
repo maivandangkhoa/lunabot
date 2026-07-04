@@ -18,15 +18,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import usage
 from app.admin_commands import handle_command, help_text, is_command
 from app.channels.base import Button, ChannelAdapter
+from app.claude_runner import run_claude
 from app.config import get_settings
 from app.intent import Intent, classify_intent
 from app.models import Repository, Request, RequestStatus, User, UserRole
 from app.onboarding import AlreadyLinkedError, get_user_by_platform, link_user
 from app.orchestrator import BLOCKING_STATUSES as _BLOCKING
 from app.orchestrator import Orchestrator, cb, parse_cb
-from app.web.i18n import detect, normalize, set_lang, t
+from app.textnorm import strip_symbols
+from app.web.i18n import TEXTS, detect, normalize, set_lang, t
 
 log = logging.getLogger("luna.dispatcher")
 
@@ -42,7 +45,7 @@ _IRREVERSIBLE = {"mgr_approve"}
 _W_CLEAR = {"/clear", "/new", "/reset"}     # huỷ request đang mở → mở session mới
 # Lệnh chỉ-đọc, không in token → an toàn dùng trong group (trả lời ngay trong thread).
 # Các lệnh in token / sửa dữ liệu (/users, /invite, /role, /unlink, /addrepo) vẫn DM-only.
-_W_GROUP_SAFE = {"/whoami", "/help", "/repos", "/repo"}
+_W_GROUP_SAFE = {"/whoami", "/help", "/repos", "/repo", "/lang"}
 
 # Từ khoá text thay cho bấm nút (kênh add-on như Google Chat không route click về endpoint).
 _W_CONFIRM = {"ok", "confirm", "duyệt", "duyet", "đồng ý", "dong y", "yes", "y", "ừ", "u"}
@@ -50,17 +53,42 @@ _W_EDIT = {"sửa", "sua", "chỉnh", "chinh", "edit", "fix"}
 _W_CANCEL = {"huỷ", "huy", "hủy", "cancel", "bỏ", "bo", "stop"}
 _W_VERIFY_OK = {"đạt", "dat", "ok", "pass", "duyệt", "duyet", "done", "xong", "good"}
 _W_REJECT = {"từ chối", "tu choi", "reject", "no", "không", "khong"}
+# Gỡ xung đột merge release (chỉ có nghĩa khi bot vừa mời — branch_sync guard `offered`).
+_W_FIX_CONFLICT = {"gộp", "gop", "gộp vào", "gop vao", "fix conflict", "resolve",
+                   "gỡ xung đột", "go xung dot"}
 # Hợp của mọi từ khoá hành động — chặn tin thường (vd "fix bug #123") lọt vào nhánh hành động.
-_W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT
+_W_ANY = _W_CONFIRM | _W_EDIT | _W_CANCEL | _W_VERIFY_OK | _W_REJECT | _W_FIX_CONFLICT
 
 # Cho phép nhắm tường minh "ok #12" → tách số request khỏi câu trước khi khớp từ khoá.
 _REQ_ID_RE = re.compile(r"#(\d+)")
+
+
+def _norm_word(text: str) -> str:
+    """Chuẩn hoá text → từ khoá: bỏ '#id', emoji/ký hiệu (nhãn nút echo — xem textnorm),
+    hạ thường, gộp khoảng trắng."""
+    return strip_symbols(_REQ_ID_RE.sub("", text)).lower()
+
+
 # action → key i18n nhãn nút khi hỏi lại lúc nhập nhằng (nhiều việc cùng khớp 1 từ khoá).
 # Resolve t() tại use-site (không phải module-load) để theo đúng ngôn ngữ người dùng.
 _ACTION_VERB = {
     "confirm": "disp.verb_confirm", "reject": "disp.verb_reject", "cancel": "disp.verb_cancel",
     "verify_ok": "disp.verb_verify_ok", "mgr_approve": "disp.verb_mgr_approve",
-    "mgr_reject": "disp.verb_mgr_reject",
+    "mgr_reject": "disp.verb_mgr_reject", "conflict_fix": "disp.verb_conflict_fix",
+}
+# Mỗi action → 1 từ khoá đại diện (đã có trong _W_*) để _keyword_action map đúng theo status.
+_VERB_KW = {
+    "confirm": "ok", "mgr_approve": "ok", "verify_ok": "đạt",
+    "reject": "sửa", "cancel": "huỷ", "mgr_reject": "reject",
+    "conflict_fix": "gộp",
+}
+# Nhãn nút khử-nhập-nhằng đã chuẩn hoá (mọi ngôn ngữ) → từ khoá. Messenger gửi click dạng TEXT
+# (quick-reply ephemeral) ⇒ user echo nguyên nhãn "✅ Allow merge #53"; nếu không nhận diện sẽ
+# rơi thành feedback và chạy lại EXECUTING nhầm request khác. Dựng 1 lần từ catalog i18n.
+_VERB_LABEL_KW: dict[str, str] = {
+    _norm_word(val.replace("#{id}", "")): _VERB_KW[action]
+    for action, key in _ACTION_VERB.items()
+    for val in TEXTS.get(key, {}).values()
 }
 
 
@@ -91,6 +119,7 @@ def _keyword_action(word: str, status: RequestStatus) -> str | None:
     elif status == RequestStatus.AWAIT_MANAGER:
         if word in _W_CONFIRM: return "mgr_approve"
         if word in _W_REJECT:  return "mgr_reject"
+        if word in _W_FIX_CONFLICT: return "conflict_fix"
     return None
 
 # Khoá theo user: serialize các event của cùng 1 người (mỗi event là 1 task nền + DB
@@ -99,19 +128,26 @@ _user_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def _sync_user_language(db: Session, user: User, inbound) -> None:
-    """Đặt ngôn ngữ trả lời theo NỘI DUNG người dùng gõ (heuristic, không gọi API) rồi lưu
-    vào hồ sơ để các lượt sau dùng lại — chỉ tốn lượt phát hiện đầu, sau đó tái dùng.
+    """Ngôn ngữ user là STICKY: chốt 1 lần từ TIN CÓ NGHĨA ĐẦU TIÊN họ gửi, lưu User.language,
+    về sau luôn dùng giá trị đã lưu — KHÔNG detect lại mỗi tin (tin ngắn "ok"/echo nhãn nút
+    tiếng Anh từng làm đổi ngôn ngữ giữa hội thoại). Đổi chủ động bằng lệnh /lang.
 
-    Bỏ qua suy đoán với NÚT (callback) và LỆNH (/...) vì không đại diện ngôn ngữ. Khi chưa có
-    tín hiệu chắc chắn: giữ ngôn ngữ đã lưu; chưa có gì thì fallback language_code client → DEFAULT.
+    NÚT (callback) và LỆNH (/...) không đại diện ngôn ngữ → không dùng để chốt. Tin đầu
+    không đủ tín hiệu (detect None) → fallback language_code client; không có nốt → DEFAULT
+    tạm thời, CHƯA persist để tin có nghĩa kế tiếp còn quyết.
     """
+    if user.language:
+        set_lang(user.language)
+        return
     text = inbound.text or ""
-    if not inbound.callback_data and not text.startswith("/"):
-        detected = detect(text)
-        if detected and user.language != detected:
-            user.language = detected
-            db.commit()
-    set_lang(user.language or inbound.language_code)
+    if inbound.callback_data or text.startswith("/"):
+        set_lang(inbound.language_code)
+        return
+    lang = detect(text) or inbound.language_code
+    if lang:
+        user.language = normalize(lang)
+        db.commit()
+    set_lang(lang)
 
 
 async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, raw: dict,
@@ -299,6 +335,16 @@ def _actionable(db: Session, user: User, word: str,
             if (act := _keyword_action(word, r.status))]
 
 
+def _recording_run(db: Session, *, tenant_id: int):
+    """Bọc run_claude để GHI usage (phase=intent) cho lần phân loại LLM Lớp 2 — classify_intent
+    thuần (không biết db/tenant) nên đo lường luồn qua tham số `run` thay vì sửa chữ ký."""
+    async def _run(**kw):
+        res = await run_claude(**kw)
+        usage.record(db, tenant_id=tenant_id, phase="intent", res=res)
+        return res
+    return _run
+
+
 async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: str,
                            reply_to: str, inbound=None) -> bool:
     """Map text từ khoá → hành động nút (cho kênh không route click, vd Google Chat add-on).
@@ -309,7 +355,10 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
     """
     m = _REQ_ID_RE.search(text)
     target_id = int(m.group(1)) if m else None
-    word = _REQ_ID_RE.sub("", text).strip().lower()   # bỏ '#12' trước khi khớp từ khoá
+    # bỏ '#12' + emoji/ký hiệu (nhãn nút) trước khi khớp từ khoá → echo nhãn nút vẫn khớp.
+    word = _norm_word(text)
+    # Echo nhãn nút khử-nhập-nhằng ("✅ Allow merge #53") → từ khoá tương ứng để route theo id.
+    word = _VERB_LABEL_KW.get(word, word)
     group_chat_id = inbound.chat_id if (inbound and inbound.is_group) else None
     intent = None                                      # Lớp 2: Intent(word, confidence) nếu LLM suy ra
     if word not in _W_ANY:                             # Lớp 1 (từ khoá) trượt
@@ -321,7 +370,9 @@ async def _try_text_action(db: Session, orch: Orchestrator, user: User, text: st
                    if r.status in _LLM_GATE_STATUSES]
         if not pending:                                # không ở cổng thuần quyết định → luồng cũ
             return False
-        intent = await classify_intent(text, [r.status.value for r in pending])
+        intent = await classify_intent(
+            text, [r.status.value for r in pending],
+            run=_recording_run(db, tenant_id=user.tenant_id))
         if intent is None:                             # không phải hành động cổng → luồng cũ
             return False
         word = intent.word
@@ -400,9 +451,10 @@ async def _handle_start(db: Session, adapter: ChannelAdapter, platform_user_id: 
     if user is None:
         await adapter.send(platform_user_id, t("disp.start_bad_token"))
         return
-    if language_code:                       # ghi nhận ngôn ngữ client ngay khi liên kết
-        user.language = normalize(language_code)
-        set_lang(user.language)
+    # KHÔNG persist language_code lúc link: ngôn ngữ chốt từ TIN ĐẦU TIÊN user gửi
+    # (_sync_user_language) — ghi sẵn ở đây thì detection không bao giờ chạy.
+    if language_code:
+        set_lang(language_code)             # chỉ cho tin chào ngay dưới
     try:
         db.commit()
     except IntegrityError:

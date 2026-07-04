@@ -71,6 +71,43 @@ def test_parse_inbound_group_callback_addressed():
     assert m.is_group and m.addressed and m.chat_id == "-100"
 
 
+def test_parse_inbound_photo_with_caption():
+    """Ảnh + caption trong cùng 1 message → text = caption, có 1 attachment ảnh."""
+    a = TelegramAdapter(token="t")
+    raw = {"message": {"caption": "fix this screen", "from": {"id": 111}, "chat": {"id": 222},
+                       "photo": [{"file_id": "sm", "width": 90},
+                                 {"file_id": "lg", "width": 1280}]}}
+    m = a.parse_inbound(raw)
+    assert m.text == "fix this screen"
+    assert len(m.attachments) == 1 and m.attachments[0].is_image
+    assert m.attachments[0].ref["file_id"] == "lg"   # lấy bản lớn nhất (cuối mảng)
+
+
+def test_parse_inbound_photo_only_no_caption():
+    a = TelegramAdapter(token="t")
+    raw = {"message": {"from": {"id": 1}, "chat": {"id": 2},
+                       "photo": [{"file_id": "only"}]}}
+    m = a.parse_inbound(raw)
+    assert m.text == "" and len(m.attachments) == 1 and m.attachments[0].ref["file_id"] == "only"
+
+
+@pytest.mark.asyncio
+async def test_download_attachment_getfile_then_fetch():
+    from app.channels.base import Attachment
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/getFile"):
+            return httpx.Response(200, json={"ok": True, "result": {"file_path": "photos/x.jpg"}})
+        if req.url.path == "/file/botTK/photos/x.jpg":
+            return httpx.Response(200, content=b"IMGBYTES")
+        return httpx.Response(404)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.telegram.org")
+    a = TelegramAdapter(token="TK", client=client)
+    data = await a.download_attachment(Attachment("photo.jpg", "image/jpeg", {"file_id": "lg"}))
+    assert data == b"IMGBYTES"
+
+
 @pytest.mark.asyncio
 async def test_send_with_buttons_builds_inline_keyboard():
     captured = []

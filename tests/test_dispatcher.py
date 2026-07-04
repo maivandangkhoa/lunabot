@@ -377,6 +377,67 @@ async def test_ok_ambiguous_asks_back(db, fakes):
 
 
 @pytest.mark.asyncio
+async def test_verify_button_label_echo_advances_not_loops(db, fakes):
+    """VERIFY: user echo NGUYÊN nhãn nút '✅ Đạt' (kênh không route click, vd Messenger) → khớp
+    verify_ok → merge dev (rời VERIFY), KHÔNG bị coi là feedback chạy lại EXECUTING vô tận."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    req = _mkreq(db, t, repo, emp, RequestStatus.VERIFY)
+    req.pr_number = 7
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, emp, "✅ Đạt", "emp")
+
+    assert handled is True
+    assert req.status != RequestStatus.VERIFY              # đã tiến tới (merge dev → chờ manager)
+
+
+@pytest.mark.asyncio
+async def test_disambig_button_label_echo_routes_by_id(db, fakes):
+    """Echo NGUYÊN nhãn nút khử-nhập-nhằng '✅ Allow merge #53' (Messenger gửi click dạng text)
+    → khớp mgr_approve đúng #53, KHÔNG rơi thành feedback chạy lại request đang mở khác."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    merge.pr_number = 3
+    other = _mkreq(db, t, repo, mgr, RequestStatus.VERIFY)   # việc đang mở khác của manager
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, f"✅ Allow merge #{merge.id}", "mgr")
+
+    assert handled is True
+    assert merge.status != RequestStatus.AWAIT_MANAGER      # đã duyệt merge production
+    assert other.status == RequestStatus.VERIFY             # KHÔNG đụng việc khác
+
+
+@pytest.mark.asyncio
+async def test_disambig_label_vietnamese_echo(db, fakes):
+    """Nhãn tiếng Việt '✅ Cho merge #id' echo dạng text cũng route đúng mgr_approve."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    merge = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
+    merge.pr_number = 4
+    db.commit()
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, mgr, f"✅ Cho merge #{merge.id}", "mgr")
+
+    assert handled is True
+    assert merge.status != RequestStatus.AWAIT_MANAGER
+
+
+@pytest.mark.asyncio
+async def test_keyword_symbol_strip_keeps_phrase_guard(db, fakes):
+    """Strip emoji KHÔNG được nới lỏng thành khớp token: 'fix bug' vẫn không phải hành động."""
+    t, repo, emp, mgr = _seed_mgr(db)
+    _mkreq(db, t, repo, emp, RequestStatus.VERIFY)
+    orch = Orchestrator(db, fakes["adapter"], github=fakes["github"])
+
+    handled = await _try_text_action(db, orch, emp, "fix bug đăng nhập", "emp")
+
+    assert handled is False                                # rơi về luồng feedback cũ, không khớp nút
+
+
+@pytest.mark.asyncio
 async def test_ok_with_explicit_id_targets_that_request(db, fakes):
     """'ok #<merge>' duyệt đúng merge đó, KHÔNG đụng KH riêng của manager."""
     t, repo, emp, mgr = _seed_mgr(db)
@@ -449,7 +510,7 @@ async def test_ask_without_question_shows_usage(db, fakes):
     u.platform_user_id = "99"
     db.commit()
     await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "/ask"))
-    assert any("Cú pháp: /ask" in s[1] for s in fakes["adapter"].sent)
+    assert any("Hướng dẫn sử dụng: /ask" in s[1] for s in fakes["adapter"].sent)
     assert len(u.tenant.requests) == 0
 
 
@@ -684,3 +745,41 @@ def test_intent_enabled_requires_token(monkeypatch):
     assert _intent_enabled() is True
     monkeypatch.setattr(s, "intent_llm_enabled", False)
     assert _intent_enabled() is False
+
+
+def test_keyword_gop_maps_conflict_fix_only_in_await_manager():
+    """"gộp" → conflict_fix chỉ ở AWAIT_MANAGER (guard `offered` trong branch_sync mới
+    quyết có chạy thật); các trạng thái khác không map thành hành động này."""
+    from app.dispatcher import _keyword_action
+
+    assert _keyword_action("gộp", RequestStatus.AWAIT_MANAGER) == "conflict_fix"
+    assert _keyword_action("gộp", RequestStatus.PLAN_REVIEW) is None
+    assert _keyword_action("gộp", RequestStatus.VERIFY) is None
+
+
+@pytest.mark.asyncio
+async def test_lang_command_allowed_in_group(db, fakes):
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    u.language = "vi"
+    db.commit()
+    fakes["adapter"].bot_username = "LunaBot"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _group_msg("99", "@LunaBot /lang en", -100))
+    assert u.language == "en"
+    assert not any("nhắn riêng" in s[1].lower() for s in fakes["adapter"].sent)
+    assert any(s[0] == "-100" and "Language switched" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_start_does_not_persist_language(db, fakes):
+    """Ngôn ngữ chốt từ TIN ĐẦU user gửi, không phải locale client lúc /start —
+    nếu /start ghi sẵn cột thì detection không bao giờ chạy."""
+    t = create_tenant(db, "Acme")
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    db.commit()
+    raw = _msg("99", f"/start {u.link_token}")
+    raw["message"]["from"]["language_code"] = "en"
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], raw)
+    assert get_user_by_platform(db, "telegram", "99").language is None

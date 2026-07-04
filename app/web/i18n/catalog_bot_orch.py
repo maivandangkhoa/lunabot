@@ -21,7 +21,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "{retry_hint}"
         ),
         "ko": (
-            "🌿 {repo} 저장소에 제가 작업할 `{base}` 브랜치가 없습니다.\n\n"
+            "🌿 {repo} 저장소에 제가 작업할 `{base}` 브랜치가 없는 상태입니다.\n\n"
             "제 절차: 먼저 `{base}` 브랜치에 커밋하여 검토받은 뒤 `{prod}`에 병합합니다. "
             "그래서 저장소에 이 두 브랜치가 모두 있어야 합니다.\n\n"
             "빠른 생성 방법: GitHub에서 저장소 열기 → 브랜치 선택 상자 클릭 → `{base}` 입력 → "
@@ -56,7 +56,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "and the GitHub App install permission, then {retry_hint_lower}"
         ),
         "ko": (
-            "❓ {repo} 저장소를 찾을 수 없습니다. 저장소 이름과 "
+            "❓ {repo} 저장소를 찾을 수 없는 상태입니다. 저장소 이름과 "
             "GitHub App 설치 권한을 확인한 뒤 {retry_hint_lower}"
         ),
     },
@@ -123,7 +123,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "orch.no_open_request": {
         "vi": "✨ Không có yêu cầu đang mở. Gửi yêu cầu mới để bắt đầu.",
         "en": "✨ No open request. Send a new request to get started.",
-        "ko": "✨ 열려 있는 요청이 없습니다. 새 요청을 보내 시작하세요.",
+        "ko": "✨ 열려 있는 요청이 없는 상태입니다. 새 요청을 보내 시작하세요.",
     },
     "orch.cleared": {
         "vi": "🧹 Đã đóng yêu cầu #{id}. Gửi yêu cầu mới để bắt đầu session mới.",
@@ -135,7 +135,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "orch.ask_failed": {
         "vi": "⚠️ Chưa trả lời được, thử lại sau nhé:\n{detail}",
         "en": "⚠️ Could not answer, please try again later:\n{detail}",
-        "ko": "⚠️ 답변할 수 없습니다. 나중에 다시 시도하세요:\n{detail}",
+        "ko": "⚠️ 답변할 수 없는 상태입니다. 나중에 다시 시도하세요:\n{detail}",
     },
     "orch.ask_empty": {
         "vi": "(không có nội dung)",
@@ -244,6 +244,17 @@ TEXTS: dict[str, dict[str, str]] = {
               "Tap Confirm so I can try again.",
         "ko": "⚠️ 변경 사항을 저장하는 중 문제가 발생했습니다. "
               "Confirm을 눌러 주시면 다시 시도하겠습니다.",
+    },
+    "orch.push_workflows_perm": {
+        "vi": "⚠️ Thay đổi có đụng tới file CI/CD (.github/workflows/), nhưng GitHub App "
+              "chưa được cấp quyền **Workflows** nên GitHub từ chối lưu. Nhờ quản trị viên "
+              "cấp quyền Workflows (Read & write) cho bot trên repo, rồi bấm Confirm để em thử lại nhé.",
+        "en": "⚠️ The change touches CI/CD files (.github/workflows/), but the GitHub App "
+              "doesn't have the **Workflows** permission, so GitHub refused to save it. Please ask "
+              "an admin to grant the bot Workflows (Read & write) on the repo, then tap Confirm to retry.",
+        "ko": "⚠️ 변경 사항이 CI/CD 파일(.github/workflows/)을 건드리지만 GitHub App에 "
+              "**Workflows** 권한이 없어 GitHub가 저장을 거부했습니다. 관리자에게 저장소에서 봇에 "
+              "Workflows(Read & write) 권한을 부여하도록 요청한 뒤 Confirm을 눌러 다시 시도해 주세요.",
     },
     # ── _verify_buttons ──
     "orch.btn.verify_ok": {"vi": "✅ Đạt", "en": "✅ Good", "ko": "✅ 통과"},

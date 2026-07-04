@@ -14,6 +14,7 @@ monkeypatch (không gọi GitHub/git thật).
 """
 from __future__ import annotations
 
+import hmac
 import logging
 
 from fastapi import APIRouter, Depends, Request
@@ -132,7 +133,7 @@ async def _act(rid: int, request: Request, db: Session, action: str):
         return RedirectResponse("/", status_code=303)
     form = await _form(request)
     s = get_settings()
-    if form.get("csrf") != _csrf(data, s):
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
         return RedirectResponse("/requests", status_code=303)
     req = _owned_await_request(db, data, rid)
     approver = _approver(db, req.tenant_id) if req is not None else None

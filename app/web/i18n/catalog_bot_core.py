@@ -67,7 +67,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "disp.no_repo": {
         "vi": "Tenant chưa có dự án nào. Admin thêm bằng /addrepo.",
         "en": "This tenant has no projects yet. An admin can add one with /addrepo.",
-        "ko": "이 테넌트에는 아직 프로젝트가 없습니다. 관리자가 /addrepo로 추가할 수 있습니다.",
+        "ko": "이 테넌트에는 아직 프로젝트가 없는 상태입니다. 관리자가 /addrepo로 추가할 수 있습니다.",
     },
     "disp.pick_repo": {
         "vi": "Tenant có nhiều dự án. Chọn trước bằng /repo <số|tên>:\n{lines}",
@@ -103,9 +103,9 @@ TEXTS: dict[str, dict[str, str]] = {
     "disp.verb_mgr_reject": {"vi": "❌ Từ chối merge #{id}", "en": "❌ Reject merge #{id}", "ko": "❌ 병합 거부 #{id}"},
     # ── Dispatcher: /ask ──
     "disp.ask_usage": {
-        "vi": "Cú pháp: /ask <câu hỏi về dự án>.\nVd: /ask dự án này dùng DB gì?",
-        "en": "Usage: /ask <question about the project>.\nE.g.: /ask what database does this project use?",
-        "ko": "사용법: /ask <프로젝트에 대한 질문>.\n예: /ask 이 프로젝트는 어떤 DB를 사용하나요?",
+        "vi": "Hướng dẫn sử dụng: /ask <câu hỏi về dự án>.\nVd: /ask dự án này dùng DB gì?",
+        "en": "How to use: /ask <question about the project>.\nE.g.: /ask what database does this project use?",
+        "ko": "이용 방법: /ask <프로젝트에 대한 질문>.\n예: /ask 이 프로젝트는 어떤 DB를 사용하나요?",
     },
     "disp.ask_pick_repo": {
         "vi": "Có nhiều dự án — chọn trước bằng /repo <số|tên> rồi /ask lại:\n{lines}",

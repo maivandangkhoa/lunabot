@@ -19,6 +19,7 @@ from app.web.i18n.catalog_bot_core import TEXTS as _BOT_CORE
 from app.web.i18n.catalog_bot_ops import TEXTS as _BOT_OPS
 from app.web.i18n.catalog_bot_orch import TEXTS as _BOT_ORCH
 from app.web.i18n.catalog_bot_report import TEXTS as _BOT_REPORT
+from app.web.i18n.catalog_bot_sync import TEXTS as _BOT_SYNC
 from app.web.i18n.catalog_landing import TEXTS as _LANDING
 
 # Mã ISO 639-1 → tên hiển thị (đúng ngôn ngữ bản địa)
@@ -28,6 +29,7 @@ COOKIE = "luna_lang"
 
 TEXTS: dict[str, dict[str, str]] = {
     **_APP, **_LANDING, **_BOT_ORCH, **_BOT_CORE, **_BOT_ADMIN, **_BOT_OPS, **_BOT_REPORT,
+    **_BOT_SYNC,
 }
 
 _current: contextvars.ContextVar[str] = contextvars.ContextVar("luna_lang", default=DEFAULT)
@@ -87,6 +89,14 @@ def set_lang(code: str | None) -> str:
     lang = normalize(code)
     _current.set(lang)
     return lang
+
+
+def set_lang_for(user) -> str:
+    """Đặt contextvar theo ngôn ngữ ĐÃ LƯU của NGƯỜI NHẬN tin (None → DEFAULT).
+
+    Quy tắc: mọi tin outbound compose dưới ngôn ngữ người nhận — gọi ngay TRƯỚC t().
+    Duck-typed (không import models — tránh vòng import)."""
+    return set_lang(getattr(user, "language", None))
 
 
 def get_lang() -> str:

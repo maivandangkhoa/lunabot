@@ -7,7 +7,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     # LLM tự chấm độ chắc chắn (0..1): >= ngưỡng → làm luôn; dưới → xin xác nhận. Hành động
     # KHÔNG hoàn tác (merge production) thì LUÔN xác nhận bất kể điểm (xem dispatcher._IRREVERSIBLE).
     intent_confidence_threshold: float = 0.75
+
+    # --- Usage metering / quota subscription ---
+    # Trần QUY ĐỔI USD của account Claude subscription theo cửa sổ trượt 5h / 7 ngày —
+    # KHÔNG có API công khai để hỏi, calibrate thực nghiệm: tổng cost_usd tích luỹ tới lúc
+    # đụng trần (usage_records.status="limit") ≈ trần. Để trống = chưa biết (trang admin
+    # chỉ hiện số đã dùng, không hiện %).
+    sub_quota_usd_5h: float | None = None
+    sub_quota_usd_week: float | None = None
 
     # --- Deploy verify (sau merge dev) ---
     # Bật: sau khi merge vào dev, chờ GitHub Action build+deploy xong + curl URL dev (200)
@@ -123,6 +131,32 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.luna_env.lower() in {"production", "prod"}
+
+    @model_validator(mode="after")
+    def _guard_production(self) -> "Settings":
+        """Fail-fast: chặn cấu hình nguy hiểm ở production (không để lộ default secret /
+        bật cửa hậu dev / webhook không xác thực được)."""
+        if not self.is_production:
+            return self
+        weak = []
+        if self.web_session_secret in ("", "change-me-web"):
+            weak.append("WEB_SESSION_SECRET")
+        if self.secret_key in ("", "change-me"):
+            weak.append("SECRET_KEY")
+        if weak:
+            raise ValueError(
+                "Secret mặc định không được dùng ở production: " + ", ".join(weak)
+                + '. Sinh giá trị ngẫu nhiên: python -c "import secrets;'
+                ' print(secrets.token_urlsafe(32))".'
+            )
+        if self.web_dev_login:
+            raise ValueError("WEB_DEV_LOGIN không được bật ở production (cửa hậu bỏ qua OAuth).")
+        if self.google_chat_enabled and not self.google_chat_audience:
+            raise ValueError(
+                "GOOGLE_CHAT_ENABLED=true bắt buộc GOOGLE_CHAT_AUDIENCE (URL webhook) để "
+                "xác thực JWT inbound — thiếu audience = webhook không xác thực."
+            )
+        return self
 
 
 @lru_cache

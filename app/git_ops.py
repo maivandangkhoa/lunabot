@@ -178,6 +178,68 @@ async def diff_summary(repo_dir: Path, base_branch: str, remote: str = "origin")
             "insertions": ins, "deletions": dels}
 
 
+async def fetch_branch(repo_dir: Path, branch: str, remote: str = "origin") -> None:
+    await run_git(["fetch", remote, branch], cwd=repo_dir)
+
+
+async def divergence(
+    repo_dir: Path, base_branch: str, prod_branch: str, remote: str = "origin"
+) -> int:
+    """Số commit trên prod chưa nằm trong base (human push thẳng prod ngoài luồng bot).
+
+    ensure_clone chỉ fetch base → phải fetch prod trước khi đếm. GitError propagate —
+    caller quyết định (check phân kỳ là phụ trợ, không được chặn luồng chính).
+    """
+    await fetch_branch(repo_dir, prod_branch, remote)
+    res = await run_git(
+        ["rev-list", "--count", f"{remote}/{base_branch}..{remote}/{prod_branch}"],
+        cwd=repo_dir)
+    return int(res.stdout.strip() or "0")
+
+
+async def merge_branch(
+    repo_dir: Path, into_branch: str, from_ref: str, remote: str = "origin"
+) -> bool:
+    """Merge `remote/from_ref` vào `into_branch` local. True = sạch (đã commit, CHƯA push);
+    False = conflict (repo đang GIỮA merge, caller resolve rồi commit_all hoặc abort_merge).
+
+    Đồng bộ into_branch về remote trước (reset --hard) — cùng lý do revert_merge: merge
+    vào dev bình thường đi qua GitHub API nên bản local có thể cũ.
+    """
+    await run_git(["fetch", remote, into_branch], cwd=repo_dir)
+    await run_git(["checkout", into_branch], cwd=repo_dir)
+    await run_git(["reset", "--hard", f"{remote}/{into_branch}"], cwd=repo_dir)
+    res = await run_git(
+        ["merge", "--no-ff", "--no-edit", f"{remote}/{from_ref}"],
+        cwd=repo_dir, check=False)
+    if res.returncode == 0:
+        return True
+    if await conflicted_files(repo_dir):
+        return False
+    raise GitError(f"git merge lỗi (code {res.returncode}): {res.stderr[:500] or res.stdout[:500]}")
+
+
+async def conflicted_files(repo_dir: Path) -> list[str]:
+    res = await run_git(["diff", "--name-only", "--diff-filter=U"], cwd=repo_dir, check=False)
+    return [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+
+
+async def abort_merge(repo_dir: Path) -> None:
+    await run_git(["merge", "--abort"], cwd=repo_dir, check=False)
+
+
+def has_conflict_markers(repo_dir: Path, files: list[str]) -> bool:
+    """Kiểm chứng sau khi Claude resolve: file nào còn `<<<<<<<` là chưa xong."""
+    for f in files:
+        fp = Path(repo_dir) / f
+        try:
+            if "<<<<<<<" in fp.read_text(errors="replace"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 async def revert_merge(
     repo_dir: Path, base_branch: str, merge_sha: str, remote: str = "origin"
 ) -> None:

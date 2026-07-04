@@ -131,7 +131,7 @@ async def test_cross_tenant_blocked(db, fakes):
     other = create_user(db, t2, role=UserRole.EMPLOYEE, display_name="Other")
     db.commit()
     await handle_command(db, fakes["adapter"], admin, f"/role {other.id} admin")
-    assert any("Không tìm thấy" in s[1] for s in fakes["adapter"].sent)
+    assert any("tìm thấy user" in s[1] for s in fakes["adapter"].sent)
     assert other.role == UserRole.EMPLOYEE  # không đổi
 
 
@@ -207,3 +207,44 @@ async def test_dispatcher_routes_command_not_as_request(db, fakes):
     # Được xử lý như lệnh (liệt kê), không tạo request.
     assert any("Users" in s[1] for s in fakes["adapter"].sent)
     assert t.requests == []
+
+
+@pytest.mark.asyncio
+async def test_lang_bare_shows_current_and_usage(db, fakes):
+    t = create_tenant(db, "Acme")
+    emp = create_user(db, t, role=UserRole.EMPLOYEE)
+    emp.platform_user_id = "e1"
+    emp.language = "vi"
+    db.commit()
+    await handle_command(db, fakes["adapter"], emp, "/lang")
+    msg = fakes["adapter"].sent[-1][1]
+    assert "Tiếng Việt" in msg and "/lang vi|en|ko" in msg
+
+
+@pytest.mark.asyncio
+async def test_lang_switch_persists_and_replies_in_new_language(db, fakes):
+    t = create_tenant(db, "Acme")
+    emp = create_user(db, t, role=UserRole.EMPLOYEE)
+    emp.platform_user_id = "e1"
+    emp.language = "vi"
+    db.commit()
+    await handle_command(db, fakes["adapter"], emp, "/lang ko")
+    assert emp.language == "ko"                              # persist
+    assert "변경했습니다" in fakes["adapter"].sent[-1][1]      # confirm bằng ngôn ngữ MỚI
+
+    # Lệnh kế tiếp trả lời theo ngôn ngữ đã lưu (không lệ thuộc contextvar cũ).
+    from app.web.i18n import set_lang
+    set_lang("vi")
+    await handle_command(db, fakes["adapter"], emp, "/lang")
+    assert "현재 언어" in fakes["adapter"].sent[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_lang_invalid_shows_usage(db, fakes):
+    t = create_tenant(db, "Acme")
+    emp = create_user(db, t, role=UserRole.EMPLOYEE)
+    emp.platform_user_id = "e1"
+    db.commit()
+    await handle_command(db, fakes["adapter"], emp, "/lang xx")
+    assert "/lang vi|en|ko" in fakes["adapter"].sent[-1][1]
+    assert emp.language is None
