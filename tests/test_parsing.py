@@ -48,3 +48,28 @@ def test_strip_json_block():
     assert strip_json_block("Câu trả lời.\n```json\n{\"action\":\"clarify\"}\n```") == "Câu trả lời."
     assert strip_json_block("Chỉ text").strip() == "Chỉ text"
     assert strip_json_block("") == ""
+
+
+def test_scrub_meta_removes_tooling_leak():
+    from app.parsing import scrub_meta
+    leaked = (
+        "Đây là kế hoạch của bạn:\n"
+        "Nếu bạn dùng terminal, gõ: claude --dangerously-skip-permissions\n"
+        "Hoặc mở claude.ai/code và bấm nút 🔒 chọn Trust this project.\n"
+        "Bạn đang dùng Claude Code ở đâu?\n"
+        "Tôi sẽ thêm 2 hàng tài khoản ngân hàng."
+    )
+    out = scrub_meta(leaked)
+    for bad in ("dangerously-skip-permissions", "claude.ai/code", "🔒",
+                "Trust this project", "Claude Code"):
+        assert bad not in out
+    # Nội dung nghiệp vụ hợp lệ được giữ lại.
+    assert "thêm 2 hàng tài khoản ngân hàng" in out
+    assert "kế hoạch của bạn" in out
+
+
+def test_scrub_meta_noop_on_clean_text():
+    from app.parsing import scrub_meta
+    clean = "Bạn muốn thêm mấy tài khoản ngân hàng vào trang thanh toán?"
+    assert scrub_meta(clean) == clean
+    assert scrub_meta("") == ""
