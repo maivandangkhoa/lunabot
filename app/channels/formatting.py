@@ -94,6 +94,38 @@ def to_google_chat(text: str) -> str:
     return _PLACEHOLDER_RE.sub(restore, body)
 
 
+def to_slack(text: str) -> str:
+    """Markdown → Slack mrkdwn: `**`→`*` (đậm), `_nghiêng_`, link `<url|text>`, code giữ nguyên.
+
+    Stash bold+heading thành placeholder trước, xử lý italic, rồi restore — tránh _italic
+    biến `*bold*` (vừa convert từ `**bold**`) thành `_bold_` nhầm.
+    """
+    body, blocks = _extract_code(text)
+
+    # Stash bold / heading trước để _italic không nhầm `*bold*` kết quả là italic.
+    bold_stash: list[str] = []
+    _BOLD_STASH_RE = re.compile(r"\x01(\d+)\x01")
+
+    def _stash(content: str) -> str:
+        bold_stash.append(content)
+        return f"\x01{len(bold_stash) - 1}\x01"
+
+    body = _BOLD_RE.sub(lambda m: _stash(m.group(1) if m.group(1) is not None else m.group(2)), body)
+    body = _HEADING_RE.sub(lambda m: _stash(m.group(1)), body)
+
+    body = _italic(body, lambda t: f"_{t}_")
+    body = _links(body, lambda t, u: f"<{u}|{t}>")
+
+    # Restore bold/heading → Slack *bold*
+    body = _BOLD_STASH_RE.sub(lambda m: f"*{bold_stash[int(m.group(1))]}*", body)
+
+    def restore(m: re.Match) -> str:
+        kind, content = blocks[int(m.group(1))]
+        return f"```{content}```" if kind == "pre" else f"`{content}`"
+
+    return _PLACEHOLDER_RE.sub(restore, body)
+
+
 def to_plain(text: str) -> str:
     """Markdown → plain text gọn (messenger/zalo): bỏ dấu định dạng, link thành `text (url)`."""
     body, blocks = _extract_code(text)
@@ -117,6 +149,8 @@ def format_for(platform: str, text: str) -> tuple[str, str | None]:
         return to_telegram_html(text), "HTML"
     if platform == "google_chat":
         return to_google_chat(text), None
+    if platform == "slack":
+        return to_slack(text), None
     return to_plain(text), None  # messenger, zalo, mặc định
 
 

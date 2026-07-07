@@ -25,6 +25,7 @@ from app.channels.google_chat import (
 )
 from app.channels.messenger import MessengerAdapter
 from app.channels.messenger import merge_events as merge_messenger_events
+from app.channels.slack import SlackAdapter
 from app.channels.zalo import ZaloAdapter
 from app.channels.telegram import TelegramAdapter
 from app.config import get_settings
@@ -419,6 +420,84 @@ async def webhook_messenger(
             _bg_tasks.add(task)
             task.add_done_callback(_bg_tasks.discard)
     return Response(status_code=status.HTTP_200_OK)
+
+
+async def _process_slack(raw: dict) -> None:
+    """Xử lý nền 1 event Slack (Claude lâu nên KHÔNG block response webhook)."""
+    db = SessionLocal()
+    adapter = SlackAdapter.from_settings(settings)
+    try:
+        github = GitHubApp.from_settings()
+    except Exception:  # noqa: BLE001
+        github = None
+    try:
+        await handle_channel_update(db, adapter, github, raw)
+    except Exception:  # noqa: BLE001
+        log.exception("slack xử lý lỗi")
+    finally:
+        await adapter.aclose()
+        if github is not None:
+            await github.aclose()
+        db.close()
+
+
+@app.post("/webhook/slack")
+async def webhook_slack(
+    request: Request,
+    x_slack_signature: str | None = Header(default=None),
+    x_slack_request_timestamp: str | None = Header(default=None),
+) -> Response:
+    """Slack webhook. Ack 200 ngay (Slack timeout 3s), xử lý nền.
+
+    Slack gửi 2 loại POST tới cùng URL:
+    - Events API: Content-Type application/json, body {"type": "event_callback", ...}
+    - Interactive (bấm nút): Content-Type application/x-www-form-urlencoded, body payload=<JSON>
+    """
+    if not settings.slack_enabled:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+    body = await request.body()
+
+    if settings.slack_signing_secret and settings.slack_verify_enforce:
+        adapter_tmp = SlackAdapter.from_settings(settings)
+        if not x_slack_signature or not x_slack_request_timestamp or not adapter_tmp.verify_signature(
+            body, x_slack_signature, x_slack_request_timestamp
+        ):
+            log.warning("slack: signature thiếu/không hợp lệ")
+            return Response(status_code=status.HTTP_403_FORBIDDEN)
+
+    content_type = request.headers.get("content-type", "")
+    import json as _json
+
+    if "application/x-www-form-urlencoded" in content_type:
+        # Interactive component (bấm nút): body là form-encoded với field `payload`
+        from urllib.parse import parse_qs
+        try:
+            form = parse_qs(body.decode())
+            raw = _json.loads(form.get("payload", ["{}"])[0])
+        except Exception:  # noqa: BLE001
+            return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        # Ack đồng bộ ngay (Slack timeout 3s); kết quả thật gửi async qua chat.postMessage.
+        task = asyncio.create_task(_process_slack(raw))
+        _bg_tasks.add(task)
+        task.add_done_callback(_bg_tasks.discard)
+        return JSONResponse(content={}, status_code=status.HTTP_200_OK)
+
+    try:
+        raw = _json.loads(body)
+    except Exception:  # noqa: BLE001
+        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+
+    # URL verification challenge (khi đăng ký webhook lần đầu)
+    if raw.get("type") == "url_verification":
+        return JSONResponse(content={"challenge": raw.get("challenge", "")},
+                            status_code=status.HTTP_200_OK)
+
+    # Event thường: xử lý nền
+    task = asyncio.create_task(_process_slack(raw))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return JSONResponse(content={}, status_code=status.HTTP_200_OK)
 
 
 @app.post("/webhook/github")
