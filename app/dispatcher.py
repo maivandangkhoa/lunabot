@@ -235,6 +235,12 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         req = db.get(Request, rid)
         if req and req.tenant_id == user.tenant_id:
             await orch.handle_callback(req, user, inbound.callback_data, reply_to=reply_to)
+        elif req is not None:
+            # Nút hiện công khai trong group/space nên người ở workspace KHÁC (bot dùng chung)
+            # cũng bấm được. Trước đây bỏ qua IM LẶNG → yêu cầu trông như treo. Báo rõ để họ
+            # biết cần người đúng workspace bấm. (req None = callback cũ/đã xoá → im lặng như cũ.)
+            set_lang(user.language)
+            await adapter.send(reply_to, t("disp.callback_not_yours"))
         return
 
     if not text and not inbound.attachments:
