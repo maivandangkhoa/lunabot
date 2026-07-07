@@ -294,11 +294,10 @@ def test_is_button_click_detects_both_shapes():
 
 
 def test_ack_update_message_shape():
-    # Phải là action hợp lệ; {} rỗng ⇒ Chat báo "unable to process".
+    # Classic Chat app: actionResponse.UPDATE_MESSAGE; {} rỗng ⇒ "unable to process".
     out = ack_update_message("⏳")
-    assert out["hostAppDataAction"]["chatDataAction"]["updateMessageAction"][
-        "message"
-    ]["text"] == "⏳"
+    assert out["actionResponse"]["type"] == "UPDATE_MESSAGE"
+    assert out["text"] == "⏳"
 
 
 def test_webhook_button_click_returns_action(monkeypatch):
@@ -318,7 +317,7 @@ def test_webhook_button_click_returns_action(monkeypatch):
     click = {"chat": {"buttonClickedPayload": {"message": {}}}}
     resp = client.post("/webhook/google_chat", json=click)
     assert resp.status_code == 200
-    assert "hostAppDataAction" in resp.json()
+    assert resp.json()["actionResponse"]["type"] == "UPDATE_MESSAGE"
 
     msg = {"chat": {"messagePayload": {"message": {"text": "hi"}}}}
     resp2 = client.post("/webhook/google_chat", json=msg)

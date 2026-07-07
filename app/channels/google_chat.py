@@ -109,15 +109,16 @@ def is_button_click(raw: dict) -> bool:
 
 
 def ack_update_message(text: str) -> dict:
-    """Response đồng bộ cho 1 cú bấm nút: cập nhật chính message chứa nút → bỏ nút,
-    hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat báo
-    'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST."""
+    """Response đồng bộ cho 1 cú bấm nút (classic Chat app HTTP): cập nhật chính message
+    chứa nút → bỏ nút, hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat
+    báo 'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST.
+
+    Classic Chat app (đăng ký qua Chat API → HTTP endpoint) dùng `actionResponse`
+    (UPDATE_MESSAGE) — KHÔNG phải `hostAppDataAction` (chỉ dành cho Workspace add-on).
+    Trả sai họ ⇒ Google báo 'unable to process' dù webhook trả 200."""
     return {
-        "hostAppDataAction": {
-            "chatDataAction": {
-                "updateMessageAction": {"message": {"text": text}}
-            }
-        }
+        "actionResponse": {"type": "UPDATE_MESSAGE"},
+        "text": text,
     }
 
 
