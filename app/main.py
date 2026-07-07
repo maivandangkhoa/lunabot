@@ -225,10 +225,6 @@ async def webhook_google_chat(
     # "unable to process". Cập nhật message bỏ nút + báo đang xử lý; kết quả thật
     # gửi async qua REST. Tin nhắn thường thì {} rỗng là đủ.
     if is_button_click(raw):
-        # DIAGNOSTIC (tạm): xác nhận format event bấm nút thật của Google (chỉ keys, không PII)
-        # để chốt schema response đúng. Gỡ sau khi xác nhận.
-        log.info("google_chat click shape: top=%s chat=%s type=%s",
-                 list(raw.keys()), list(raw.get("chat", {}).keys()), raw.get("type"))
         return JSONResponse(
             content=ack_update_message("⏳ Đã nhận, đang xử lý…"),
             status_code=status.HTTP_200_OK,

@@ -109,16 +109,17 @@ def is_button_click(raw: dict) -> bool:
 
 
 def ack_update_message(text: str) -> dict:
-    """Response đồng bộ cho 1 cú bấm nút (classic Chat app HTTP): cập nhật chính message
-    chứa nút → bỏ nút, hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat
-    báo 'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST.
+    """Response đồng bộ cho 1 cú bấm nút: cập nhật chính message chứa nút → bỏ nút,
+    hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat báo
+    'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST.
 
-    Classic Chat app (đăng ký qua Chat API → HTTP endpoint) dùng `actionResponse`
-    (UPDATE_MESSAGE) — KHÔNG phải `hostAppDataAction` (chỉ dành cho Workspace add-on).
-    Trả sai họ ⇒ Google báo 'unable to process' dù webhook trả 200."""
+    App chạy mô hình Workspace add-on (SA gsuiteaddons) ⇒ dùng `hostAppDataAction`."""
     return {
-        "actionResponse": {"type": "UPDATE_MESSAGE"},
-        "text": text,
+        "hostAppDataAction": {
+            "chatDataAction": {
+                "updateMessageAction": {"message": {"text": text}}
+            }
+        }
     }
 
 
@@ -184,6 +185,10 @@ class GoogleChatAdapter:
     client: httpx.AsyncClient | None = None
     # Test inject: trả thẳng access token, bỏ ký JWT + gọi mạng.
     token_provider: Callable[[], str] | None = None
+    # URL webhook đầy đủ (= google_chat_audience). Add-on YÊU CẦU button onClick.action.function
+    # là URL đầy đủ của endpoint (không phải tên function như Chat app cổ điển); thiếu ⇒ Google
+    # không route được cú bấm → "unable to process". None ⇒ fallback tên function (classic/test).
+    webhook_url: str | None = None
     name: str = "google_chat"
     _token: str | None = field(default=None, init=False)
     _token_exp: float = field(default=0.0, init=False)
@@ -194,7 +199,11 @@ class GoogleChatAdapter:
         from app.config import get_settings
 
         s = settings or get_settings()
-        return cls(sa_credentials=load_sa_credentials(s.google_chat_sa_json))
+        webhook_url = s.google_chat_audience or (
+            f"{s.public_base_url.rstrip('/')}/webhook/google_chat"
+            if s.public_base_url else None)
+        return cls(sa_credentials=load_sa_credentials(s.google_chat_sa_json),
+                   webhook_url=webhook_url)
 
     def _http(self) -> httpx.AsyncClient:
         if self.client is None:
@@ -330,10 +339,12 @@ class GoogleChatAdapter:
     def _cards(self, buttons: list[list[Button]] | None) -> list[dict] | None:
         if not buttons:
             return None
+        # Add-on: function = URL webhook đầy đủ. Chat app cổ điển/test: tên function _CB_FUNCTION.
+        fn = self.webhook_url or _CB_FUNCTION
         widgets = [
             {"buttonList": {"buttons": [
                 {"text": b.text, "onClick": {"action": {
-                    "function": _CB_FUNCTION,
+                    "function": fn,
                     "parameters": [{"key": _CB_PARAM, "value": b.callback_data}],
                 }}}
                 for b in row

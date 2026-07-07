@@ -14,11 +14,12 @@ from app.channels.google_chat import (
 )
 
 
-def _adapter(handler) -> GoogleChatAdapter:
+def _adapter(handler, webhook_url=None) -> GoogleChatAdapter:
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="https://chat.googleapis.com"
     )
-    return GoogleChatAdapter(client=client, token_provider=lambda: "tok")
+    return GoogleChatAdapter(client=client, token_provider=lambda: "tok",
+                             webhook_url=webhook_url)
 
 
 def test_parse_inbound_message():
@@ -70,6 +71,27 @@ async def test_send_resolves_space_and_builds_cards():
     btns = payload["cardsV2"][0]["card"]["sections"][0]["widgets"][0]["buttonList"]["buttons"]
     assert btns[0]["text"] == "✅ OK"
     assert btns[0]["onClick"]["action"]["parameters"] == [{"key": "cb", "value": "confirm:5"}]
+    # Không có webhook_url ⇒ fallback tên function (Chat app cổ điển/test).
+    assert btns[0]["onClick"]["action"]["function"] == "luna_action"
+
+
+@pytest.mark.asyncio
+async def test_send_button_function_is_webhook_url_for_addon():
+    """Add-on: onClick.action.function PHẢI là URL webhook đầy đủ, không phải tên function —
+    nếu không Google không route cú bấm về endpoint ('unable to process')."""
+    captured = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/v1/spaces:findDirectMessage":
+            return httpx.Response(200, json={"name": "spaces/DM1"})
+        captured.append(json.loads(req.content))
+        return httpx.Response(200, json={"name": "spaces/DM1/messages/1"})
+
+    url = "https://luna.example.com/webhook/google_chat"
+    a = _adapter(handler, webhook_url=url)
+    await a.send("users/111", "hi", [[Button("✅ OK", "confirm:5")]])
+    btns = captured[-1]["cardsV2"][0]["card"]["sections"][0]["widgets"][0]["buttonList"]["buttons"]
+    assert btns[0]["onClick"]["action"]["function"] == url
 
 
 @pytest.mark.asyncio
@@ -294,10 +316,11 @@ def test_is_button_click_detects_both_shapes():
 
 
 def test_ack_update_message_shape():
-    # Classic Chat app: actionResponse.UPDATE_MESSAGE; {} rỗng ⇒ "unable to process".
+    # Add-on: hostAppDataAction.updateMessageAction; {} rỗng ⇒ "unable to process".
     out = ack_update_message("⏳")
-    assert out["actionResponse"]["type"] == "UPDATE_MESSAGE"
-    assert out["text"] == "⏳"
+    assert out["hostAppDataAction"]["chatDataAction"]["updateMessageAction"][
+        "message"
+    ]["text"] == "⏳"
 
 
 def test_webhook_button_click_returns_action(monkeypatch):
@@ -317,7 +340,7 @@ def test_webhook_button_click_returns_action(monkeypatch):
     click = {"chat": {"buttonClickedPayload": {"message": {}}}}
     resp = client.post("/webhook/google_chat", json=click)
     assert resp.status_code == 200
-    assert resp.json()["actionResponse"]["type"] == "UPDATE_MESSAGE"
+    assert "hostAppDataAction" in resp.json()
 
     msg = {"chat": {"messagePayload": {"message": {"text": "hi"}}}}
     resp2 = client.post("/webhook/google_chat", json=msg)
