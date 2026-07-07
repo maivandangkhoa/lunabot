@@ -335,6 +335,27 @@ async def test_callback_answered_and_routed(db, fakes, monkeypatch):
     assert req.status == RequestStatus.VERIFY
 
 
+@pytest.mark.asyncio
+async def test_callback_cross_tenant_gets_feedback(db, fakes):
+    """Bot dùng chung: người ở tenant KHÁC bấm nút của 1 request → không route (status giữ
+    nguyên) NHƯNG được báo rõ thay vì bỏ qua im lặng (bug làm request trông như treo)."""
+    ta = create_tenant(db, "Acme")
+    repo = add_repository(db, ta, "acme/widgets", 123)
+    owner = create_user(db, ta, role=UserRole.EMPLOYEE)
+    req = Request(tenant_id=ta.id, repo_id=repo.id, requester_user_id=owner.id,
+                  title="x", body="x", status=RequestStatus.VERIFY)
+    db.add(req)
+    tb = create_tenant(db, "Other")
+    outsider = create_user(db, tb, role=UserRole.EMPLOYEE)
+    outsider.platform_user_id = "88"
+    db.commit()
+
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"],
+                                 _callback("88", cb("verify_ok", req.id)))
+    assert req.status == RequestStatus.VERIFY                       # KHÔNG bị route
+    assert any("thao tác được" in s[1] for s in fakes["adapter"].sent)  # có báo, không im lặng
+
+
 # ---------------- Khử nhập nhằng lệnh "ok" (manager vừa có việc riêng vừa cần duyệt) ----------------
 
 def _mkreq(db, t, repo, user, status):

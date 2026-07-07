@@ -1,5 +1,18 @@
 """Tests prompts — build-gate trong executing prompt (Claude tự dò lệnh kiểm tra env-free)."""
-from app.prompts import executing_system_prompt
+from app.prompts import analyzing_system_prompt, ask_system_prompt, executing_system_prompt
+
+
+def test_analyze_prompt_has_identity_guard():
+    """Phase read-only phải cấm Claude rò rỉ meta tooling/permission ra khách."""
+    p = analyzing_system_prompt("acme/x", "dev")
+    assert "BACKEND" in p
+    assert "dangerously-skip-permissions" in p  # nằm trong danh sách CẤM nhắc
+    assert "BỊ CHẶN LÀ ĐÚNG THIẾT KẾ" in p
+
+
+def test_ask_prompt_has_identity_guard():
+    p = ask_system_prompt("acme/x", "dev")
+    assert "BACKEND" in p and "claude.ai" in p
 
 
 def test_executing_prompt_default_auto_detects_checks():

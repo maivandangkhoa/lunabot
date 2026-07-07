@@ -54,6 +54,35 @@ def strip_json_block(text: str) -> str:
     return text.strip()
 
 
+# Dấu hiệu Claude headless "tự nhận diện" là công cụ của NGƯỜI DÙNG và rò rỉ hướng dẫn
+# permission nội bộ (vd khi bị chặn ghi file ở phase read-only). Text này KHÔNG bao giờ
+# được lọt ra khách — họ không chạy Claude Code, không có nút 🔒, không có terminal.
+_META_LEAK = re.compile(
+    r"(?im)^.*("
+    r"dangerously-skip-permissions"
+    r"|claude\.ai/code"
+    r"|claude\s+code"
+    r"|permission[- ]mode"
+    r"|bypasspermissions"
+    r"|--resume"
+    r"|🔒"
+    r"|trust this project"
+    r"|allow all"
+    r").*$"
+)
+
+
+def scrub_meta(text: str) -> str:
+    """Xoá mọi DÒNG chứa dấu hiệu meta về tooling/permission của Claude headless trước khi
+    relay ra khách. Phòng thủ theo lớp: prompt đã cấm sinh loại text này, đây là lưới chặn
+    cuối. Gộp các dòng trống thừa sau khi cắt để không để lại khoảng trắng lộ liễu."""
+    if not text:
+        return text
+    cleaned = _META_LEAK.sub("", text)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def parse_signal(text: str) -> ParsedSignal:
     """Trích khối JSON cuối, validate action + field bắt buộc. Không bao giờ raise."""
     if not text:

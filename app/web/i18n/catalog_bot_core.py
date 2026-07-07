@@ -38,6 +38,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Your account isn't linked yet. DM the bot: /start <token> (provided by your admin).",
         "ko": "계정이 아직 연결되지 않았습니다. 봇에게 DM으로 보내세요: /start <token> (관리자 제공).",
     },
+    "disp.callback_not_yours": {
+        "vi": "Nút này thuộc yêu cầu của một nhóm/không gian làm việc khác nên anh/chị "
+              "không thao tác được. Người thuộc đúng workspace của yêu cầu mới bấm được.",
+        "en": "This button belongs to a request in a different workspace, so you can't act "
+              "on it. Only a member of that request's workspace can use it.",
+        "ko": "이 버튼은 다른 워크스페이스의 요청에 속하므로 사용할 수 없습니다. "
+              "해당 요청의 워크스페이스 구성원만 사용할 수 있습니다.",
+    },
     "disp.admin_dm_only": {
         "vi": "🔒 Lệnh quản trị chỉ dùng khi nhắn riêng (DM) cho bot.",
         "en": "🔒 Admin commands only work in a direct message (DM) to the bot.",

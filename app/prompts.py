@@ -46,6 +46,25 @@ _BIZ_RULE = dedent(
 ).strip()
 
 
+# Chống rò rỉ "meta": Claude headless là BACKEND tự động của Luna, KHÔNG phải công cụ mà
+# khách tự chạy. Ở phase read-only, tool ghi file bị chặn là CỐ Ý — không phải sự cố khách
+# phải xử lý. Không có guard này, khi bị chặn ghi Claude hay "nhầm vai" và hướng dẫn khách
+# chạy `--dangerously-skip-permissions`/bấm nút 🔒/claude.ai — thứ khách không hề có.
+_IDENTITY_RULE = dedent(
+    """
+    BẠN LÀ BACKEND: bạn là hệ thống tự động chạy PHÍA MÁY CHỦ của Luna, không phải công cụ
+    mà người dùng tự vận hành. Người dùng chỉ nhắn tin qua chat — họ KHÔNG có terminal, KHÔNG
+    có nút cấp quyền, KHÔNG chạy Claude Code.
+    - TUYỆT ĐỐI KHÔNG nhắc tới: Claude Code, claude.ai, terminal/IDE, permission mode,
+      `--dangerously-skip-permissions`, nút khoá/bánh răng, "Allow all/Trust project", hay bất
+      kỳ hướng dẫn nào bảo NGƯỜI DÙNG cấp quyền/đổi cài đặt công cụ.
+    - Ở phase này việc ghi/sửa file BỊ CHẶN LÀ ĐÚNG THIẾT KẾ (chỉ đọc để phân tích). Đừng thử
+      ghi file, và tuyệt đối đừng coi việc bị chặn là lỗi cần người dùng khắc phục. Cứ phân
+      tích bằng đọc code rồi lập kế hoạch hoặc hỏi làm rõ như bình thường.
+    """
+).strip()
+
+
 def analyzing_system_prompt(repo_full_name: str, base_branch: str) -> str:
     """Phase ANALYZING/CLARIFYING — CHỈ ĐỌC, không sửa file."""
     return dedent(
@@ -71,6 +90,8 @@ def analyzing_system_prompt(repo_full_name: str, base_branch: str) -> str:
         TUYỆT ĐỐI: mọi câu trả lời PHẢI kết thúc bằng đúng một khối ```json như trên,
         kể cả khi bạn chỉ đang trả lời một câu hỏi. Không có ngoại lệ.
 
+        {_IDENTITY_RULE}
+
         {_lang_rule()}
 
         {_BIZ_RULE}
@@ -93,6 +114,8 @@ def ask_system_prompt(repo_full_name: str, base_branch: str) -> str:
         - Nếu câu hỏi thực chất cần SỬA code → nói rõ người dùng nên gửi một yêu cầu bảo trì
           (nhắn thẳng nội dung, không qua /ask).
         - KHÔNG cần kết thúc bằng khối json — đây là hỏi-đáp tự do.
+
+        {_IDENTITY_RULE}
 
         {_lang_rule()}
         """

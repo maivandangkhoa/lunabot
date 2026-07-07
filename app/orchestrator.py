@@ -35,7 +35,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.parsing import Action, parse_signal, strip_json_block
+from app.parsing import Action, parse_signal, scrub_meta, strip_json_block
 from app.web.i18n import set_lang_for, t
 
 log = logging.getLogger("luna.orchestrator")
@@ -325,9 +325,9 @@ class Orchestrator:
             )
         usage.record(self.db, tenant_id=repo.tenant_id, phase="ask", res=res)
         if not res.ok:
-            await self.adapter.send(target, t("orch.ask_failed", detail=res.result[:800]))
+            await self.adapter.send(target, t("orch.ask_failed", detail=scrub_meta(res.result)[:800]))
             return
-        await self.adapter.send(target, res.result[:3500] or t("orch.ask_empty"))
+        await self.adapter.send(target, scrub_meta(res.result)[:3500] or t("orch.ask_empty"))
 
     # ---------------- phases ----------------
     async def _analyze(self, req: Request, clarifications: list[str] | None = None,
@@ -392,7 +392,7 @@ class Orchestrator:
                 self.db.commit()
                 await self._say(
                     req, requester,
-                    t("orch.relay_then_clarify", result=res.result[:3500]))
+                    t("orch.relay_then_clarify", result=scrub_meta(res.result)[:3500]))
             else:
                 log.warning("analyze req %s không có tín hiệu: %s", req.id, sig.error)
                 self.db.commit()
@@ -405,7 +405,7 @@ class Orchestrator:
             self.db.commit()
             # Relay câu TRẢ LỜI Claude viết (phần text trước khối json) — vd khi user chỉ
             # HỎI thông tin thì đây mới là nội dung họ cần; trước đây bị vứt bỏ.
-            answer = strip_json_block(res.result)
+            answer = scrub_meta(strip_json_block(res.result))
             qs = "\n".join(t("orch.clarify_question", q=q) for q in sig.data["questions"])
             body = t("orch.clarify_with_answer", answer=answer, qs=qs) if answer else qs
             await self._say(req, requester, t("orch.clarify_body", body=body))

@@ -39,6 +39,7 @@ _GOOGLE_ISSUER = "https://accounts.google.com"
 _ADDON_SA_TMPL = "service-{pn}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
 _MAX_LEN = 4000          # Chat ~4096/text widget — chừa biên.
 _CB_PARAM = "cb"         # key trong button parameters chứa callback_data
+_LBL_PARAM = "lbl"       # key chứa nhãn nút (để card cập nhật hiện đúng nút nào đã bấm)
 _CB_FUNCTION = "luna_action"
 
 
@@ -108,10 +109,41 @@ def is_button_click(raw: dict) -> bool:
     return raw.get("type") == "CARD_CLICKED"             # classic Chat API
 
 
+def click_actor_name(raw: dict) -> str | None:
+    """Tên hiển thị của người bấm nút. Google Chat KHÔNG hiện cú bấm như tin có tên người
+    gửi, nên group không biết ai vừa bấm → lấy displayName để ghi vào card cập nhật."""
+    user = raw.get("chat", {}).get("user") or raw.get("user") or {}
+    name = user.get("displayName")
+    return name.strip() if name and name.strip() else None
+
+
+def click_button_label(raw: dict) -> str | None:
+    """Nhãn nút vừa bấm (đóng vào params `lbl` lúc gửi) — payload cú bấm không mang text nút."""
+    common = raw.get("commonEventObject", {}).get("parameters")   # add-on (dict)
+    if isinstance(common, dict) and common.get(_LBL_PARAM):
+        return common[_LBL_PARAM]
+    for p in raw.get("action", {}).get("parameters") or []:       # classic (list)
+        if p.get("key") == _LBL_PARAM:
+            return p.get("value")
+    return None
+
+
+def click_source_text(raw: dict) -> str:
+    """Text gốc của message chứa nút vừa bấm. updateMessageAction thay TOÀN BỘ message ⇒
+    phải giữ lại nội dung câu hỏi/báo cáo, không thì bấm xong nội dung gốc biến mất."""
+    bp = raw.get("chat", {}).get("buttonClickedPayload") or {}    # add-on
+    msg = bp.get("message") or raw.get("message") or {}           # classic fallback
+    return (msg.get("text") or "").strip()
+
+
 def ack_update_message(text: str) -> dict:
     """Response đồng bộ cho 1 cú bấm nút: cập nhật chính message chứa nút → bỏ nút,
     hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat báo
-    'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST."""
+    'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST.
+
+    App chạy mô hình Workspace add-on (SA gsuiteaddons) ⇒ dùng `hostAppDataAction`."""
+    if len(text) > _MAX_LEN:                       # text widget Chat ~4096 → chừa biên
+        text = text[:_MAX_LEN - 1] + "…"
     return {
         "hostAppDataAction": {
             "chatDataAction": {
@@ -183,6 +215,10 @@ class GoogleChatAdapter:
     client: httpx.AsyncClient | None = None
     # Test inject: trả thẳng access token, bỏ ký JWT + gọi mạng.
     token_provider: Callable[[], str] | None = None
+    # URL webhook đầy đủ (= google_chat_audience). Add-on YÊU CẦU button onClick.action.function
+    # là URL đầy đủ của endpoint (không phải tên function như Chat app cổ điển); thiếu ⇒ Google
+    # không route được cú bấm → "unable to process". None ⇒ fallback tên function (classic/test).
+    webhook_url: str | None = None
     name: str = "google_chat"
     _token: str | None = field(default=None, init=False)
     _token_exp: float = field(default=0.0, init=False)
@@ -193,7 +229,11 @@ class GoogleChatAdapter:
         from app.config import get_settings
 
         s = settings or get_settings()
-        return cls(sa_credentials=load_sa_credentials(s.google_chat_sa_json))
+        webhook_url = s.google_chat_audience or (
+            f"{s.public_base_url.rstrip('/')}/webhook/google_chat"
+            if s.public_base_url else None)
+        return cls(sa_credentials=load_sa_credentials(s.google_chat_sa_json),
+                   webhook_url=webhook_url)
 
     def _http(self) -> httpx.AsyncClient:
         if self.client is None:
@@ -329,11 +369,16 @@ class GoogleChatAdapter:
     def _cards(self, buttons: list[list[Button]] | None) -> list[dict] | None:
         if not buttons:
             return None
+        # Add-on: function = URL webhook đầy đủ. Chat app cổ điển/test: tên function _CB_FUNCTION.
+        fn = self.webhook_url or _CB_FUNCTION
         widgets = [
             {"buttonList": {"buttons": [
                 {"text": b.text, "onClick": {"action": {
-                    "function": _CB_FUNCTION,
-                    "parameters": [{"key": _CB_PARAM, "value": b.callback_data}],
+                    "function": fn,
+                    # lbl: đóng nhãn nút vào params để lúc bấm hiện đúng nút nào (payload
+                    # cú bấm không mang text nút; nhãn đã localize sẵn lúc gửi).
+                    "parameters": [{"key": _CB_PARAM, "value": b.callback_data},
+                                   {"key": _LBL_PARAM, "value": b.text}],
                 }}}
                 for b in row
             ]}}

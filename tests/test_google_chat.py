@@ -14,11 +14,12 @@ from app.channels.google_chat import (
 )
 
 
-def _adapter(handler) -> GoogleChatAdapter:
+def _adapter(handler, webhook_url=None) -> GoogleChatAdapter:
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="https://chat.googleapis.com"
     )
-    return GoogleChatAdapter(client=client, token_provider=lambda: "tok")
+    return GoogleChatAdapter(client=client, token_provider=lambda: "tok",
+                             webhook_url=webhook_url)
 
 
 def test_parse_inbound_message():
@@ -69,7 +70,29 @@ async def test_send_resolves_space_and_builds_cards():
     assert payload["text"] == "hello"
     btns = payload["cardsV2"][0]["card"]["sections"][0]["widgets"][0]["buttonList"]["buttons"]
     assert btns[0]["text"] == "✅ OK"
-    assert btns[0]["onClick"]["action"]["parameters"] == [{"key": "cb", "value": "confirm:5"}]
+    assert btns[0]["onClick"]["action"]["parameters"] == [
+        {"key": "cb", "value": "confirm:5"}, {"key": "lbl", "value": "✅ OK"}]
+    # Không có webhook_url ⇒ fallback tên function (Chat app cổ điển/test).
+    assert btns[0]["onClick"]["action"]["function"] == "luna_action"
+
+
+@pytest.mark.asyncio
+async def test_send_button_function_is_webhook_url_for_addon():
+    """Add-on: onClick.action.function PHẢI là URL webhook đầy đủ, không phải tên function —
+    nếu không Google không route cú bấm về endpoint ('unable to process')."""
+    captured = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/v1/spaces:findDirectMessage":
+            return httpx.Response(200, json={"name": "spaces/DM1"})
+        captured.append(json.loads(req.content))
+        return httpx.Response(200, json={"name": "spaces/DM1/messages/1"})
+
+    url = "https://luna.example.com/webhook/google_chat"
+    a = _adapter(handler, webhook_url=url)
+    await a.send("users/111", "hi", [[Button("✅ OK", "confirm:5")]])
+    btns = captured[-1]["cardsV2"][0]["card"]["sections"][0]["widgets"][0]["buttonList"]["buttons"]
+    assert btns[0]["onClick"]["action"]["function"] == url
 
 
 @pytest.mark.asyncio
@@ -286,6 +309,39 @@ def test_load_sa_credentials_inline_and_missing(tmp_path):
     assert load_sa_credentials(str(p)) == {"client_email": "file@b"}
 
 
+def test_click_actor_name():
+    from app.channels.google_chat import click_actor_name
+
+    click = {"chat": {"user": {"name": "users/1", "displayName": "James Le"},
+                      "buttonClickedPayload": {}}}
+    assert click_actor_name(click) == "James Le"
+    assert click_actor_name({"user": {"displayName": "Kevin"}}) == "Kevin"   # classic shape
+    assert click_actor_name({"chat": {"buttonClickedPayload": {}}}) is None   # thiếu name
+
+
+def test_click_button_label():
+    from app.channels.google_chat import click_button_label
+
+    addon = {"commonEventObject": {"parameters": {"cb": "confirm:5", "lbl": "✅ Good"}}}
+    assert click_button_label(addon) == "✅ Good"
+    classic = {"action": {"parameters": [{"key": "cb", "value": "x:1"},
+                                         {"key": "lbl", "value": "🔧 Needs fix"}]}}
+    assert click_button_label(classic) == "🔧 Needs fix"
+    assert click_button_label({"commonEventObject": {"parameters": {"cb": "x:1"}}}) is None
+
+
+def test_click_source_text_and_ack_preserves_content():
+    from app.channels.google_chat import click_source_text
+
+    raw = {"chat": {"buttonClickedPayload": {"message": {"text": "Báo cáo self-test\nPASS"}}}}
+    assert click_source_text(raw) == "Báo cáo self-test\nPASS"
+    assert click_source_text({"chat": {"buttonClickedPayload": {}}}) == ""
+    # ack giữ nội dung gốc + footer; cap độ dài an toàn.
+    out = ack_update_message("x" * 5000)
+    assert len(out["hostAppDataAction"]["chatDataAction"]["updateMessageAction"]
+               ["message"]["text"]) <= 4000
+
+
 def test_is_button_click_detects_both_shapes():
     assert is_button_click({"chat": {"buttonClickedPayload": {}}})   # add-on thật
     assert is_button_click({"type": "CARD_CLICKED"})                  # classic
@@ -294,7 +350,7 @@ def test_is_button_click_detects_both_shapes():
 
 
 def test_ack_update_message_shape():
-    # Phải là action hợp lệ; {} rỗng ⇒ Chat báo "unable to process".
+    # Add-on: hostAppDataAction.updateMessageAction; {} rỗng ⇒ "unable to process".
     out = ack_update_message("⏳")
     assert out["hostAppDataAction"]["chatDataAction"]["updateMessageAction"][
         "message"
