@@ -128,12 +128,22 @@ def click_button_label(raw: dict) -> str | None:
     return None
 
 
+def click_source_text(raw: dict) -> str:
+    """Text gốc của message chứa nút vừa bấm. updateMessageAction thay TOÀN BỘ message ⇒
+    phải giữ lại nội dung câu hỏi/báo cáo, không thì bấm xong nội dung gốc biến mất."""
+    bp = raw.get("chat", {}).get("buttonClickedPayload") or {}    # add-on
+    msg = bp.get("message") or raw.get("message") or {}           # classic fallback
+    return (msg.get("text") or "").strip()
+
+
 def ack_update_message(text: str) -> dict:
     """Response đồng bộ cho 1 cú bấm nút: cập nhật chính message chứa nút → bỏ nút,
     hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat báo
     'unable to process'; phải trả 1 action hợp lệ. Kết quả thật vẫn tới async qua REST.
 
     App chạy mô hình Workspace add-on (SA gsuiteaddons) ⇒ dùng `hostAppDataAction`."""
+    if len(text) > _MAX_LEN:                       # text widget Chat ~4096 → chừa biên
+        text = text[:_MAX_LEN - 1] + "…"
     return {
         "hostAppDataAction": {
             "chatDataAction": {

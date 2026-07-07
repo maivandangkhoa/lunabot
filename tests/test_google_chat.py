@@ -330,6 +330,18 @@ def test_click_button_label():
     assert click_button_label({"commonEventObject": {"parameters": {"cb": "x:1"}}}) is None
 
 
+def test_click_source_text_and_ack_preserves_content():
+    from app.channels.google_chat import click_source_text
+
+    raw = {"chat": {"buttonClickedPayload": {"message": {"text": "Báo cáo self-test\nPASS"}}}}
+    assert click_source_text(raw) == "Báo cáo self-test\nPASS"
+    assert click_source_text({"chat": {"buttonClickedPayload": {}}}) == ""
+    # ack giữ nội dung gốc + footer; cap độ dài an toàn.
+    out = ack_update_message("x" * 5000)
+    assert len(out["hostAppDataAction"]["chatDataAction"]["updateMessageAction"]
+               ["message"]["text"]) <= 4000
+
+
 def test_is_button_click_detects_both_shapes():
     assert is_button_click({"chat": {"buttonClickedPayload": {}}})   # add-on thật
     assert is_button_click({"type": "CARD_CLICKED"})                  # classic

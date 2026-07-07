@@ -19,6 +19,7 @@ from app.channels.google_chat import (
     ack_update_message,
     click_actor_name,
     click_button_label,
+    click_source_text,
     is_button_click,
     verify_google_jwt,
 )
@@ -232,11 +233,14 @@ async def webhook_google_chat(
         who = click_actor_name(raw)
         label = click_button_label(raw)
         if who and label:
-            ack = f"👤 {who} → {label} — ⏳ đang xử lý…"
+            footer = f"👤 {who} → {label} — ⏳ đang xử lý…"
         elif who:
-            ack = f"👤 {who} — ⏳ đang xử lý…"
+            footer = f"👤 {who} — ⏳ đang xử lý…"
         else:
-            ack = "⏳ Đã nhận, đang xử lý…"
+            footer = "⏳ Đã nhận, đang xử lý…"
+        # Giữ nội dung câu hỏi/báo cáo gốc (updateMessageAction thay TOÀN BỘ message), nối footer.
+        src = click_source_text(raw)
+        ack = f"{src}\n\n{footer}" if src else footer
         return JSONResponse(
             content=ack_update_message(ack),
             status_code=status.HTTP_200_OK,
