@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     # True = từ chối 403 khi signature sai; False = audit (log) để debug.
     messenger_verify_enforce: bool = True
 
+    # --- Slack (shared instance — cấu hình bằng env, không qua wizard) ---
+    slack_enabled: bool = False
+    slack_bot_token: str | None = None          # Bot User OAuth Token (xoxb-...)
+    slack_signing_secret: str | None = None     # dùng verify HMAC-SHA256 request đến
+    # True = từ chối 403 khi signature sai; False = audit (log) để debug.
+    slack_verify_enforce: bool = True
+
     # --- Web wizard self-service (GitHub OAuth + provisioning) ---
     # Bật web wizard khi đủ các biến này. URL công khai để dựng OAuth callback + webhook đa bot.
     public_base_url: str | None = None
