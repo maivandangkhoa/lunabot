@@ -18,6 +18,7 @@ from app.channels.google_chat import (
     GoogleChatAdapter,
     ack_update_message,
     click_actor_name,
+    click_button_label,
     is_button_click,
     verify_google_jwt,
 )
@@ -229,7 +230,13 @@ async def webhook_google_chat(
         # Cập nhật thẳng card: bỏ nút + ghi ai vừa bấm (Google Chat không hiện cú bấm như
         # tin có tên người gửi → group không biết ai bấm). Kết quả thật tới async qua REST.
         who = click_actor_name(raw)
-        ack = f"👤 {who} — ⏳ đang xử lý…" if who else "⏳ Đã nhận, đang xử lý…"
+        label = click_button_label(raw)
+        if who and label:
+            ack = f"👤 {who} → {label} — ⏳ đang xử lý…"
+        elif who:
+            ack = f"👤 {who} — ⏳ đang xử lý…"
+        else:
+            ack = "⏳ Đã nhận, đang xử lý…"
         return JSONResponse(
             content=ack_update_message(ack),
             status_code=status.HTTP_200_OK,

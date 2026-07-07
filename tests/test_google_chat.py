@@ -70,7 +70,8 @@ async def test_send_resolves_space_and_builds_cards():
     assert payload["text"] == "hello"
     btns = payload["cardsV2"][0]["card"]["sections"][0]["widgets"][0]["buttonList"]["buttons"]
     assert btns[0]["text"] == "✅ OK"
-    assert btns[0]["onClick"]["action"]["parameters"] == [{"key": "cb", "value": "confirm:5"}]
+    assert btns[0]["onClick"]["action"]["parameters"] == [
+        {"key": "cb", "value": "confirm:5"}, {"key": "lbl", "value": "✅ OK"}]
     # Không có webhook_url ⇒ fallback tên function (Chat app cổ điển/test).
     assert btns[0]["onClick"]["action"]["function"] == "luna_action"
 
@@ -316,6 +317,17 @@ def test_click_actor_name():
     assert click_actor_name(click) == "James Le"
     assert click_actor_name({"user": {"displayName": "Kevin"}}) == "Kevin"   # classic shape
     assert click_actor_name({"chat": {"buttonClickedPayload": {}}}) is None   # thiếu name
+
+
+def test_click_button_label():
+    from app.channels.google_chat import click_button_label
+
+    addon = {"commonEventObject": {"parameters": {"cb": "confirm:5", "lbl": "✅ Good"}}}
+    assert click_button_label(addon) == "✅ Good"
+    classic = {"action": {"parameters": [{"key": "cb", "value": "x:1"},
+                                         {"key": "lbl", "value": "🔧 Needs fix"}]}}
+    assert click_button_label(classic) == "🔧 Needs fix"
+    assert click_button_label({"commonEventObject": {"parameters": {"cb": "x:1"}}}) is None
 
 
 def test_is_button_click_detects_both_shapes():

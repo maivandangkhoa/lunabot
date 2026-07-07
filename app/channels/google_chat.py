@@ -39,6 +39,7 @@ _GOOGLE_ISSUER = "https://accounts.google.com"
 _ADDON_SA_TMPL = "service-{pn}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
 _MAX_LEN = 4000          # Chat ~4096/text widget — chừa biên.
 _CB_PARAM = "cb"         # key trong button parameters chứa callback_data
+_LBL_PARAM = "lbl"       # key chứa nhãn nút (để card cập nhật hiện đúng nút nào đã bấm)
 _CB_FUNCTION = "luna_action"
 
 
@@ -114,6 +115,17 @@ def click_actor_name(raw: dict) -> str | None:
     user = raw.get("chat", {}).get("user") or raw.get("user") or {}
     name = user.get("displayName")
     return name.strip() if name and name.strip() else None
+
+
+def click_button_label(raw: dict) -> str | None:
+    """Nhãn nút vừa bấm (đóng vào params `lbl` lúc gửi) — payload cú bấm không mang text nút."""
+    common = raw.get("commonEventObject", {}).get("parameters")   # add-on (dict)
+    if isinstance(common, dict) and common.get(_LBL_PARAM):
+        return common[_LBL_PARAM]
+    for p in raw.get("action", {}).get("parameters") or []:       # classic (list)
+        if p.get("key") == _LBL_PARAM:
+            return p.get("value")
+    return None
 
 
 def ack_update_message(text: str) -> dict:
@@ -353,7 +365,10 @@ class GoogleChatAdapter:
             {"buttonList": {"buttons": [
                 {"text": b.text, "onClick": {"action": {
                     "function": fn,
-                    "parameters": [{"key": _CB_PARAM, "value": b.callback_data}],
+                    # lbl: đóng nhãn nút vào params để lúc bấm hiện đúng nút nào (payload
+                    # cú bấm không mang text nút; nhãn đã localize sẵn lúc gửi).
+                    "parameters": [{"key": _CB_PARAM, "value": b.callback_data},
+                                   {"key": _LBL_PARAM, "value": b.text}],
                 }}}
                 for b in row
             ]}}
