@@ -308,6 +308,16 @@ def test_load_sa_credentials_inline_and_missing(tmp_path):
     assert load_sa_credentials(str(p)) == {"client_email": "file@b"}
 
 
+def test_click_actor_name():
+    from app.channels.google_chat import click_actor_name
+
+    click = {"chat": {"user": {"name": "users/1", "displayName": "James Le"},
+                      "buttonClickedPayload": {}}}
+    assert click_actor_name(click) == "James Le"
+    assert click_actor_name({"user": {"displayName": "Kevin"}}) == "Kevin"   # classic shape
+    assert click_actor_name({"chat": {"buttonClickedPayload": {}}}) is None   # thiếu name
+
+
 def test_is_button_click_detects_both_shapes():
     assert is_button_click({"chat": {"buttonClickedPayload": {}}})   # add-on thật
     assert is_button_click({"type": "CARD_CLICKED"})                  # classic

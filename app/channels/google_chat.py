@@ -108,6 +108,14 @@ def is_button_click(raw: dict) -> bool:
     return raw.get("type") == "CARD_CLICKED"             # classic Chat API
 
 
+def click_actor_name(raw: dict) -> str | None:
+    """Tên hiển thị của người bấm nút. Google Chat KHÔNG hiện cú bấm như tin có tên người
+    gửi, nên group không biết ai vừa bấm → lấy displayName để ghi vào card cập nhật."""
+    user = raw.get("chat", {}).get("user") or raw.get("user") or {}
+    name = user.get("displayName")
+    return name.strip() if name and name.strip() else None
+
+
 def ack_update_message(text: str) -> dict:
     """Response đồng bộ cho 1 cú bấm nút: cập nhật chính message chứa nút → bỏ nút,
     hiện trạng thái. Bấm nút là 'action' đồng bộ — trả {} rỗng ⇒ Chat báo
