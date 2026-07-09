@@ -307,9 +307,13 @@ def _active_request(db: Session, user: User, inbound) -> Request | None:
                 Request.status.in_(_BLOCKING),
             ).order_by(Request.id.desc())
         ).first()
+    # DM: chỉ tiếp nối request SINH RA TỪ DM (origin_is_group=False). Không cuốn vào request
+    # đang mở trong group của chính user → tránh bot trả lời DM về group (và ngược lại).
     return db.scalars(
         select(Request).where(
-            Request.requester_user_id == user.id, Request.status.in_(_BLOCKING)
+            Request.requester_user_id == user.id,
+            Request.status.in_(_BLOCKING),
+            Request.origin_is_group.is_(False),
         ).order_by(Request.id.desc())
     ).first()
 

@@ -265,6 +265,35 @@ async def test_group_mention_creates_request_with_origin(db, fakes, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_dm_does_not_hijack_open_group_request(db, fakes, monkeypatch):
+    """User có request đang mở TRONG GROUP; nhắn DM phải tạo request DM MỚI (reply về DM),
+    không cuốn vào request-group → tránh bot trả lời DM sang group."""
+    t = create_tenant(db, "Acme")
+    add_repository(db, t, "acme/widgets", 123)
+    u = create_user(db, t, role=UserRole.EMPLOYEE)
+    u.platform_user_id = "99"
+    # Request đang mở, khởi tạo từ group -100.
+    db.add(Request(
+        tenant_id=t.id, repo_id=t.repositories[0].id, requester_user_id=u.id,
+        title="cũ", status=RequestStatus.PLAN_REVIEW,
+        origin_chat_id="-100", origin_is_group=True,
+    ))
+    db.commit()
+    monkeypatch.setattr("app.orchestrator.run_claude", FakeClaude([claude_json(PLAN, "s1")]))
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr("app.git_ops.ensure_clone", _noop)
+
+    # DM: chat.id == from.id == "99" (Telegram DM).
+    await handle_telegram_update(db, fakes["adapter"], fakes["github"], _msg("99", "Thêm cache"))
+    reqs = u.tenant.requests
+    assert len(reqs) == 2                                   # request DM mới, không đụng request-group
+    new = max(reqs, key=lambda r: r.id)
+    assert new.origin_chat_id == "99" and not new.origin_is_group
+    assert all(s[0] == "99" for s in fakes["adapter"].sent)   # mọi phản hồi ở DM, không lọt group
+
+
+@pytest.mark.asyncio
 async def test_start_token_rejected_in_group(db, fakes):
     """/start <token> trong group bị từ chối (tránh lộ token) → bảo DM, không liên kết."""
     t = create_tenant(db, "Acme")
