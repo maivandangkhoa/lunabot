@@ -415,6 +415,7 @@ _PLATFORM_META = {
     "google_chat": ("Google Chat", "chat"),
     "zalo": ("Zalo", "globe"),
     "messenger": ("Messenger", "chat"),
+    "slack": ("Slack", "chat"),
 }
 
 

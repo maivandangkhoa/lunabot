@@ -89,6 +89,9 @@ def _reply_adapter(db: Session, req: MaintRequest, s) -> _SafeAdapter:
         if platform == "messenger":
             from app.channels.messenger import MessengerAdapter
             return _SafeAdapter(MessengerAdapter.from_settings(s))
+        if platform == "slack":
+            from app.channels.slack import SlackAdapter
+            return _SafeAdapter(SlackAdapter.from_settings(s))
     except Exception as exc:  # noqa: BLE001
         log.warning("web approval: dựng adapter báo requester lỗi: %s", exc)
     return _SafeAdapter(None)

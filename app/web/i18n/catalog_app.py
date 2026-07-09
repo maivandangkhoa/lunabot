@@ -71,6 +71,8 @@ TEXTS: dict[str, dict[str, str]] = {
     "wizard.s1.platform.zalo_desc": {"vi": "Nhắn tin với bot qua Zalo OA.", "en": "Chat with the bot via Zalo OA.", "ko": "Zalo OA로 봇과 대화하세요."},
     "wizard.s1.platform.messenger": {"vi": "Messenger", "en": "Messenger", "ko": "Messenger"},
     "wizard.s1.platform.messenger_desc": {"vi": "Nhắn tin với bot qua Facebook Messenger.", "en": "Chat with the bot via Facebook Messenger.", "ko": "Facebook Messenger로 봇과 대화하세요."},
+    "wizard.s1.platform.slack": {"vi": "Slack", "en": "Slack", "ko": "Slack"},
+    "wizard.s1.platform.slack_desc": {"vi": "Nhắn tin với bot qua Slack.", "en": "Chat with the bot via Slack.", "ko": "Slack으로 봇과 대화하세요."},
     "wizard.s1.sharedonly_note": {"vi": "Kênh này chỉ hỗ trợ bot Luna chung — không có bot riêng.", "en": "This channel supports the shared Luna bot only — no own bot.", "ko": "이 채널은 공용 Luna 봇만 지원합니다 — 자체 봇은 없습니다."},
     "wizard.s1.shared.title": {"vi": "Bot Luna chung", "en": "Shared Luna bot", "ko": "공용 Luna 봇"},
     "wizard.s1.shared.desc": {"vi": "Không cần cài gì. Bắt đầu ngay trên hạ tầng Luna.", "en": "Nothing to install. Start right away on Luna's infrastructure.", "ko": "설치 불필요. Luna 인프라에서 바로 시작하세요."},

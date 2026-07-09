@@ -139,6 +139,10 @@ TEXTS: dict[str, dict[str, str]] = {
     "chan.zl.tag1": {"vi": "Official Account", "en": "Official Account", "ko": "공식 계정"},
     "chan.zl.tag2": {"vi": "Nhắn 1:1", "en": "1:1 chat", "ko": "1:1 대화"},
     "chan.zl.tag3": {"vi": "Phổ biến ở VN", "en": "Popular in VN", "ko": "베트남 인기"},
+    "chan.sl.desc": {"vi": "Đội kỹ thuật nhắn Luna ngay trong Slack — nhận yêu cầu, duyệt kế hoạch, bấm nút phê duyệt không rời workspace.", "en": "Engineering teams message Luna right inside Slack — file requests, review plans, and approve with a click without leaving the workspace.", "ko": "엔지니어링 팀이 Slack에서 바로 Luna에게 메시지를 보냅니다 — 워크스페이스를 벗어나지 않고 요청·계획 검토·버튼 승인."},
+    "chan.sl.tag1": {"vi": "Nhắn 1:1", "en": "1:1 chat", "ko": "1:1 대화"},
+    "chan.sl.tag2": {"vi": "Nút Block Kit", "en": "Block Kit buttons", "ko": "Block Kit 버튼"},
+    "chan.sl.tag3": {"vi": "Cho team dev", "en": "For dev teams", "ko": "개발 팀용"},
     "chan.soon.label": {"vi": "Sắp ra mắt", "en": "Coming soon", "ko": "출시 예정"},
 
     # ── Dashboard preview section ──

@@ -102,7 +102,8 @@ def _pf_choice(value: str, rid: str, ic: str, key: str, checked: bool = False) -
 def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
            dedicated_enabled: bool, gchat_enabled: bool = False,
            error: str | None = None, has_workspace: bool = False,
-           zalo_enabled: bool = False, messenger_enabled: bool = False) -> str:
+           zalo_enabled: bool = False, messenger_enabled: bool = False,
+           slack_enabled: bool = False) -> str:
     err = ""
     if error:
         err = (f"<div class='alert alert-danger' style='margin-bottom:18px'>"
@@ -120,6 +121,8 @@ def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
         extra.append(_pf_choice("zalo", "pf-zalo", "chat", "zalo"))
     if messenger_enabled:
         extra.append(_pf_choice("messenger", "pf-messenger", "chat", "messenger"))
+    if slack_enabled:
+        extra.append(_pf_choice("slack", "pf-slack", "chat", "slack"))
     if extra:
         platform_block = (
             f"<div class='field'><label>{t('wizard.s1.platform')}</label><div class='choices'>"

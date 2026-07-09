@@ -70,10 +70,10 @@ async def provision(
     factory = adapter_factory or _default_factory
     name = display_name or repo_full_name.split("/")[-1]
 
-    # Google Chat / Zalo / Messenger = kênh DÙNG CHUNG toàn cục (1 add-on / 1 OA / 1 Page cho
-    # mọi tenant, cấu hình bằng env — không token/webhook riêng từng tenant như Telegram) ⇒
-    # chỉ hỗ trợ bot chung. Ép shared, chặn "own".
-    if platform in ("google_chat", "zalo", "messenger"):
+    # Google Chat / Zalo / Messenger / Slack = kênh DÙNG CHUNG toàn cục (1 add-on / 1 OA / 1 Page
+    # / 1 Slack App cho mọi tenant, cấu hình bằng env — không token/webhook riêng từng tenant như
+    # Telegram) ⇒ chỉ hỗ trợ bot chung. Ép shared, chặn "own".
+    if platform in ("google_chat", "zalo", "messenger", "slack"):
         if bot_choice == "own":
             raise ProvisioningError(
                 f"{platform} chỉ hỗ trợ bot Luna chung — chưa có bot riêng cho kênh này.")

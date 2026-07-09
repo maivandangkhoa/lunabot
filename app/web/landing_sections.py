@@ -387,11 +387,16 @@ def _channels() -> str:
           <p>{t('chan.zl.desc')}</p>
           <div class='tags'><span>{t('chan.zl.tag1')}</span><span>{t('chan.zl.tag2')}</span><span>{t('chan.zl.tag3')}</span></div>
         </div>
+        <div class='chan'>
+          <div class='top'><span class='ci' style='background:#4A154B'>{icon('chat', 22)}</span>
+            <h3>Slack</h3></div>
+          <p>{t('chan.sl.desc')}</p>
+          <div class='tags'><span>{t('chan.sl.tag1')}</span><span>{t('chan.sl.tag2')}</span><span>{t('chan.sl.tag3')}</span></div>
+        </div>
       </div>
       <div class='chan-soon'>
         <span class='cs-label'>{icon('zap', 14)} {t('chan.soon.label')}</span>
         <div class='cs-list'>
-          <span class='cs'><i style='background:#4A154B'>S</i>Slack</span>
           <span class='cs'><i style='background:#6264A7'>T</i>Microsoft Teams</span>
           <span class='cs'><i style='background:#FEE500;color:#3A1D1D'>K</i>KakaoTalk</span>
           <span class='cs'><i style='background:#03C75A'>W</i>Naver Works</span>
