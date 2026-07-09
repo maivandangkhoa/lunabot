@@ -1,17 +1,22 @@
 # Kế hoạch: Dev-Mode — "Claude Code extension qua chat" (per-tenant)
 
 > Mở rộng Luna cho **developer**: khi tenant bật `dev_mode`, mọi tin nhắn đi **thẳng**
-> vào Claude Code headless như một trợ lý coding agentic (giống VS Code extension, **trừ
-> streaming**), toàn quyền — kể cả push `main`, nhưng **push main phải confirm**.
+> vào Claude Code headless như một trợ lý coding agentic (giống Claude Code client, **trừ
+> streaming**), **toàn quyền như trên repo của chính mình**: làm thẳng trên nhánh chính,
+> tự commit & push nhánh chính; tự tạo/push nhánh riêng khi user yêu cầu.
 >
-> **Chế độ thường (FSM) KHÔNG đổi.** Dev-mode nằm sau cờ, mặc định tắt, nhánh code tách biệt.
+> **Cập nhật 2026-07-09:** bỏ mô hình `dev`→confirm→`main`. Nay bot **tự do** (không cổng
+> confirm-deploy, không pre-push hook chặn) — xem mục "Thay đổi 2026-07-09" cuối file.
+>
+> **Chế độ thường (FSM) KHÔNG đổi.** Dev-mode nằm sau cờ, mặc định tắt.
 
 ## Mục tiêu trải nghiệm
 - Hội thoại **đa lượt, nhớ ngữ cảnh** (`--resume` per user+repo).
 - Vòng lặp **agentic tự chạy** (đọc→sửa→chạy test→lặp) rồi trả lời — bản chất `claude -p`.
-- **Toàn quyền** (`bypassPermissions`): Bash/Edit/Write tự do.
+- **Toàn quyền** (`bypassPermissions`): Bash/Edit/Write + git push tự do.
 - **Recap hành động**: cuối lượt liệt kê "đã đọc/sửa file gì, chạy lệnh gì" (parse `stream-json`).
-- **Cổng duy nhất**: trước khi push `main` → hỏi confirm; user "ok" thì Luna tự merge/push.
+- **Không cổng chặn**: làm thẳng trên nhánh chính, tự commit & push (giống Claude Code client
+  trên repo của chính mình). ~~Cổng confirm push-main~~ đã bỏ (xem cuối file).
 - Bỏ qua: streaming từng token, interrupt giữa chừng, xem diff trực quan (dùng recap text).
 
 ## Quyết định thiết kế (chốt)
@@ -46,7 +51,8 @@
 - [ ] Ghép **recap**: "🔧 Đã thực hiện: • Đọc X • Sửa Y • Chạy: Z" + "💬 <result>".
 - [ ] Format qua `app/channels/formatting.py`, gửi `adapter.send()`.
 - [ ] Lưu `session_id` mới vào `dev_sessions`. Đo `usage.record(...)`.
-- [ ] Giữ pre-push hook chặn main khi `ensure_clone` (đã có `install_pre_push_hook`).
+- [x] ~~Giữ pre-push hook chặn main~~ → **bỏ** (2026-07-09): clone `prod_branch` với
+      `protected=[]`, bot tự do push nhánh chính.
 
 ### B4. Nhánh rẽ dev-mode trong dispatcher
 - [ ] Trong `_dispatch_inbound` (sau khi có `user`, trước đường FSM/Orchestrator):
@@ -55,32 +61,39 @@
 - [ ] `dev_chat`: chọn repo (`user.active_repo_id` hoặc tenant có đúng 1 repo), ensure clone,
       gọi runner B3.
 
-### B5. Cổng confirm push-main
-- [ ] Prompt system dev-mode: yêu cầu Claude **KHÔNG tự push main**; muốn deploy main thì
-      dừng và nêu rõ ("sẵn sàng deploy lên main"). (Fallback: pre-push hook vẫn chặn.)
-- [ ] Khi runner phát hiện tín hiệu cần-main (Claude nêu, hoặc `classify_push_error` bắt được
-      hook chặn main) → set `dev_sessions.pending_json = {"await_main": true, "branch": …}`
-      và hỏi user: "Đã xong trên dev. Deploy lên main? [ok / huỷ]".
-- [ ] Tin kế tiếp: nếu `pending_json.await_main` và text ∈ `_W_CONFIRM` → gọi
-      `Orchestrator._merge_to_main(...)` (idempotent); `_W_CANCEL` → xoá pending, báo huỷ.
-- [ ] Sau merge: xoá pending, trả kết quả (tái dùng post_deploy nếu muốn chờ CI — tuỳ chọn).
+### ~~B5. Cổng confirm push-main~~ — ĐÃ GỠ (2026-07-09)
+> Ban đầu dev-mode làm trên `dev`, deploy = PR `dev`→`main` có confirm. Đã **bỏ hẳn** theo
+> yêu cầu "tự do như Claude Code client". Chi tiết ở mục "Thay đổi 2026-07-09" cuối file.
+> Đã xoá: `_DEPLOY_SENTINEL`, `_deploy_main`, `_handle_deploy`, khối `await_main` trong
+> `dev_chat`, i18n `dev.deploy_*`.
 
 ### B6. Tests
 - [ ] `tenant_dev_mode` đọc đúng cờ; tenant không bật → đi đường FSM (chế độ thường bất biến).
 - [ ] dev_chat: một lượt gọi runner (mock), lưu session_id, gửi recap.
 - [ ] parse stream-json → recap đúng (fixture nhiều event tool_use + result).
-- [ ] confirm-main: pending set → "ok" gọi `_merge_to_main`; "huỷ" xoá pending; text khác
-      không kích hoạt merge.
+- [x] ~~confirm-main~~ → thay bằng: clone `prod_branch` với `protected=[]`, không tự merge/PR.
 - [ ] Guard: dev-mode KHÔNG chạm Orchestrator FSM (không tạo Request).
 
 ## Rủi ro / lưu ý
 - **Toàn quyền = chạy code khách tự do** → giữ non-root + timeout (nâng `dev_timeout_s` riêng
   vì task agentic dài hơn one-shot). Chỉ bật cho tenant tin cậy.
-- **Subprocess không treo chờ người**: confirm-main xảy ra **giữa 2 lượt** (Claude dừng, hỏi,
-  lượt sau mới merge) — KHÔNG block subprocess như `--permission-prompt-tool`.
+- **Bot tự do push production** → chỉ bật cho tenant/developer tin cậy trên repo của họ.
 - **stream-json**: cần `--verbose`; xử lý dòng lỗi/không-JSON an toàn (fallback về text).
 - **Không migration cho cờ** (dùng settings_json); chỉ 1 migration cho `dev_sessions`.
 
 ## Định nghĩa "done"
-- Tenant bật dev_mode: chat "sửa bug X, chạy test" → Claude tự làm, trả recap + trả lời;
-  "deploy lên main" → bot hỏi confirm → "ok" → merge main. Tenant KHÔNG bật: y hệt hôm nay.
+- Tenant bật dev_mode: chat "sửa bug X, chạy test" → Claude tự làm, tự commit & push nhánh
+  chính, trả recap + trả lời. "Tạo nhánh feature/x" → Claude tự tạo & push nhánh đó. Tenant
+  KHÔNG bật: y hệt hôm nay (đi đường FSM).
+
+## Thay đổi 2026-07-09 — "Claude Code client" hoá dev-mode
+> **Trigger:** repo mới không có nhánh `dev` → `git clone --branch dev` fail
+> ("Remote branch dev not found in upstream origin"). User muốn bot tự do như Claude Code client.
+- **Nhánh làm việc:** `_ensure_repo` clone **`prod_branch`** (không phải `base_branch`).
+- **Bỏ chặn:** truyền `protected=[]` → `_pre_push_hook([])` trả `exit 0` (không cài hook chặn).
+  Claude tự commit & push nhánh chính; tự `git checkout -b` nhánh riêng khi user yêu cầu.
+- **Gỡ cổng confirm-deploy:** xoá `_DEPLOY_SENTINEL`, `_deploy_main`, `_handle_deploy`, khối
+  `await_main` trong `dev_chat`, i18n `dev.deploy_*`. `pending_json` giữ lại (chỉ reset /clear).
+- **Prompt:** `_dev_system_prompt(main)` — làm trên `{main}`, tự commit & push, rẽ nhánh khi cần.
+- **Tests:** thay 4 test deploy bằng 2 test (clone `prod_branch` + `protected=[]`; không tự merge).
+  407/407 pass. **Chưa e2e trên VM.**

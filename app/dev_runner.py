@@ -2,8 +2,9 @@
 
 Khi tenant bật `Tenant.settings_json['dev_mode']`, mọi tin nhắn đi THẲNG vào Claude Code
 headless (`bypassPermissions`, `--resume`) như một trợ lý coding agentic — KHÔNG qua FSM.
-Toàn quyền đọc/sửa/chạy lệnh, kể cả deploy `main`, NHƯNG deploy `main` phải xác nhận GIỮA
-2 lượt chat (Claude dừng, hỏi, lượt sau mới merge) → không block subprocess.
+Toàn quyền như Claude Code client trên repo của chính developer: làm thẳng trên nhánh chính
+(`prod_branch`), tự commit & push nhánh chính; tự tạo/push nhánh riêng khi user yêu cầu.
+KHÔNG có cổng confirm-deploy và KHÔNG cài pre-push hook chặn — bot tự do.
 
 Tách hẳn khỏi orchestrator.py (FSM): chế độ thường KHÔNG đổi. Xem tasks/dev-mode.md.
 """
@@ -20,22 +21,12 @@ from sqlalchemy.orm import Session
 from app import git_ops, usage
 from app.claude_runner import ClaudeResult, _build_env
 from app.config import get_settings
-from app.github_app import GitHubAppError
 from app.models import DevSession, Repository, Tenant, User
 from app.parsing import scrub_meta
-from app.textnorm import strip_symbols
 from app.web.i18n import set_lang_for, t
 
 log = logging.getLogger("luna.dev")
 
-# Marker Claude phát ra (theo system prompt) khi user xin deploy production → app xin xác nhận
-# giữa 2 lượt. Bị strip khỏi text hiển thị. KHÔNG dùng cơ chế permission blocking.
-_DEPLOY_SENTINEL = "[[LUNA_DEPLOY_MAIN]]"
-
-# Từ khoá xác nhận/huỷ cho cổng deploy-main (local — tránh import vòng với dispatcher).
-_W_YES = {"ok", "oke", "okay", "đồng ý", "dong y", "duyệt", "duyet", "yes", "y", "ừ", "u",
-          "deploy", "triển khai", "trien khai"}
-_W_NO = {"không", "khong", "no", "n", "huỷ", "huy", "hủy", "cancel", "thôi", "thoi", "bỏ", "bo"}
 _W_CLEAR = {"/clear", "/new", "/reset"}
 
 
@@ -44,14 +35,15 @@ def tenant_dev_mode(tenant: Tenant | None) -> bool:
     return bool((getattr(tenant, "settings_json", None) or {}).get("dev_mode"))
 
 
-def _dev_system_prompt(base: str, prod: str) -> str:
+def _dev_system_prompt(main: str) -> str:
+    """Prompt dev-mode: tự do như Claude Code client trên repo của chính developer —
+    làm thẳng trên nhánh chính, tự commit & push; chỉ rẽ nhánh khi user yêu cầu."""
     return (
         "Bạn là trợ lý lập trình chạy trong workspace của một developer qua chat, có TOÀN "
-        f"QUYỀN đọc/sửa/chạy lệnh trong repo này. Đang ở nhánh `{base}`; tự commit & push "
-        f"`{base}` khi hợp lý. Trả lời ngắn gọn, đúng trọng tâm kỹ thuật.\n"
-        f"TUYỆT ĐỐI KHÔNG tự push/merge lên nhánh production `{prod}`. Khi người dùng yêu "
-        f"cầu deploy/đưa lên `{prod}`, ĐỪNG tự làm — hãy tóm tắt thay đổi rồi kết thúc lượt "
-        f"bằng ĐÚNG một dòng marker `{_DEPLOY_SENTINEL}` ở cuối để hệ thống xin xác nhận."
+        "QUYỀN đọc/sửa/chạy lệnh trong repo này (giống Claude Code client). Đang làm việc "
+        f"trên nhánh `{main}` — tự commit & `git push origin {main}` khi hoàn tất thay đổi. "
+        "Nếu người dùng yêu cầu làm trên nhánh riêng, hãy tự tạo nhánh mới "
+        "(`git checkout -b <tên>`) và push nhánh đó. Trả lời ngắn gọn, đúng trọng tâm kỹ thuật."
     )
 
 
@@ -82,15 +74,16 @@ def _get_session(db: Session, user_id: int, repo_id: int) -> DevSession:
 
 
 async def _ensure_repo(github, repo: Repository) -> Path:
-    """Clone/fetch nhánh base với token mới (remote authed để Claude tự push được), cài
-    pre-push hook chặn prod. Dùng chung thư mục với FSM (workspace/<tenant>/<repo>)."""
+    """Clone/fetch nhánh chính (`prod_branch`) với token mới (remote authed để Claude tự
+    push được). Dev-mode làm thẳng trên nhánh chính như Claude Code client → KHÔNG cài
+    pre-push hook chặn (protected rỗng). Dùng chung thư mục với FSM (workspace/<tenant>/<repo>)."""
     if github is None:
         raise RuntimeError("GitHub App chưa cấu hình (thiếu token).")
     token = await github.installation_token(repo.gh_installation_id)
     url = github.authed_remote_url(token, repo.repo_full_name)
     safe = repo.repo_full_name.replace("/", "__")
     repo_dir = Path(get_settings().workspace) / str(repo.tenant_id) / safe
-    await git_ops.ensure_clone(repo_dir, url, repo.base_branch, [repo.prod_branch])
+    await git_ops.ensure_clone(repo_dir, url, repo.prod_branch, [])
     return repo_dir
 
 
@@ -195,7 +188,7 @@ def _err_out(session_id: str | None, msg: str) -> dict:
 
 def _compose(actions: list[str], text: str) -> str:
     """Ghép recap hành động + câu trả lời (giống panel 'đã làm gì' của extension)."""
-    text = scrub_meta((text or "").replace(_DEPLOY_SENTINEL, "").strip())
+    text = scrub_meta((text or "").strip())
     parts: list[str] = []
     if actions:
         shown = actions[:25]
@@ -209,60 +202,13 @@ def _compose(actions: list[str], text: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Deploy production (PR base→prod + merge, idempotent) — chỉ chạy sau xác nhận
-# --------------------------------------------------------------------------- #
-async def _deploy_main(github, repo: Repository) -> None:
-    """Tạo PR `base`→`prod` (idempotent nếu 422) rồi merge (retry 1 lần khi 405 race)."""
-    try:
-        pr = await github.create_pull_request(
-            repo.gh_installation_id, repo.repo_full_name,
-            head=repo.base_branch, base=repo.prod_branch,
-            title=f"[luna] dev deploy {repo.base_branch}→{repo.prod_branch}",
-            body="Dev-mode deploy (đã xác nhận qua chat).")
-    except GitHubAppError as exc:
-        if exc.status_code == 422:
-            pr = await github.find_open_pull_request(
-                repo.gh_installation_id, repo.repo_full_name,
-                head=repo.base_branch, base=repo.prod_branch)
-            if not pr:
-                raise
-        else:
-            raise
-    for attempt in range(2):
-        try:
-            await github.merge_pull_request(
-                repo.gh_installation_id, repo.repo_full_name, pr["number"])
-            return
-        except GitHubAppError as exc:
-            if exc.status_code == 405 and attempt == 0:
-                await asyncio.sleep(2)
-                continue
-            raise
-
-
-async def _handle_deploy(db: Session, adapter, github, repo: Repository,
-                         sess: DevSession, reply_to: str) -> None:
-    sess.pending_json = {}
-    db.commit()
-    try:
-        await _deploy_main(github, repo)
-    except Exception as exc:  # noqa: BLE001 — báo lỗi rõ, không sập dispatcher
-        log.warning("dev deploy main repo=%s lỗi: %s", repo.id, exc)
-        await adapter.send(reply_to, t("dev.deploy_error", prod=repo.prod_branch,
-                                       err=str(exc)[:200]))
-        return
-    await adapter.send(reply_to, t("dev.deploy_done", prod=repo.prod_branch))
-
-
-# --------------------------------------------------------------------------- #
 # Entrypoint — gọi từ dispatcher khi tenant.dev_mode
 # --------------------------------------------------------------------------- #
 async def dev_chat(db: Session, adapter, github, user: User, inbound, reply_to: str) -> None:
     """Pipe 1 tin của user (dev-mode) vào Claude, relay recap + câu trả lời. Chỉ chặn
-    `/clear` (reset phiên) và cổng xác nhận deploy `main`."""
+    `/clear` (reset phiên); còn lại toàn quyền như Claude Code client (tự push nhánh chính)."""
     set_lang_for(user)
     text = (inbound.text or "").strip()
-    low = strip_symbols(text).lower()          # bỏ ký hiệu/emoji → khớp từ khoá (ok/huỷ…)
     first = text.split(maxsplit=1)[0].lower() if text else ""   # token đầu (giữ '/' cho lệnh)
 
     repo = _pick_repo(db, user)
@@ -278,20 +224,6 @@ async def dev_chat(db: Session, adapter, github, user: User, inbound, reply_to: 
         await adapter.send(reply_to, t("dev.cleared"))
         return
 
-    # Cổng deploy-main: tin trước bot đã hỏi xác nhận → tin này quyết định.
-    if (sess.pending_json or {}).get("await_main"):
-        if low in _W_YES:
-            await _handle_deploy(db, adapter, github, repo, sess, reply_to)
-            return
-        if low in _W_NO:
-            sess.pending_json = {}
-            db.commit()
-            await adapter.send(reply_to, t("dev.deploy_cancelled"))
-            return
-        # Text khác → coi như lệnh mới: huỷ ngầm lời mời deploy rồi xử lý bình thường.
-        sess.pending_json = {}
-        db.commit()
-
     if not text:
         return
 
@@ -304,7 +236,7 @@ async def dev_chat(db: Session, adapter, github, user: User, inbound, reply_to: 
 
     out = await _run_stream(
         prompt=text, cwd=repo_dir,
-        system_prompt=_dev_system_prompt(repo.base_branch, repo.prod_branch),
+        system_prompt=_dev_system_prompt(repo.prod_branch),
         session_id=sess.claude_session_id,
         model=((repo.tenant.settings_json or {}).get("claude_model") or "").strip()
         or (get_settings().claude_model_default or "").strip() or None,
@@ -313,11 +245,6 @@ async def dev_chat(db: Session, adapter, github, user: User, inbound, reply_to: 
 
     if out["session_id"]:
         sess.claude_session_id = out["session_id"]
-    deploy_requested = _DEPLOY_SENTINEL in (out["text"] or "") and not out["is_error"]
-    if deploy_requested:
-        sess.pending_json = {"await_main": True}
     db.commit()
 
     await adapter.send(reply_to, _compose(out["actions"], out["text"]))
-    if deploy_requested:
-        await adapter.send(reply_to, t("dev.deploy_ask", prod=repo.prod_branch))

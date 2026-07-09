@@ -174,24 +174,4 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "❌ Repo prep error: {err}",
         "ko": "❌ 저장소 준비 오류: {err}",
     },
-    "dev.deploy_ask": {
-        "vi": "🚀 Sẵn sàng deploy lên `{prod}`. Xác nhận? (ok / huỷ)",
-        "en": "🚀 Ready to deploy to `{prod}`. Confirm? (ok / cancel)",
-        "ko": "🚀 `{prod}`에 배포할 준비가 되었습니다. 확인할까요? (ok / 취소)",
-    },
-    "dev.deploy_done": {
-        "vi": "✅ Đã deploy lên `{prod}`.",
-        "en": "✅ Deployed to `{prod}`.",
-        "ko": "✅ `{prod}`에 배포했습니다.",
-    },
-    "dev.deploy_cancelled": {
-        "vi": "❎ Đã huỷ deploy lên production.",
-        "en": "❎ Production deploy cancelled.",
-        "ko": "❎ 프로덕션 배포가 취소되었습니다.",
-    },
-    "dev.deploy_error": {
-        "vi": "❌ Deploy `{prod}` lỗi: {err}",
-        "en": "❌ Deploy to `{prod}` failed: {err}",
-        "ko": "❌ `{prod}` 배포 실패: {err}",
-    },
 }

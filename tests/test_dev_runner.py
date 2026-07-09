@@ -141,61 +141,32 @@ async def test_dev_chat_clear_resets_session(db, fakes, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_dev_chat_deploy_flow_confirm(db, fakes, monkeypatch):
+async def test_dev_chat_no_deploy_gate_works_on_prod_branch(db, fakes, monkeypatch):
+    """Dev-mode làm thẳng trên nhánh chính (prod_branch), không còn cổng confirm deploy:
+    không tự merge/PR, và system prompt hướng làm việc trên nhánh chính."""
     _, r, u = _dev_tenant(db)
     gh = fakes["github"]
-    # Lượt 1: Claude phát sentinel → bot xin xác nhận, set pending.
-    _patch_run(monkeypatch, text=f"Sẵn sàng. {dev_runner._DEPLOY_SENTINEL}")
-    adapter = fakes["adapter"]
-    await dev_runner.dev_chat(db, adapter, gh, u, _inbound("deploy lên main"), "99")
-    sess = db.query(DevSession).filter_by(user_id=u.id).one()
-    assert sess.pending_json.get("await_main") is True
-    assert dev_runner._DEPLOY_SENTINEL not in adapter.sent[-2][1]   # sentinel bị strip
-    assert any("main" in s[1] for s in adapter.sent)               # có lời mời xác nhận
-
-    # Lượt 2: "ok" → merge PR base→prod.
-    await dev_runner.dev_chat(db, adapter, gh, u, _inbound("ok"), "99")
-    assert gh.merged, "phải merge PR khi xác nhận deploy"
-    assert gh.created_prs[0]["head"] == r.base_branch and gh.created_prs[0]["base"] == r.prod_branch
-    db.refresh(sess)
-    assert sess.pending_json == {}
+    run = _patch_run(monkeypatch, text="Đã đẩy lên main.")
+    await dev_runner.dev_chat(db, fakes["adapter"], gh, u, _inbound("sửa và push"), "99")
+    assert gh.merged == []                                   # không tự deploy/merge
+    assert r.prod_branch in run.calls[0]["system_prompt"]    # prompt làm trên nhánh chính
 
 
 @pytest.mark.asyncio
-async def test_dev_chat_deploy_cancel(db, fakes, monkeypatch):
-    _, r, u = _dev_tenant(db)
-    db.add(DevSession(user_id=u.id, repo_id=r.id, pending_json={"await_main": True}))
-    db.commit()
-    _patch_run(monkeypatch)
-    await dev_runner.dev_chat(db, fakes["adapter"], fakes["github"], u, _inbound("huỷ"), "99")
-    assert fakes["github"].merged == []
-    sess = db.query(DevSession).filter_by(user_id=u.id).one()
-    assert sess.pending_json == {}
-
-
-@pytest.mark.asyncio
-async def test_deploy_main_idempotent_on_422(db, fakes):
+async def test_ensure_repo_clones_prod_branch_no_protection(db, fakes, monkeypatch):
+    """_ensure_repo clone nhánh chính (prod_branch) và KHÔNG chặn nhánh nào (protected rỗng)
+    → Claude được tự do push nhánh chính như Claude Code client."""
     _, r, _u = _dev_tenant(db)
-    gh = fakes["github"]
-    # PR đã tồn tại từ lần trước → create 422, find lại rồi merge.
-    await gh.create_pull_request(r.gh_installation_id, r.repo_full_name,
-                                 head=r.base_branch, base=r.prod_branch, title="old")
-    gh.fail_create_422 = 1
-    await dev_runner._deploy_main(gh, r)
-    assert gh.merged == [7]
+    captured = {}
 
+    async def fake_clone(repo_dir, url, base_branch, protected):
+        captured.update(base=base_branch, protected=protected)
+        return repo_dir
+    monkeypatch.setattr(dev_runner.git_ops, "ensure_clone", fake_clone)
 
-@pytest.mark.asyncio
-async def test_deploy_main_retries_405_race(db, fakes, monkeypatch):
-    _, r, _u = _dev_tenant(db)
-    gh = fakes["github"]
-    gh.fail_merge_405 = 1
-
-    async def _fast(*_a, **_k):
-        return None
-    monkeypatch.setattr(dev_runner.asyncio, "sleep", _fast)   # không chờ retry thật
-    await dev_runner._deploy_main(gh, r)
-    assert gh.merged == [7]
+    await dev_runner._ensure_repo(fakes["github"], r)
+    assert captured["base"] == r.prod_branch
+    assert captured["protected"] == []
 
 
 # --------------------------------------------------------------------------- #

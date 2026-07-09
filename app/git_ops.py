@@ -46,6 +46,8 @@ async def run_git(args: list[str], cwd: Path | str | None = None, check: bool = 
 
 
 def _pre_push_hook(protected: list[str]) -> str:
+    if not protected:                       # dev-mode: không chặn nhánh nào (tự do push)
+        return "#!/bin/sh\nexit 0\n"
     cases = "|".join(f"refs/heads/{b}" for b in protected)
     return (
         "#!/bin/sh\n"
