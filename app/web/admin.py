@@ -91,6 +91,7 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
             "created": _fmt(tn.created_at), "admins": admins.get(tn.id, []),
             "id": tn.id,
             "model": (tn.settings_json or {}).get("claude_model") or "",
+            "dev_mode": bool((tn.settings_json or {}).get("dev_mode")),
         })
 
     stats = {
@@ -122,5 +123,28 @@ async def admin_set_model(request: Request, db: Session = Depends(get_db)):
     if tn is not None and model in MODEL_IDS:
         # settings_json là JSONB mutate-in-place → gán lại dict mới để SQLAlchemy phát hiện.
         tn.settings_json = {**(tn.settings_json or {}), "claude_model": model}
+        db.commit()
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/tenant/devmode")
+async def admin_set_devmode(request: Request, db: Session = Depends(get_db)):
+    """Super admin bật/tắt dev-mode cho 1 tenant (settings_json['dev_mode']). Khi bật, mọi
+    tin chat của tenant đi thẳng vào Claude (bỏ FSM) — xem app/dev_runner.py. Guard: phiên
+    hợp lệ + super admin + CSRF."""
+    data = _auth(request, db)
+    if not data or not is_super_admin(db, data):
+        return RedirectResponse("/dashboard", status_code=303)
+    form = await _form(request)
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
+        return RedirectResponse("/admin", status_code=303)
+    try:
+        tid = int(form.get("tenant_id"))
+    except (TypeError, ValueError):
+        tid = None
+    tn = db.get(Tenant, tid) if tid is not None else None
+    if tn is not None:
+        on = (form.get("dev_mode") or "").strip() == "1"
+        tn.settings_json = {**(tn.settings_json or {}), "dev_mode": on}
         db.commit()
     return RedirectResponse("/admin", status_code=303)

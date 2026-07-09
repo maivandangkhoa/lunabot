@@ -361,3 +361,30 @@ class PlatformAdmin(Base):
     github_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
     github_login: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = _created_at()
+
+
+class DevSession(Base):
+    """Phiên dev-mode: 1 dòng = 1 (user, repo) trong tenant bật `settings_json['dev_mode']`.
+
+    Neo `claude_session_id` để `--resume` giữ ngữ cảnh xuyên nhiều tin (giống VS Code
+    extension). `pending_json` giữ trạng thái chờ xác nhận deploy `main` GIỮA 2 lượt chat
+    (không block subprocess như `--permission-prompt-tool`). KHÔNG dính FSM `requests` —
+    dev-mode đi đường riêng, pipe thẳng vào Claude (xem app/dev_runner.py, tasks/dev-mode.md).
+    """
+
+    __tablename__ = "dev_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), index=True
+    )
+    claude_session_id: Mapped[str | None] = mapped_column(String(128))
+    pending_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = _created_at()
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "repo_id", name="uq_dev_session"),
+    )

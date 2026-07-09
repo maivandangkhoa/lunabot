@@ -152,4 +152,46 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "🧹 요청 #{rid} '{title}'이(가) 시스템 정리 중 취소되었습니다. "
               "새 스레드를 열거나 봇에게 DM으로 요청을 다시 보내주세요.",
     },
+    # ── Dev-mode (app/dev_runner.py) ──
+    "dev.acted": {"vi": "Đã thực hiện", "en": "Did", "ko": "수행함"},
+    "dev.empty": {
+        "vi": "✅ Xong (không có gì để hiển thị).",
+        "en": "✅ Done (nothing to show).",
+        "ko": "✅ 완료 (표시할 내용 없음).",
+    },
+    "dev.no_repo": {
+        "vi": "⚠️ Chưa xác định được repo. Dùng /repo để chọn repo trước nhé.",
+        "en": "⚠️ No repo selected. Use /repo to pick a repo first.",
+        "ko": "⚠️ 선택된 저장소가 없습니다. 먼저 /repo로 저장소를 선택하세요.",
+    },
+    "dev.cleared": {
+        "vi": "🧹 Đã mở phiên mới (xoá ngữ cảnh trước).",
+        "en": "🧹 Started a fresh session (previous context cleared).",
+        "ko": "🧹 새 세션을 시작했습니다 (이전 컨텍스트 삭제됨).",
+    },
+    "dev.error": {
+        "vi": "❌ Lỗi chuẩn bị repo: {err}",
+        "en": "❌ Repo prep error: {err}",
+        "ko": "❌ 저장소 준비 오류: {err}",
+    },
+    "dev.deploy_ask": {
+        "vi": "🚀 Sẵn sàng deploy lên `{prod}`. Xác nhận? (ok / huỷ)",
+        "en": "🚀 Ready to deploy to `{prod}`. Confirm? (ok / cancel)",
+        "ko": "🚀 `{prod}`에 배포할 준비가 되었습니다. 확인할까요? (ok / 취소)",
+    },
+    "dev.deploy_done": {
+        "vi": "✅ Đã deploy lên `{prod}`.",
+        "en": "✅ Deployed to `{prod}`.",
+        "ko": "✅ `{prod}`에 배포했습니다.",
+    },
+    "dev.deploy_cancelled": {
+        "vi": "❎ Đã huỷ deploy lên production.",
+        "en": "❎ Production deploy cancelled.",
+        "ko": "❎ 프로덕션 배포가 취소되었습니다.",
+    },
+    "dev.deploy_error": {
+        "vi": "❌ Deploy `{prod}` lỗi: {err}",
+        "en": "❌ Deploy to `{prod}` failed: {err}",
+        "ko": "❌ `{prod}` 배포 실패: {err}",
+    },
 }

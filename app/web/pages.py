@@ -444,6 +444,21 @@ def _model_form(tn: dict, csrf: str) -> str:
         f"</form>")
 
 
+def _devmode_form(tn: dict, csrf: str) -> str:
+    """Nút bật/tắt dev-mode cho tenant (super admin). Submit lật giá trị hiện tại."""
+    on = bool(tn.get("dev_mode"))
+    nxt = "0" if on else "1"
+    label = t("admin.devmode.on") if on else t("admin.devmode.off")
+    cls = "btn-primary" if on else "btn-secondary"
+    return (
+        f"<form method='post' action='/admin/tenant/devmode' style='margin:0'>"
+        f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+        f"<input type='hidden' name='tenant_id' value='{tn['id']}'>"
+        f"<input type='hidden' name='dev_mode' value='{nxt}'>"
+        f"<button class='btn {cls}' style='height:34px'>{t('admin.devmode')}: {label}</button>"
+        f"</form>")
+
+
 def _admin_tenant_row(tn: dict, csrf: str) -> str:
     owner = tn.get("owner") or "—"
     counts = (f"{tn.get('repos', 0)} · {tn.get('bots', 0)} · "
@@ -477,7 +492,10 @@ def _admin_tenant_row(tn: dict, csrf: str) -> str:
        {admins_line}
        <div class='card-row' style='justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:4px'>
          <span class='hint' style='margin:0'>{t('admin.model.current')}: <b>{esc(model_label(tn.get('model')))}</b></span>
-         {_model_form(tn, csrf)}
+         <div class='card-row' style='gap:8px;flex-wrap:wrap'>
+           {_devmode_form(tn, csrf)}
+           {_model_form(tn, csrf)}
+         </div>
        </div>
       </div>"""
 

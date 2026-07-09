@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import usage
+from app import dev_runner, usage
 from app.admin_commands import handle_command, help_text, is_command
 from app.channels.base import Button, ChannelAdapter
 from app.claude_runner import run_claude
@@ -203,6 +203,14 @@ async def _dispatch_inbound(db: Session, adapter: ChannelAdapter, github, inboun
         return
     # Đã biết user → đặt ngôn ngữ theo hồ sơ user (suy & lưu từ client chat nếu có/đổi).
     _sync_user_language(db, user, inbound)
+
+    # Dev-mode (tenant bật cờ): pipe THẲNG vào Claude, bỏ FSM. Text thường + /clear → dev_chat;
+    # slash-command quản trị khác (/help, /repos, /invite…) vẫn đi đường thường bên dưới.
+    if inbound.callback_data is None and dev_runner.tenant_dev_mode(user.tenant):
+        _first = text.split(maxsplit=1)[0].lower() if text else ""
+        if _first in _W_CLEAR or not text.startswith("/"):
+            await dev_runner.dev_chat(db, adapter, github, user, inbound, reply_to)
+            return
 
     # Lệnh quản trị (/help, /whoami, /users, /invite, /role, /unlink) — tin text, không callback.
     # CHỈ trong DM: nhiều lệnh (/users, /invite) in token → tránh lộ trong group.

@@ -314,6 +314,9 @@ TEXTS: dict[str, dict[str, str]] = {
     "admin.col.model": {"vi": "Model", "en": "Model", "ko": "모델"},
     "admin.model.current": {"vi": "Model đang dùng", "en": "Current model", "ko": "현재 모델"},
     "admin.model.save": {"vi": "Lưu", "en": "Save", "ko": "저장"},
+    "admin.devmode": {"vi": "Dev-mode", "en": "Dev-mode", "ko": "개발 모드"},
+    "admin.devmode.on": {"vi": "Bật", "en": "On", "ko": "켜짐"},
+    "admin.devmode.off": {"vi": "Tắt", "en": "Off", "ko": "꺼짐"},
     "admin.empty.title": {"vi": "Chưa có tenant nào", "en": "No tenants yet", "ko": "아직 테넌트가 없습니다"},
     "admin.empty.desc": {"vi": "Tenant sẽ xuất hiện ở đây khi khách tạo bot qua wizard.", "en": "Tenants appear here once customers create bots via the wizard.", "ko": "고객이 마법사로 봇을 만들면 여기에 테넌트가 표시됩니다."},
 }
