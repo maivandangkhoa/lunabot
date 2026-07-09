@@ -136,6 +136,12 @@ class Orchestrator:
         log.info("request %s: %s → %s", req.id, req.status.value, status.value)
         req.status = status
 
+    def _claude_model(self, repo) -> str | None:
+        """Model ghim cho repo: tenant.settings_json['claude_model'] > default toàn cục.
+        Rỗng ⇒ None (không truyền --model, dùng mặc định CLI). Admin đặt qua /admin."""
+        per_tenant = ((repo.tenant.settings_json or {}).get("claude_model") or "").strip()
+        return per_tenant or (get_settings().claude_model_default or "").strip() or None
+
     async def _say(self, req: Request, user: User, text: str,
                    buttons: list[list[Button]] | None = None) -> None:
         """Trả lời hướng-tới-requester: đăng vào nơi khởi tạo request (group hoặc DM)."""
@@ -322,6 +328,7 @@ class Orchestrator:
             res = await self.claude_run(
                 prompt=question, cwd=repo_dir,
                 permission_mode=PermissionMode.READONLY, system_prompt=sysp,
+                model=self._claude_model(repo),
             )
         usage.record(self.db, tenant_id=repo.tenant_id, phase="ask", res=res)
         if not res.ok:
@@ -368,6 +375,7 @@ class Orchestrator:
             prompt=prompt, cwd=repo_dir,
             permission_mode=PermissionMode.READONLY,
             session_id=req.claude_session_id, system_prompt=sysp,
+            model=self._claude_model(repo),
         )
         req.claude_session_id = res.session_id
         usage.record(self.db, tenant_id=req.tenant_id, request_id=req.id,
@@ -461,6 +469,7 @@ class Orchestrator:
             res = await self.claude_run(
                 prompt=prompt, cwd=repo_dir, permission_mode=PermissionMode.BYPASS,
                 session_id=req.claude_session_id, system_prompt=sysp,
+                model=self._claude_model(repo),
             )
             req.claude_session_id = res.session_id
             usage.record(self.db, tenant_id=req.tenant_id, request_id=req.id,

@@ -22,6 +22,25 @@ from app.config import get_settings
 
 log = logging.getLogger("luna.claude")
 
+# Danh sách model cho admin chọn per-tenant (value = --model; "" = mặc định CLI).
+# Nguồn sự thật duy nhất: web (dropdown + validate) import từ đây.
+MODEL_CHOICES: list[tuple[str, str]] = [
+    ("", "Default (CLI)"),
+    ("claude-sonnet-4-6", "Sonnet 4.6"),
+    ("claude-opus-4-8", "Opus 4.8"),
+    ("claude-haiku-4-5", "Haiku 4.5"),
+]
+MODEL_IDS: frozenset[str] = frozenset(v for v, _ in MODEL_CHOICES)
+
+
+def model_label(value: str | None) -> str:
+    """Nhãn hiển thị cho 1 model id ('' → 'Default (CLI)'). Không khớp ⇒ trả chính id."""
+    v = (value or "").strip()
+    for mid, label in MODEL_CHOICES:
+        if mid == v:
+            return label
+    return v
+
 
 class PermissionMode(str, Enum):
     """Map phase FSM → quyền của Claude.
@@ -69,11 +88,13 @@ async def run_claude(
     system_prompt: str | None = None,
     timeout_s: int | None = None,
     claude_bin: str = "claude",
+    model: str | None = None,
 ) -> ClaudeResult:
     """Chạy `claude -p` trong `cwd`, trả ClaudeResult.
 
     - `system_prompt`: nối thêm qua --append-system-prompt (ràng buộc phase, format JSON).
     - `session_id`: có ⇒ --resume để giữ ngữ cảnh xuyên vòng đời request.
+    - `model`: có ⇒ --model để ghim model (per-tenant); rỗng/None ⇒ mặc định CLI.
     - Lỗi (timeout / returncode≠0 / parse fail / is_error) ⇒ ok=False, không raise.
     """
     settings = get_settings()
@@ -85,6 +106,8 @@ async def run_claude(
         "--output-format", "json",
         "--permission-mode", permission_mode.value,
     ]
+    if model:
+        args += ["--model", model]
     if system_prompt:
         args += ["--append-system-prompt", system_prompt]
     if session_id:

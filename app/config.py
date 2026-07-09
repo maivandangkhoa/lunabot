@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # --- Claude Code CLI (M1) ---
     claude_code_oauth_token: str | None = None
     claude_timeout_s: int = 1800
+    # Model mặc định toàn cục khi tenant chưa chọn (settings_json["claude_model"] rỗng).
+    # Rỗng ⇒ dùng mặc định của CLI (không truyền --model). Admin ghim per-tenant qua /admin.
+    claude_model_default: str = ""
 
     # --- Lớp 2: hiểu câu tự nhiên cho hành động cổng (xem app/intent.py) ---
     # Khi từ khoá cứng (ok/sửa/huỷ…) KHÔNG khớp nhưng user đang có việc chờ duyệt, nhờ Claude

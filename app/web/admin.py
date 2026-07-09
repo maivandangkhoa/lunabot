@@ -7,15 +7,18 @@ helper phiên (_auth, is_super_admin) từ routes.
 """
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.claude_runner import MODEL_IDS
 from app.db import get_db
 from app.models import Bot, Repository, Request as MaintRequest, Tenant, User, UserRole
 from app.web import pages
-from app.web.routes import _auth, _fmt, is_super_admin
+from app.web.routes import _auth, _csrf, _fmt, _form, is_super_admin
 
 router = APIRouter(tags=["web-admin"])
 
@@ -86,6 +89,8 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
             "repos": repos.get(tn.id, 0), "bots": bots.get(tn.id, 0),
             "users": users.get(tn.id, 0), "requests": reqs.get(tn.id, 0),
             "created": _fmt(tn.created_at), "admins": admins.get(tn.id, []),
+            "id": tn.id,
+            "model": (tn.settings_json or {}).get("claude_model") or "",
         })
 
     stats = {
@@ -94,4 +99,28 @@ async def admin_home(request: Request, db: Session = Depends(get_db)):
         "users": sum(users.values()), "requests": sum(reqs.values()),
         "active": n_active,
     }
-    return HTMLResponse(pages.admin(data.get("name") or data["login"], stats, tenants))
+    return HTMLResponse(pages.admin(
+        data.get("name") or data["login"], stats, tenants, _csrf(data)))
+
+
+@router.post("/admin/tenant/model")
+async def admin_set_model(request: Request, db: Session = Depends(get_db)):
+    """Super admin ghim model Claude cho 1 tenant (lưu vào settings_json['claude_model']).
+    Guard: phiên hợp lệ + super admin + CSRF. Model phải nằm trong MODEL_IDS (rỗng = default)."""
+    data = _auth(request, db)
+    if not data or not is_super_admin(db, data):
+        return RedirectResponse("/dashboard", status_code=303)
+    form = await _form(request)
+    if not hmac.compare_digest(form.get("csrf", ""), _csrf(data)):
+        return RedirectResponse("/admin", status_code=303)
+    model = (form.get("model") or "").strip()
+    try:
+        tid = int(form.get("tenant_id"))
+    except (TypeError, ValueError):
+        tid = None
+    tn = db.get(Tenant, tid) if tid is not None else None
+    if tn is not None and model in MODEL_IDS:
+        # settings_json là JSONB mutate-in-place → gán lại dict mới để SQLAlchemy phát hiện.
+        tn.settings_json = {**(tn.settings_json or {}), "claude_model": model}
+        db.commit()
+    return RedirectResponse("/admin", status_code=303)

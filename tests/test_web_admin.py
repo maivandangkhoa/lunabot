@@ -125,6 +125,56 @@ def test_admin_shows_none_when_no_admins(client, db):
     assert r.status_code == 200 and "Acme" in r.text
 
 
+# ── Per-tenant model (super admin) ─────────────────────────────────────────────
+def test_admin_shows_model_dropdown(client, db):
+    """Card tenant hiện dropdown chọn model + nhãn 'Default (CLI)' khi chưa ghim."""
+    _tenant(db, uid=NORMAL_UID, login="alice", name="Acme")
+    _make_admin(db)
+    db.commit()
+    _login(client, uid=ADMIN_UID, login="boss")
+    r = client.get("/admin")
+    assert r.status_code == 200
+    assert "/admin/tenant/model" in r.text
+    assert "Default (CLI)" in r.text and "Opus 4.8" in r.text
+
+
+def test_admin_set_model_persists(client, db):
+    tn = _tenant(db, uid=NORMAL_UID, login="alice", name="Acme")
+    _make_admin(db)
+    db.commit()
+    _login(client, uid=ADMIN_UID, login="boss")
+    r = client.post("/admin/tenant/model",
+                    data={"tenant_id": tn.id, "model": "claude-opus-4-8", "csrf": ""},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/admin"
+    db.refresh(tn)
+    assert tn.settings_json.get("claude_model") == "claude-opus-4-8"
+
+
+def test_admin_set_model_rejects_unknown(client, db):
+    tn = _tenant(db, uid=NORMAL_UID, login="alice", name="Acme")
+    _make_admin(db)
+    db.commit()
+    _login(client, uid=ADMIN_UID, login="boss")
+    client.post("/admin/tenant/model",
+                data={"tenant_id": tn.id, "model": "gpt-4", "csrf": ""},
+                follow_redirects=False)
+    db.refresh(tn)
+    assert "claude_model" not in (tn.settings_json or {})   # model lạ bị bỏ qua
+
+
+def test_admin_set_model_blocks_normal_user(client, db):
+    tn = _tenant(db, uid=NORMAL_UID, login="alice", name="Acme")
+    db.commit()
+    _login(client, uid=NORMAL_UID)                          # không phải super admin
+    r = client.post("/admin/tenant/model",
+                    data={"tenant_id": tn.id, "model": "claude-opus-4-8", "csrf": ""},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/dashboard"
+    db.refresh(tn)
+    assert "claude_model" not in (tn.settings_json or {})
+
+
 # ── Nav visibility ────────────────────────────────────────────────────────────
 def test_admin_nav_hidden_for_normal_user(client, db):
     _tenant(db, uid=NORMAL_UID, login="user", name="Acme")

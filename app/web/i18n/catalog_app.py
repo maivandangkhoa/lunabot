@@ -309,6 +309,9 @@ TEXTS: dict[str, dict[str, str]] = {
     "admin.col.created": {"vi": "Ngày tạo", "en": "Created", "ko": "생성일"},
     "admin.col.admins": {"vi": "Quản trị", "en": "Admins", "ko": "관리자"},
     "admin.no_admins": {"vi": "chưa có", "en": "none", "ko": "없음"},
+    "admin.col.model": {"vi": "Model", "en": "Model", "ko": "모델"},
+    "admin.model.current": {"vi": "Model đang dùng", "en": "Current model", "ko": "현재 모델"},
+    "admin.model.save": {"vi": "Lưu", "en": "Save", "ko": "저장"},
     "admin.empty.title": {"vi": "Chưa có tenant nào", "en": "No tenants yet", "ko": "아직 테넌트가 없습니다"},
     "admin.empty.desc": {"vi": "Tenant sẽ xuất hiện ở đây khi khách tạo bot qua wizard.", "en": "Tenants appear here once customers create bots via the wizard.", "ko": "고객이 마법사로 봇을 만들면 여기에 테넌트가 표시됩니다."},
 }

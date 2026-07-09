@@ -314,6 +314,25 @@ async def test_clarify_then_plan(db, fakes, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_tenant_model_passed_to_claude(db, fakes, tmp_path):
+    """Ghim model per-tenant (settings_json['claude_model']) → truyền --model qua claude_run.
+    Chưa ghim → model=None (dùng mặc định CLI)."""
+    t, repo, emp, mgr = _seed(db)
+    t.settings_json = {"claude_model": "claude-opus-4-8"}
+    db.commit()
+    claude = FakeClaude([claude_json(PLAN, "s1")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    await orch.create_request(repo, emp, "Sửa gì đó", "chi tiết")
+    assert claude.calls[0]["model"] == "claude-opus-4-8"
+
+    # Không ghim ⇒ None (helper đọc trực tiếp từ tenant còn gắn với repo).
+    repo.tenant.settings_json = {}
+    assert orch._claude_model(repo) is None
+
+
+@pytest.mark.asyncio
 async def test_non_manager_cannot_approve(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
     claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from html import escape as esc
 
+from app.claude_runner import MODEL_CHOICES, model_label
 from app.web.i18n import t
 from app.web.styles import confirm_attrs, icon, shell, status_dot
 
@@ -423,7 +424,26 @@ def _platform_chip(pf: str) -> str:
             f"{icon(ico, 12)}{esc(label)}</span>")
 
 
-def _admin_tenant_row(tn: dict) -> str:
+def _model_form(tn: dict, csrf: str) -> str:
+    """Dropdown chọn model Claude cho tenant (super admin). Option hiện nhãn 'Default (CLI)'
+    khi rỗng. Auto-submit khi đổi lựa chọn (onchange) để bớt 1 nút bấm."""
+    cur = tn.get("model") or ""
+    opts = "".join(
+        f"<option value='{esc(mid)}'{' selected' if mid == cur else ''}>{esc(label)}</option>"
+        for mid, label in MODEL_CHOICES)
+    return (
+        f"<form method='post' action='/admin/tenant/model' "
+        f"style='display:flex;gap:8px;align-items:center;margin:0'>"
+        f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
+        f"<input type='hidden' name='tenant_id' value='{tn['id']}'>"
+        f"<span class='hint' style='margin:0'>{icon('bot', 13)}{t('admin.col.model')}:</span>"
+        f"<select class='input' name='model' onchange='this.form.submit()' "
+        f"style='width:auto;height:34px;padding:2px 30px 2px 10px'>{opts}</select>"
+        f"<button class='btn btn-secondary' style='height:34px'>{t('admin.model.save')}</button>"
+        f"</form>")
+
+
+def _admin_tenant_row(tn: dict, csrf: str) -> str:
     owner = tn.get("owner") or "—"
     counts = (f"{tn.get('repos', 0)} · {tn.get('bots', 0)} · "
               f"{tn.get('users', 0)} · {tn.get('requests', 0)}")
@@ -454,10 +474,14 @@ def _admin_tenant_row(tn: dict) -> str:
         </div>
        </div>
        {admins_line}
+       <div class='card-row' style='justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:4px'>
+         <span class='hint' style='margin:0'>{t('admin.model.current')}: <b>{esc(model_label(tn.get('model')))}</b></span>
+         {_model_form(tn, csrf)}
+       </div>
       </div>"""
 
 
-def admin(user_name: str, stats: dict, tenants: list[dict]) -> str:
+def admin(user_name: str, stats: dict, tenants: list[dict], csrf: str = "") -> str:
     cells = [
         ("layers", "admin.stat.tenants", stats.get("tenants", 0)),
         ("bot", "admin.stat.bots", stats.get("bots", 0)),
@@ -473,7 +497,7 @@ def admin(user_name: str, stats: dict, tenants: list[dict]) -> str:
     ) + "</div>"
     if tenants:
         body = (f"<h2 class='section-title' style='margin:6px 0 14px'>{t('admin.tenants')}</h2>"
-                "<div class='stack-sm'>" + "".join(_admin_tenant_row(tn) for tn in tenants) + "</div>")
+                "<div class='stack-sm'>" + "".join(_admin_tenant_row(tn, csrf) for tn in tenants) + "</div>")
     else:
         body = _empty("layers", t("admin.empty.title"), t("admin.empty.desc"))
     head = _head("admin.title", "admin.subtitle")
