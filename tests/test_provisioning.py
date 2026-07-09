@@ -66,6 +66,29 @@ async def test_provision_shared_bot(db):
 
 
 @pytest.mark.asyncio
+async def test_provision_dev_mode_flag(db):
+    """dev_mode=True ⇒ tenant.settings_json['dev_mode']=True; mặc định tắt."""
+    from app.models import Tenant
+
+    s = _settings()
+    res = await provision(
+        db, s, owner_github_id=7, owner_github_login="dev", owner_name="Dev",
+        repo_full_name="dev/app", installation_id=1,
+        bot_choice="shared", hosting_choice="shared_instance", dev_mode=True,
+    )
+    tn = db.get(Tenant, db.get(Repository, res.repo_id).tenant_id)
+    assert (tn.settings_json or {}).get("dev_mode") is True
+
+    res2 = await provision(
+        db, s, owner_github_id=8, owner_github_login="normal", owner_name="N",
+        repo_full_name="normal/app", installation_id=2,
+        bot_choice="shared", hosting_choice="shared_instance",
+    )
+    tn2 = db.get(Tenant, db.get(Repository, res2.repo_id).tenant_id)
+    assert not (tn2.settings_json or {}).get("dev_mode")
+
+
+@pytest.mark.asyncio
 async def test_provision_google_chat_shared(db):
     """Google Chat = bot chung toàn cục: platform=google_chat, không token/username/deeplink t.me."""
     s = _settings()

@@ -209,6 +209,12 @@ def wizard(user_name: str, repos: list[dict], install_url: str, csrf: str,
               <div class='field'><label>{t('wizard.s2.prod_branch')}</label>
                 <input class='input' name='prod_branch' id='f-prod' value='main'></div>
             </div>
+            <div class='field'>
+              <label class='choice'><input type='checkbox' name='dev_mode' value='1'>
+                <span class='ch-title'>{icon('zap', 16)} {t('wizard.s2.devmode')}</span>
+                <span class='ch-desc'>{t('wizard.s2.devmode_desc')}</span></label>
+              <div class='hint' style='margin-top:8px'>⚠️ {t('wizard.s2.devmode_warn')}</div>
+            </div>
             {host_block}
           </section>
 

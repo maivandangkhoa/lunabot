@@ -65,6 +65,7 @@ async def provision(
     bot_token: str | None = None,    # bắt buộc khi bot_choice="own"
     base_branch: str = "dev",
     prod_branch: str = "main",
+    dev_mode: bool = False,          # bật dev-mode (pipe thẳng vào Claude, bỏ FSM) cho tenant
     adapter_factory: AdapterFactory | None = None,
 ) -> ProvisionResult:
     factory = adapter_factory or _default_factory
@@ -99,6 +100,8 @@ async def provision(
     tenant = create_tenant(db, name=name)
     tenant.owner_github_id = owner_github_id
     tenant.owner_github_login = owner_github_login
+    if dev_mode:
+        tenant.settings_json = {**(tenant.settings_json or {}), "dev_mode": True}
     repo = add_repository(db, tenant, repo_full_name, installation_id,
                           base_branch=base_branch, prod_branch=prod_branch)
 

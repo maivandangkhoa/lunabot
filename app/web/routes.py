@@ -252,6 +252,7 @@ async def wizard_create(request: Request, db: Session = Depends(get_db)):
             bot_token=(form.get("bot_token") or "").strip() or None,
             base_branch=(form.get("base_branch") or "dev").strip(),
             prod_branch=(form.get("prod_branch") or "main").strip(),
+            dev_mode=form.get("dev_mode") == "1",
         )
     except ProvisioningError as exc:
         db.rollback()

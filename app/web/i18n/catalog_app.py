@@ -88,6 +88,18 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": 'Telegram → <span class="code">@BotFather</span> → <span class="code">/newbot</span> → 이름 지정 → 토큰 붙여넣기.'},
     "wizard.s2.dev_branch": {"vi": "Nhánh làm việc (dev)", "en": "Working branch (dev)", "ko": "작업 브랜치 (dev)"},
     "wizard.s2.prod_branch": {"vi": "Nhánh production", "en": "Production branch", "ko": "프로덕션 브랜치"},
+    "wizard.s2.devmode": {
+        "vi": "Dev-mode (trợ lý coding trực tiếp)",
+        "en": "Dev-mode (direct coding assistant)",
+        "ko": "개발 모드 (직접 코딩 어시스턴트)"},
+    "wizard.s2.devmode_desc": {
+        "vi": "Chat như Claude Code: bot tự đọc/sửa/chạy code, không qua quy trình duyệt từng bước.",
+        "en": "Chat like Claude Code: the bot reads/edits/runs code directly, skipping the step-by-step approval flow.",
+        "ko": "Claude Code처럼 채팅: 봇이 코드를 직접 읽고/수정하고/실행하며 단계별 승인 절차를 건너뜁니다."},
+    "wizard.s2.devmode_warn": {
+        "vi": "Toàn quyền tự động. Chỉ deploy lên production mới cần xác nhận. Bật nếu bạn là dev và tin tưởng tự động hoá.",
+        "en": "Full autonomy. Only production deploys need confirmation. Enable if you're a developer comfortable with automation.",
+        "ko": "완전 자동. 프로덕션 배포만 확인이 필요합니다. 자동화를 신뢰하는 개발자만 켜세요."},
     "wizard.s3.title": {"vi": "Xác nhận", "en": "Confirm", "ko": "확인"},
     "wizard.s3.desc": {"vi": "Kiểm tra lại trước khi tạo bot.", "en": "Review before creating the bot.", "ko": "봇을 만들기 전에 검토하세요."},
     "wizard.s3.repo": {"vi": "Repository", "en": "Repository", "ko": "저장소"},
