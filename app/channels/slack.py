@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,6 +31,29 @@ log = logging.getLogger("luna.slack")
 _SLACK_API = "https://slack.com"
 _MAX_LEN = 3000   # Slack text block giới hạn 3001 ký tự — chừa biên.
 _REPLAY_WINDOW_S = 300   # 5 phút — chống replay attack
+
+# Slack "nuốt" mọi tin bắt đầu bằng "/" thành slash-command của NÓ → lệnh bot (/start,
+# /help…) không bao giờ tới. Bù lại: trên Slack user gõ lệnh KHÔNG dấu "/" (start <token>,
+# help, lang en). Ở đây ta chuẩn hoá 2 chiều để dispatcher/FSM (vốn dựa vào "/") không đổi.
+# Lệnh CÓ tham số: nhận ngay khi từ đầu khớp (phần sau là arg).
+_CMD_ARG = frozenset({"start", "lang", "repo", "invite", "role", "addrepo", "ask"})
+# Lệnh KHÔNG tham số: chỉ coi là lệnh khi nhắn ĐÚNG 1 từ → "help me fix…" vẫn là yêu cầu.
+_CMD_NOARG = frozenset({"help", "whoami", "repos", "clear", "new", "reset", "users", "unlink"})
+_CMD_ALL = _CMD_ARG | _CMD_NOARG
+# Bỏ "/" ở đầu lệnh trong tin BOT gửi ra để hiển thị đúng dạng user gõ được trên Slack.
+_DESLASH = re.compile(r"(?<![^\s(>])/(" + "|".join(sorted(_CMD_ALL)) + r")\b")
+
+
+def _slack_to_slash(text: str) -> str:
+    """Inbound: 'start <token>' → '/start <token>' để khớp dispatcher (chỉ khi khớp luật lệnh)."""
+    stripped = text.lstrip()
+    if not stripped or stripped.startswith("/"):
+        return text
+    parts = stripped.split(maxsplit=1)
+    word = parts[0].lower()
+    if word in _CMD_ARG or (word in _CMD_NOARG and len(parts) == 1):
+        return "/" + stripped
+    return text
 
 
 @dataclass
@@ -138,6 +162,8 @@ class SlackAdapter:
         text = event.get("text") or ""
         if self.bot_user_id:
             text = text.replace(f"<@{self.bot_user_id}>", "").strip()
+        # Slack chặn tin bắt đầu "/" → user gõ lệnh không dấu; khôi phục "/" cho dispatcher.
+        text = _slack_to_slash(text)
         # app_mention luôn addressed; DM luôn addressed; channel message thường không
         addressed = is_dm or event.get("type") == "app_mention"
         # Ảnh đính kèm: Slack đặt trong event.files[] (cần scope files:read + Bearer token để tải).
@@ -225,6 +251,9 @@ class SlackAdapter:
     ) -> dict:
         """Gửi tin tới channel/DM (chunk nếu dài; blocks gắn chunk cuối)."""
         body, _ = format_for(self.name, text)
+        # Hướng dẫn trong catalog viết "/start", "/help"… nhưng Slack không cho user GÕ "/".
+        # Bỏ "/" ở các lệnh đã biết để user thấy đúng dạng gõ được (khớp _slack_to_slash).
+        body = _DESLASH.sub(r"\1", body)
         chunks = split_chunks(body, _MAX_LEN)
         result: dict = {}
         for idx, chunk in enumerate(chunks):

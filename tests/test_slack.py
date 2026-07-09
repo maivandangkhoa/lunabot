@@ -221,3 +221,21 @@ def test_webhook_enforce_rejects_bad_signature(monkeypatch):
                headers={"X-Slack-Signature": "v0=deadbeef",
                         "X-Slack-Request-Timestamp": str(int(time.time()))})
     assert r.status_code == 403
+
+
+def test_slack_command_normalization():
+    """Slack chặn "/" ⇒ user gõ lệnh không dấu; adapter khôi phục "/" cho dispatcher, và
+    bỏ "/" trong tin gửi ra để hiển thị đúng dạng gõ được."""
+    from app.channels.slack import _slack_to_slash, _DESLASH
+    # inbound: lệnh có tham số nhận ngay
+    assert _slack_to_slash("start abc123") == "/start abc123"
+    assert _slack_to_slash("lang en") == "/lang en"
+    # inbound: lệnh không tham số chỉ khi đúng 1 từ
+    assert _slack_to_slash("help") == "/help"
+    assert _slack_to_slash("help me fix the login") == "help me fix the login"
+    # inbound: yêu cầu thường & đã có "/" giữ nguyên
+    assert _slack_to_slash("please fix the bug") == "please fix the bug"
+    assert _slack_to_slash("/already") == "/already"
+    # outbound: bỏ "/" cho lệnh đã biết, không đụng path/URL
+    assert _DESLASH.sub(r"\1", "DM the bot: /start <token>") == "DM the bot: start <token>"
+    assert _DESLASH.sub(r"\1", "dev/main github.com/start") == "dev/main github.com/start"

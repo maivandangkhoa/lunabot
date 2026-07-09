@@ -87,7 +87,9 @@ curl -s -w ' | HTTP %{http_code}\n' -X POST http://127.0.0.1:8000/webhook/slack 
 - Container **không có** `python` trên PATH → dùng `python3` nếu cần.
 
 ## 5. Kiểm thử thực tế qua Slack
-1. Trong Slack, mở DM với app luna → gửi `/start <token>` (token liên kết như các channel khác).
+1. Trong Slack, mở DM với app luna → gửi `start <token>` (KHÔNG dấu `/`: Slack nuốt mọi tin
+   bắt đầu bằng `/` thành slash-command của nó nên lệnh bot không tới. Adapter tự thêm lại `/`).
+   Tương tự các lệnh khác gõ không dấu: `help`, `lang en`, `whoami`…
 2. Gửi 1 yêu cầu → bot phải trả lời trong DM, kèm nút *Xác nhận*.
 3. Bấm nút → không kẹt spinner, bot xử lý tiếp (ack qua HTTP 200 ở webhook).
 
