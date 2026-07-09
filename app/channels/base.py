@@ -44,6 +44,9 @@ class InboundMessage:
     # Dispatcher dùng để suy & lưu User.language → bot trả lời đúng ngôn ngữ người dùng.
     language_code: str | None = None
     attachments: list[Attachment] = field(default_factory=list)
+    # True nếu update KHÔNG phải tin của người dùng cần xử lý (vd platform echo lại tin của
+    # chính bot, event hệ thống). Dispatcher bỏ qua hoàn toàn — tránh loop bot tự trả lời mình.
+    ignore: bool = False
     raw: dict = field(default_factory=dict)
 
 

@@ -162,6 +162,9 @@ async def handle_channel_update(db: Session, adapter: ChannelAdapter, github, ra
     (CLARIFYING/PLAN_REVIEW/VERIFY) khoá đã nhả → tin mới được xử lý bình thường.
     """
     inbound = adapter.parse_inbound(raw)
+    # Platform echo lại tin của chính bot / event hệ thống → bỏ qua (tránh bot tự trả lời mình).
+    if inbound.ignore:
+        return
     # Trong group mà tin KHÔNG nhắm tới bot (không @mention/command/reply) → bỏ qua im lặng.
     if inbound.is_group and not inbound.addressed:
         return

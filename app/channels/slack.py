@@ -106,6 +106,20 @@ class SlackAdapter:
         event = raw.get("event", {})
         etype = event.get("type", "")
         if etype in ("message", "app_mention"):
+            # Slack echo lại chính tin bot vừa gửi (message.im có bot_id / subtype bot_message)
+            # → PHẢI bỏ qua, nếu không bot tự trả lời mình → loop vô hạn. Cũng bỏ qua các event
+            # sửa/xoá tin (message_changed/message_deleted...) vì không phải tin mới của user.
+            subtype = event.get("subtype")
+            is_bot = bool(event.get("bot_id")) or subtype == "bot_message" or (
+                self.bot_user_id and event.get("user") == self.bot_user_id
+            )
+            # subtype hợp lệ cho tin user: None (text thường) và "file_share" (gửi kèm ảnh).
+            is_system = subtype not in (None, "file_share")
+            if is_bot or is_system:
+                return InboundMessage(
+                    platform=self.name, platform_user_id="", text="",
+                    ignore=True, raw=raw,
+                )
             return self._parse_message(event, raw)
         # Fallback an toàn
         return InboundMessage(
@@ -126,6 +140,21 @@ class SlackAdapter:
             text = text.replace(f"<@{self.bot_user_id}>", "").strip()
         # app_mention luôn addressed; DM luôn addressed; channel message thường không
         addressed = is_dm or event.get("type") == "app_mention"
+        # Ảnh đính kèm: Slack đặt trong event.files[] (cần scope files:read + Bearer token để tải).
+        attachments: list[Attachment] = []
+        for f in event.get("files") or []:
+            mime = f.get("mimetype") or ""
+            if not mime.startswith("image/"):
+                continue
+            url = f.get("url_private_download") or f.get("url_private") or ""
+            if url:
+                attachments.append(
+                    Attachment(
+                        file_name=f.get("name") or "image",
+                        content_type=mime,
+                        ref={"url_private": url},
+                    )
+                )
         return InboundMessage(
             platform=self.name,
             platform_user_id=uid,
@@ -133,6 +162,7 @@ class SlackAdapter:
             chat_id=channel,
             is_group=is_group,
             addressed=addressed,
+            attachments=attachments,
             raw=raw,
         )
 
