@@ -187,7 +187,8 @@ async def test_clear_no_open_request(db, fakes):
 async def test_text_ok_confirms_plan(db, fakes, monkeypatch):
     """Kênh không bấm nút được (Google Chat add-on): gõ 'ok' ở PLAN_REVIEW → confirm → execute."""
     t = create_tenant(db, "Acme")
-    add_repository(db, t, "acme/widgets", 123)
+    repo = add_repository(db, t, "acme/widgets", 123)
+    repo.settings_json = {"deploy_gate": False}  # đường đồng bộ execute→enter_uat (VERIFY)
     u = create_user(db, t, role=UserRole.EMPLOYEE)
     u.platform_user_id = "99"
     db.commit()
@@ -339,6 +340,7 @@ async def test_safe_command_allowed_in_group(db, fakes):
 async def test_callback_answered_and_routed(db, fakes, monkeypatch):
     t = create_tenant(db, "Acme")
     repo = add_repository(db, t, "acme/widgets", 123)
+    repo.settings_json = {"deploy_gate": False}  # đường đồng bộ execute→enter_uat (VERIFY)
     u = create_user(db, t, role=UserRole.EMPLOYEE)
     u.platform_user_id = "99"
     db.commit()
@@ -398,6 +400,7 @@ def _mkreq(db, t, repo, user, status):
 def _seed_mgr(db):
     t = create_tenant(db, "Acme")
     repo = add_repository(db, t, "acme/widgets", 123)
+    repo.settings_json = {"deploy_gate": False}  # test routing FSM đồng bộ (bỏ deploy-gate nền)
     emp = create_user(db, t, role=UserRole.EMPLOYEE)
     emp.platform_user_id = "emp"
     mgr = create_user(db, t, role=UserRole.MANAGER)

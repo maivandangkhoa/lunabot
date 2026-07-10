@@ -202,7 +202,10 @@ class Orchestrator:
                 return
             await self._analyze(req, clarifications=[text], attachments=attachments)
         elif req.status == RequestStatus.VERIFY:
-            await self._execute(req, fix_feedback=text)
+            if self._is_parked(req):  # đang chờ slot dev → chưa vào UAT, đừng chạy lại execute
+                await self._say(req, self._requester(req), t("orch.await_slot_still", id=req.id))
+            else:
+                await self._execute(req, fix_feedback=text)
         else:
             self.db.commit()  # chỉ lưu lại, không chuyển state
 
@@ -265,10 +268,16 @@ class Orchestrator:
             self.db.commit()
             await self._say(req, self._requester(req), t("orch.plan_rejected"))
         elif action == "verify_ok" and req.status == RequestStatus.VERIFY:
-            await self._merge_to_dev(req)
+            if self._is_parked(req):  # đang xếp hàng chờ slot dev → chưa có gì để duyệt
+                await self._say(req, self._requester(req), t("orch.await_slot_still", id=req.id))
+            else:  # đã deploy dev + UAT → requester duyệt ⇒ mời manager (dev đã merge từ trước)
+                await post_deploy.enter_await_manager(self, req)
         elif action == "verify_fix" and req.status == RequestStatus.VERIFY:
-            self.db.commit()
-            await self._say(req, self._requester(req), t("orch.verify_fix_prompt"))
+            if self._is_parked(req):
+                await self._say(req, self._requester(req), t("orch.await_slot_still", id=req.id))
+            else:
+                self.db.commit()
+                await self._say(req, self._requester(req), t("orch.verify_fix_prompt"))
         elif action == "sync_yes" and req.status == RequestStatus.CLARIFYING:
             await branch_sync.on_sync_confirm(self, req)
         elif action == "sync_no" and req.status == RequestStatus.CLARIFYING:
@@ -280,13 +289,18 @@ class Orchestrator:
         elif action == "conflict_fix" and req.status == RequestStatus.AWAIT_MANAGER:
             await branch_sync.resolve_conflict_and_merge(self, req, actor, target)
         elif action == "cancel":
+            repo = self._repo(req)
+            # Preview-first: huỷ lúc UAT nghĩa là đã merge dev (dev_merge_sha) → PHẢI revert,
+            # nếu không thay đổi bị huỷ vẫn nằm trên dev và rò lên main ở lần approve kế tiếp.
+            revert = req.dev_merge_sha is not None
             self._set_status(req, RequestStatus.CANCELLED)
             self.db.commit()
-            warns = await cleanup_branch(self, req, revert_dev=False)
+            warns = await cleanup_branch(self, req, revert_dev=revert)
             msg = t("orch.cancelled")
             if warns:
                 msg += t("orch.cleanup_warn", warns="; ".join(warns))
             await self._say(req, self._requester(req), msg)
+            await self._advance_dev_queue(repo)  # nhả slot dev → kick request đang xếp hàng
 
     async def clear_open_request(self, user: User, *, reply_to: str | None = None) -> None:
         """Lệnh /clear: huỷ request đang mở (blocking) của user để bắt đầu session mới.
@@ -306,9 +320,15 @@ class Orchestrator:
             await self.adapter.send(target, t("orch.no_open_request"))
             return
         self._event(req, EventKind.CONFIRM, EventDirection.IN, actor_id=user.id, action="clear")
+        was_holder = req.dev_merge_sha is not None  # UAT/rework đang giữ slot dev
+        repo = self._repo(req)
         self._set_status(req, RequestStatus.CANCELLED)
         self.db.commit()
         await self.adapter.send(target, t("orch.cleared", id=req.id))
+        if was_holder:
+            # Đã merge dev → revert để thay đổi bị bỏ không rò lên main, rồi nhả slot cho hàng đợi.
+            await cleanup_branch(self, req, revert_dev=True)
+            await self._advance_dev_queue(repo)
 
     async def ask(self, repo: Repository, user: User, question: str,
                   *, reply_to: str | None = None) -> None:
@@ -497,12 +517,11 @@ class Orchestrator:
                 await self._fail_to_plan_review(req, requester, classify_push_error(exc))
                 return
 
-        self._set_status(req, RequestStatus.VERIFY)
         self._event(req, EventKind.SYSTEM, EventDirection.OUT, pr_url=req.pr_url)
         self.db.commit()
-        # Bàn giao UAT: ngôn ngữ nghiệp vụ + báo cáo tự kiểm thử, KHÔNG lộ PR/commit/log.
-        await self._say(req, requester, report.self_test_message(req),
-                        buttons=self._verify_buttons(req))
+        # Preview-first: tự merge lên dev + deploy để requester UAT trên URL THẬT (không "duyệt mù").
+        # Cổng "Đạt/Cần sửa" của requester chuyển sang SAU deploy (post_deploy.enter_uat).
+        await self._merge_to_dev(req)
 
     def _verify_buttons(self, req: Request) -> list[list["Button"]]:
         return [[
@@ -511,25 +530,70 @@ class Orchestrator:
             Button(t("orch.btn.cancel"), cb("cancel", req.id)),
         ]]
 
+    # Request đã merge vào dev và CHƯA nhả slot (chưa lên main / chưa huỷ). Preview-first: gồm cả
+    # VERIFY (đang UAT trên site dev) và EXECUTING (đang rework, thay đổi cũ vẫn nằm trên dev) —
+    # không chỉ MERGED_DEV/AWAIT_MANAGER — nếu không request khác chen vào merge dev sẽ trộn preview.
+    _DEV_SLOT_RELEASED = (RequestStatus.CLOSED, RequestStatus.CANCELLED, RequestStatus.MERGED_MAIN)
+
     def _dev_pipeline_holder(self, req: Request) -> Request | None:
-        """Request KHÁC cùng repo đang chiếm 'slot' dev (MERGED_DEV/AWAIT_MANAGER). Serialize:
-        chỉ 1 request chưa-release/lúc, nếu không approve cuốn cả dev → mồ côi (app/reconcile.py)."""
+        """Request KHÁC cùng repo đang chiếm 'slot' dev. Serialize: chỉ 1 request giữ dev/lúc,
+        nếu không approve cuốn cả dev → mồ côi (app/reconcile.py)."""
         return self.db.scalars(
             select(Request).where(
                 Request.repo_id == req.repo_id,
                 Request.id != req.id,
-                Request.status.in_((RequestStatus.MERGED_DEV, RequestStatus.AWAIT_MANAGER)),
+                Request.dev_merge_sha.is_not(None),
+                Request.status.not_in(self._DEV_SLOT_RELEASED),
             ).order_by(Request.id)
         ).first()
+
+    # ── Hàng đợi slot dev (preview-first) ─────────────────────────────────────
+    # Preview-first bỏ cổng requester-bấm TRƯỚC merge → khi slot bận, request bị "park"
+    # (VERIFY + dev_merge_sha NULL + cờ report_json._await_slot) thay vì bắt requester tự bấm lại.
+    # Khi slot nhả (merge main/huỷ/từ chối) → _advance_dev_queue tự kick request kế tiếp.
+    @staticmethod
+    def _is_parked(req: Request) -> bool:
+        return bool((req.report_json or {}).get("_await_slot"))
+
+    def _park_for_slot(self, req: Request) -> None:
+        self._set_status(req, RequestStatus.VERIFY)
+        req.report_json = {**(req.report_json or {}), "_await_slot": True}
+        self.db.commit()
+
+    def _unpark(self, req: Request) -> None:
+        rj = req.report_json or {}
+        if "_await_slot" in rj:
+            req.report_json = {k: v for k, v in rj.items() if k != "_await_slot"}
+
+    def _next_parked(self, repo_id: int) -> Request | None:
+        """Request cùng repo đang xếp hàng chờ slot dev (cũ nhất trước)."""
+        rows = self.db.scalars(
+            select(Request).where(
+                Request.repo_id == repo_id,
+                Request.status == RequestStatus.VERIFY,
+                Request.dev_merge_sha.is_(None),
+            ).order_by(Request.id)
+        ).all()
+        return next((r for r in rows if self._is_parked(r)), None)
+
+    async def _advance_dev_queue(self, repo) -> None:
+        """Slot dev vừa nhả → kick request đang park kế tiếp (best-effort, không làm hỏng caller)."""
+        try:
+            nxt = self._next_parked(repo.id)
+            if nxt is not None and self._dev_pipeline_holder(nxt) is None:
+                set_lang_for(self._requester(nxt))
+                await self._merge_to_dev(nxt)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("advance dev queue repo %s lỗi: %s", repo.id, exc)
 
     async def _merge_to_dev(self, req: Request) -> None:
         holder = self._dev_pipeline_holder(req)
         if holder is not None:
-            self.db.commit()  # giữ VERIFY; gửi LẠI nút vì click đã xoá nút (Google Chat)
+            # Slot dev đang bận → park (chờ), tự kick khi holder nhả (_advance_dev_queue).
+            self._park_for_slot(req)
             await self._say(
                 req, self._requester(req),
-                t("orch.dev_holder_wait", holder_id=holder.id, id=req.id),
-                buttons=self._verify_buttons(req))
+                t("orch.dev_holder_wait", holder_id=holder.id, id=req.id))
             return
         repo = self._repo(req)
         requester = self._requester(req)
@@ -542,11 +606,15 @@ class Orchestrator:
             await self._say(req, requester, t("orch.merge_dev_error", base=repo.base_branch))
             return
         req.dev_merge_sha = (res or {}).get("sha")  # để revert dev / poll deploy theo sha này
+        # PR đã đóng khi merge → reset pr_number để vòng rework (Cần sửa) mở PR MỚI sạch.
+        # Giữ pr_url (PR vừa merge, vẫn xem được) cho gói duyệt manager tham chiếu.
+        req.pr_number = None
+        self._unpark(req)     # nếu vừa được kick khỏi hàng đợi → gỡ cờ chờ
         self._set_status(req, RequestStatus.MERGED_DEV)
         self.db.commit()
 
-        # Deploy-gate (opt-in per repo): chờ CI build+deploy + curl trang dev rồi mới mời manager.
-        # Chạy nền (poll lâu) để KHÔNG chặn poller. Repo chưa bật → mời manager ngay như cũ.
+        # Deploy-gate (opt-in per repo): chờ CI build+deploy + curl trang dev rồi mời requester UAT.
+        # Chạy nền (poll lâu) để KHÔNG chặn poller. Repo chưa bật → mời UAT ngay (không URL).
         settings = get_settings()
         if settings.dev_verify_enabled and post_deploy.dev_verify_configured(repo):
             await self._say(req, requester,
@@ -554,7 +622,7 @@ class Orchestrator:
             asyncio.create_task(
                 post_deploy.verify_after_dev_merge(req.id, settings=settings, github=self.github))
         else:
-            await post_deploy.enter_await_manager(self, req)
+            await post_deploy.enter_uat(self, req)
 
     async def _merge_to_main(self, req: Request, approver: User, reply_to: str | None = None) -> None:
         set_lang_for(approver)                       # lỗi quyền gửi cho NGƯỜI BẤM
@@ -594,6 +662,7 @@ class Orchestrator:
         await self._say(req, self._requester(req), t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
         # Các approver khác từng được DM lời mời → báo đã xử lý (lời mời hết stale).
         await post_deploy.notify_other_approvers(self, req, repo, approver, approved=True)
+        await self._advance_dev_queue(repo)  # nhả slot dev → kick request đang xếp hàng
 
     async def _ensure_release_pr(self, req: Request, repo) -> dict:
         """PR release base→prod, idempotent. Nếu create trả 422 (PR đã mở từ lần duyệt
@@ -646,3 +715,4 @@ class Orchestrator:
             msg += t("orch.cleanup_partial_warn", warns="; ".join(warns))
         await self._say(req, self._requester(req), msg)
         await post_deploy.notify_other_approvers(self, req, repo, approver, approved=False)
+        await self._advance_dev_queue(repo)  # nhả slot dev → kick request đang xếp hàng

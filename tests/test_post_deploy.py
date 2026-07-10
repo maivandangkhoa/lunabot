@@ -86,17 +86,18 @@ def _ok_http(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ci_green_and_curl_ok_invites_manager(db, fakes):
+async def test_ci_green_and_curl_ok_invites_uat(db, fakes):
+    """Preview-first: CI xanh + curl 200 → mời REQUESTER kiểm thử trên URL dev thật (VERIFY),
+    CHƯA mời manager (đợi requester bấm Đạt)."""
     t, repo, emp, mgr = _seed(db)
     req = _merged_req(db, t, repo, emp)
     gh = DeployGitHub([[_run("success")]])
 
     await _verify(db, req, gh, fakes)
 
-    assert req.status == RequestStatus.AWAIT_MANAGER
-    assert any("deploy lên môi trường dev và test thấy hoạt động ổn" in s[1]
-               for s in fakes["adapter"].sent)
-    assert any(s[0] == "mgr-1" for s in fakes["adapter"].sent)  # manager được mời
+    assert req.status == RequestStatus.VERIFY
+    assert any("sotaman-dev.test" in s[1] for s in fakes["adapter"].sent)  # link dev cho requester
+    assert not any(s[0] == "mgr-1" for s in fakes["adapter"].sent)         # chưa mời manager
 
 
 @pytest.mark.asyncio
@@ -114,6 +115,11 @@ async def test_admin_only_tenant_is_invited(db, fakes):
     gh = DeployGitHub([[_run("success")]])
 
     await _verify(db, req, gh, fakes)
+    assert req.status == RequestStatus.VERIFY                     # requester UAT trước
+    # Requester duyệt → admin (cũng có quyền duyệt) được mời.
+    orch = Orchestrator(db, fakes["adapter"], github=gh,
+                        claude_run=FakeClaude([]), git=fakes["git"])
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
 
     assert req.status == RequestStatus.AWAIT_MANAGER
     assert any(s[0] == "admin-1" for s in fakes["adapter"].sent)  # admin được mời duyệt
@@ -147,7 +153,7 @@ async def test_ci_fail_then_autofix_succeeds(db, fakes):
 
     await _verify(db, req, gh, fakes, claude=claude)
 
-    assert req.status == RequestStatus.AWAIT_MANAGER
+    assert req.status == RequestStatus.VERIFY           # autofix xanh → mời requester UAT
     assert len(gh.merged) == 1                          # đã tạo+merge PR fix mới
     assert req.dev_merge_sha == "mergesha7"             # sha merge của PR fix (PR mới #7)
     assert req.branch_name == "bot/req-1-fix1"
@@ -186,7 +192,7 @@ async def test_autofix_claude_no_change_gives_up(db, fakes):
 
 @pytest.mark.asyncio
 async def test_auto_discovers_dev_url_when_only_gate_flag(db, fakes):
-    """Chỉ bật cờ deploy_gate (không nhập dev_url) → bot tự dò từ repo, cache lại, curl rồi mời manager."""
+    """Chỉ bật cờ deploy_gate (không nhập dev_url) → bot tự dò từ repo, cache lại, curl rồi mời requester UAT kèm link."""
     t = create_tenant(db, "Acme")
     repo = add_repository(db, t, "acme/widgets", 12345)
     repo.settings_json = {"deploy_gate": True}          # bật cổng, KHÔNG nhập dev_url
@@ -202,9 +208,9 @@ async def test_auto_discovers_dev_url_when_only_gate_flag(db, fakes):
 
     await _verify(db, req, gh, fakes, claude=claude)
 
-    assert req.status == RequestStatus.AWAIT_MANAGER
+    assert req.status == RequestStatus.VERIFY
     assert repo.settings_json.get("dev_url_auto") == "https://sotaman-dev.web.app"  # đã cache
-    assert any(s[0] == "mgr-1" for s in fakes["adapter"].sent)
+    assert any("sotaman-dev.web.app" in s[1] for s in fakes["adapter"].sent)  # link dò được gửi requester
 
 
 def test_dev_verify_configured_default_true_optout_false(db):
@@ -220,8 +226,9 @@ def test_dev_verify_configured_default_true_optout_false(db):
 
 
 @pytest.mark.asyncio
-async def test_no_ci_repo_invites_manager(db, fakes):
-    """Gate bật mặc định nhưng repo KHÔNG có workflow nào cho commit → no_ci → mời manager ngay."""
+async def test_no_ci_repo_invites_uat(db, fakes):
+    """Gate bật mặc định nhưng repo KHÔNG có workflow nào cho commit → no_ci → mời requester UAT
+    (không có link deploy), CHƯA mời manager."""
     t, repo, emp, mgr = _seed(db)
     repo.settings_json = {}                              # gate mặc định bật, không cấu hình gì
     db.commit()
@@ -230,10 +237,8 @@ async def test_no_ci_repo_invites_manager(db, fakes):
 
     await _verify(db, req, gh, fakes)
 
-    assert req.status == RequestStatus.AWAIT_MANAGER
-    assert any(s[0] == "mgr-1" for s in fakes["adapter"].sent)
-    # Báo chung, KHÔNG phải câu 'đã deploy + test ổn' (vì không có deploy để test).
-    assert not any("test thấy hoạt động ổn" in s[1] for s in fakes["adapter"].sent)
+    assert req.status == RequestStatus.VERIFY
+    assert not any(s[0] == "mgr-1" for s in fakes["adapter"].sent)  # chưa mời manager
 
 
 @pytest.mark.asyncio

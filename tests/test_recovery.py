@@ -49,6 +49,23 @@ def test_close_interrupted_only_running_states(db):
     assert all(e.payload_json.get("recovery") == "interrupted_by_restart" for e in evs)
 
 
+def test_close_interrupted_rework_holder_back_to_verify(db):
+    """Preview-first: request rework (EXECUTING + đã có dev_merge_sha = đang giữ slot dev) bị ngắt
+    khi restart → KHÔNG huỷ (tránh rò dev lên main), đưa về VERIFY để user UAT lại."""
+    t, repo, emp = _seed(db)
+    rework = _mkreq(db, t, repo, emp, RequestStatus.EXECUTING, dev_merge_sha="sha1")
+    plain = _mkreq(db, t, repo, emp, RequestStatus.EXECUTING)   # first-pass, chưa merge dev
+
+    closed = close_interrupted(db)
+
+    assert {r.id for r in closed} == {plain.id}     # chỉ non-holder bị huỷ + báo
+    db.refresh(rework); db.refresh(plain)
+    assert rework.status == RequestStatus.VERIFY     # holder → giữ slot, về UAT
+    assert plain.status == RequestStatus.CANCELLED
+    ev = db.scalars(select(RequestEvent).where(RequestEvent.request_id == rework.id)).first()
+    assert ev.payload_json.get("recovery") == "rework_interrupted_back_to_verify"
+
+
 @pytest.mark.asyncio
 async def test_recover_notifies_origin(db):
     t, repo, emp = _seed(db)

@@ -263,16 +263,30 @@ TEXTS: dict[str, dict[str, str]] = {
     # ── _merge_to_dev ──
     "orch.dev_holder_wait": {
         "vi": (
-            "⏳ Yêu cầu #{holder_id} đang chờ manager duyệt merge `main`. Em xử lý "
-            "#{id} sau khi #{holder_id} xong — anh/chị bấm **✅ Đạt** lại lúc đó nhé."
+            "⏳ Yêu cầu #{holder_id} đang chiếm môi trường thử nghiệm (dev). Em sẽ TỰ ĐỘNG "
+            "dựng bản xem thử cho #{id} ngay khi #{holder_id} xong — anh/chị không cần làm gì thêm."
         ),
         "en": (
-            "⏳ Request #{holder_id} is waiting for a manager to approve the `main` merge. I'll handle "
-            "#{id} after #{holder_id} is done — please tap **✅ Đạt** again at that point."
+            "⏳ Request #{holder_id} is currently using the test (dev) environment. I'll "
+            "AUTOMATICALLY build the preview for #{id} once #{holder_id} is done — nothing needed from you."
         ),
         "ko": (
-            "⏳ #{holder_id} 요청이 `main` 병합에 대한 관리자 승인을 기다리고 있습니다. #{holder_id}가 "
-            "끝난 뒤 #{id}를 처리하겠습니다 — 그때 **✅ Đạt**를 다시 눌러 주세요."
+            "⏳ #{holder_id} 요청이 현재 테스트(dev) 환경을 사용 중입니다. #{holder_id}가 끝나는 대로 "
+            "#{id}의 미리보기를 자동으로 만들겠습니다 — 별도 조치는 필요 없습니다."
+        ),
+    },
+    "orch.await_slot_still": {
+        "vi": (
+            "⏳ Yêu cầu #{id} vẫn đang xếp hàng chờ môi trường thử nghiệm (dev). "
+            "Em sẽ tự dựng bản xem thử khi tới lượt, anh/chị chờ chút nhé."
+        ),
+        "en": (
+            "⏳ Request #{id} is still queued for the test (dev) environment. "
+            "I'll build the preview automatically when it's this request's turn — please hold on."
+        ),
+        "ko": (
+            "⏳ #{id} 요청은 아직 테스트(dev) 환경을 기다리는 중입니다. "
+            "차례가 되면 미리보기를 자동으로 만들겠습니다 — 잠시만 기다려 주세요."
         ),
     },
     "orch.merge_dev_error": {

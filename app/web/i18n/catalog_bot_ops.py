@@ -25,23 +25,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "✅ `{base}`에 머지했습니다. 매니저 승인을 기다리는 중입니다.",
     },
 
+    # ── post_deploy: enter_uat (preview-first: mời requester UAT trên URL dev thật) ──
+    "ops.uat.deployed_link": {
+        "vi": "✅ Em đã đưa thay đổi lên môi trường thử nghiệm (dev). "
+              "Anh/chị mở kiểm tra thực tế tại:\n{url}",
+        "en": "✅ I've deployed the change to the test (dev) environment. "
+              "Please check it live here:\n{url}",
+        "ko": "✅ 변경 사항을 테스트(dev) 환경에 배포했습니다. "
+              "실제 화면을 여기에서 확인해 주세요:\n{url}",
+    },
+    "ops.uat.deployed": {
+        "vi": "✅ Em đã đưa thay đổi lên môi trường thử nghiệm (dev) để anh/chị kiểm tra.",
+        "en": "✅ I've deployed the change to the test (dev) environment for you to check.",
+        "ko": "✅ 변경 사항을 테스트(dev) 환경에 배포했으니 확인해 주세요.",
+    },
+
     # ── post_deploy: _run_verify_loop ──
-    "ops.deploy_ok": {
-        "vi": "✅ Em đã deploy lên môi trường dev và test thấy hoạt động ổn rồi. "
-              "Đang chờ manager duyệt.",
-        "en": "✅ I deployed to the dev environment and tested it working fine. "
-              "Waiting for manager approval.",
-        "ko": "✅ dev 환경에 배포하고 테스트해 보니 정상 작동했습니다. "
-              "매니저 승인을 기다리는 중입니다.",
-    },
-    "ops.deploy_ok_link": {
-        "vi": "✅ Em đã deploy lên môi trường dev và test thấy hoạt động ổn rồi.\n"
-              "Anh/chị xem thử tại: {url}\nNếu đúng ý rồi, em đang chờ manager duyệt để triển khai chính thức.",
-        "en": "✅ I deployed to the dev environment and tested it working fine.\n"
-              "You can check it here: {url}\nIf it looks right, I'm now waiting for manager approval to go live.",
-        "ko": "✅ dev 환경에 배포하고 테스트해 보니 정상 작동했습니다.\n"
-              "여기에서 확인해 보세요: {url}\n괜찮으시면 정식 배포를 위해 매니저 승인을 기다리는 중입니다.",
-    },
     "ops.deploy_retry": {
         "vi": "🔧 Deploy/kiểm thử dev chưa đạt ({reason}). Em tự sửa lại (lần {round})…",
         "en": "🔧 Dev deploy/test not passing yet ({reason}). I'll fix it myself (attempt {round})…",

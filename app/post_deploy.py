@@ -1,9 +1,9 @@
-"""Kiểm thử sau khi merge vào dev — chờ CI build+deploy + curl trang dev, rồi mới mời manager.
+"""Kiểm thử sau khi merge vào dev — chờ CI build+deploy + curl trang dev, rồi mời requester UAT.
 
 Khiếu nại gốc: bot merge vào `dev` → GitHub Action deploy lên môi trường dev; build LỖI mà
-bot vẫn báo OK / mời manager. Module này chèn bước: sau merge dev (status `MERGED_DEV`),
-poll GitHub Actions theo `head_sha`, nếu xanh thì curl `dev_url` (200) → AWAIT_MANAGER và
-báo user 'đã deploy + test ổn'. Lỗi → tự đưa cho Claude sửa (fix-forward), lặp tối đa
+bot vẫn báo OK. Preview-first: sau merge dev (status `MERGED_DEV`), poll GitHub Actions theo
+`head_sha`, nếu xanh thì curl `dev_url` (200) → `enter_uat`: mời REQUESTER kiểm thử trên URL
+THẬT (VERIFY) rồi mới cho trình manager duyệt. Lỗi → tự đưa Claude sửa (fix-forward), lặp tối đa
 `dev_verify_max_rounds` vòng; hết vẫn lỗi → về VERIFY cho người quyết, KHÔNG báo OK.
 
 Chạy như BACKGROUND TASK (poll lâu, không được chặn poller). Có DB session/adapter riêng
@@ -268,6 +268,25 @@ async def enter_await_manager(orch: "Orchestrator", req: Request, *, user_msg: s
     await notify_managers(orch, req, repo)
 
 
+async def enter_uat(orch: "Orchestrator", req: Request, *, dev_url: str | None = None) -> None:
+    """Preview-first: sau khi thay đổi đã lên môi trường dev, mời REQUESTER kiểm thử trên URL
+    THẬT rồi mới cho trình manager duyệt (thay vì 'duyệt mù' trước deploy).
+
+    dev_url None → lấy từ cấu hình repo (rẻ, không gọi Claude); vẫn None → bàn giao không link.
+    Requester bấm Đạt → enter_await_manager; Cần sửa → rework (dev đã merge, PR đã reset)."""
+    repo = orch._repo(req)
+    requester = orch._requester(req)
+    set_lang_for(requester)
+    if dev_url is None:
+        s = repo.settings_json or {}
+        dev_url = s.get("dev_url") or s.get("dev_url_auto")
+    orch._set_status(req, RequestStatus.VERIFY)
+    orch.db.commit()
+    header = t("ops.uat.deployed_link", url=dev_url) if dev_url else t("ops.uat.deployed")
+    await orch._say(req, requester, header + "\n\n" + report.self_test_message(req),
+                    buttons=orch._verify_buttons(req))
+
+
 # ---------------- vòng deploy-gate ----------------
 async def verify_after_dev_merge(
     req_id: int, *, settings: Settings | None = None, db=None,
@@ -323,11 +342,11 @@ async def _run_verify_loop(orch: "Orchestrator", req: Request, repo: Repository,
     resolved = False
     while True:
         if not sha:  # không có sha (vd merge fast-forward không trả sha) → không thể poll
-            await enter_await_manager(orch, req)
+            await enter_uat(orch, req)
             return
         outcome = await _poll_deploy(orch.github, repo, sha, settings)
-        if outcome.status == "no_ci":  # repo không có CI deploy → bỏ qua cổng, mời manager như cũ
-            await enter_await_manager(orch, req)
+        if outcome.status == "no_ci":  # repo không có CI deploy → bỏ cổng, mời UAT (không link)
+            await enter_uat(orch, req)
             return
         passed = outcome.status == "success"
         reason = "" if passed else (outcome.summary or f"deploy {outcome.status}")
@@ -341,9 +360,9 @@ async def _run_verify_loop(orch: "Orchestrator", req: Request, repo: Repository,
                 reason = "" if ok else f"trang dev {dev_url} không trả 2xx ({detail})"
 
         if passed:
-            # Bàn giao kèm link DEV để người dùng tự kiểm tra (UAT) nếu đã dò được URL.
-            msg = t("ops.deploy_ok_link", url=dev_url) if dev_url else t("ops.deploy_ok")
-            await enter_await_manager(orch, req, user_msg=msg)
+            # Preview-first: deploy dev OK → mời requester UAT trên URL thật (nút Đạt/Cần sửa),
+            # requester duyệt xong mới tới manager.
+            await enter_uat(orch, req, dev_url=dev_url)
             return
 
         rounds += 1

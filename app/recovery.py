@@ -40,18 +40,31 @@ _INTERRUPTED = (RequestStatus.NEW, RequestStatus.ANALYZING, RequestStatus.EXECUT
 
 
 def close_interrupted(db: Session) -> list[Request]:
-    """Đánh dấu CANCELLED + ghi event cho mọi request kẹt ở trạng thái chạy. Commit & trả list."""
+    """Đánh dấu CANCELLED + ghi event cho request kẹt ở trạng thái chạy. Commit & trả list ĐÃ HUỶ.
+
+    Ngoại lệ preview-first: request đang rework (EXECUTING nhưng ĐÃ có dev_merge_sha → đang giữ
+    slot dev với bản đã merge trước đó) KHÔNG huỷ — huỷ mà không revert sẽ để thay đổi lửng lơ
+    trên dev rồi rò lên main. Đưa về VERIFY (UAT trên bản dev cũ đã tốt), user tự bấm 'Cần sửa' lại."""
     reqs = list(db.scalars(select(Request).where(Request.status.in_(_INTERRUPTED))).all())
+    cancelled: list[Request] = []
     for req in reqs:
+        if req.dev_merge_sha is not None:  # holder đang rework → giữ slot, về UAT
+            log.warning("recovery: request %s rework bị ngắt (restart) → về VERIFY (giữ dev)", req.id)
+            req.status = RequestStatus.VERIFY
+            db.add(RequestEvent(
+                request_id=req.id, kind=EventKind.SYSTEM, direction=EventDirection.OUT,
+                payload_json={"recovery": "rework_interrupted_back_to_verify"}))
+            continue
         log.warning("recovery: đóng request %s kẹt ở %s (do restart)", req.id, req.status.value)
         req.status = RequestStatus.CANCELLED
         db.add(RequestEvent(
             request_id=req.id, kind=EventKind.SYSTEM, direction=EventDirection.OUT,
             payload_json={"recovery": "interrupted_by_restart"},
         ))
+        cancelled.append(req)
     if reqs:
         db.commit()
-    return reqs
+    return cancelled
 
 
 def _build_adapter(platform: str | None, settings: Settings) -> ChannelAdapter | None:

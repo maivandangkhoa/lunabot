@@ -124,10 +124,10 @@ async def test_execute_failure_is_retriable_via_confirm(db, fakes, tmp_path):
                                    RequestEvent.kind == EventKind.SYSTEM)).all()]
     assert any("trục trặc khi thực hiện" in p for p in payloads)
 
-    # Bấm Confirm lại → execute chạy lại, lần này OK → VERIFY.
+    # Bấm Confirm lại → execute chạy lại, lần này OK → merge dev + UAT (VERIFY).
     await orch.handle_callback(req, emp, cb("confirm", req.id))
     assert req.status == RequestStatus.VERIFY
-    assert req.pr_number == 7
+    assert 7 in fakes["github"].merged  # execute OK → đã merge lên dev
 
 
 @pytest.mark.asyncio
@@ -167,14 +167,16 @@ async def test_full_happy_path(db, fakes, tmp_path):
     # Plan gửi cho requester kèm nút Confirm.
     assert any("Kế hoạch" in s[1] for s in fakes["adapter"].sent)
 
+    # Preview-first: confirm → tự merge dev + (deploy_gate off) mời requester UAT ⇒ VERIFY.
     await orch.handle_callback(req, emp, cb("confirm", req.id))
     assert req.status == RequestStatus.VERIFY
-    assert req.pr_number == 7 and "pull/7" in req.pr_url
+    assert 7 in fakes["github"].merged                # PR đã merge vào dev NGAY khi confirm
+    assert req.pr_number is None and "pull/7" in req.pr_url  # pr_number reset (rework mở PR mới), giữ url
     assert fakes["github"].created_prs[0]["base"] == "dev"
 
+    # Requester kiểm thử trên dev xong bấm Đạt → mời manager (dev đã merge từ trước).
     await orch.handle_callback(req, emp, cb("verify_ok", req.id))
     assert req.status == RequestStatus.AWAIT_MANAGER
-    assert 7 in fakes["github"].merged  # PR vào dev đã merge
     # Manager được thông báo.
     assert any(s[0] == "mgr-1" for s in fakes["adapter"].sent)
 
@@ -432,13 +434,14 @@ async def test_manager_reject_reverts_dev_and_cleans(db, fakes, tmp_path):
     assert req.status == RequestStatus.CANCELLED
     assert any(a.decision == ApprovalDecision.REJECTED for a in req.approvals)
     assert fakes["git"].reverted == "mergesha7"            # đã revert dev
-    assert req.pr_number in fakes["github"].closed_prs      # PR đã đóng
     assert req.branch_name in fakes["github"].deleted_branches  # nhánh đã xoá
+    # (pr_number đã reset về None sau merge dev — PR feature đã merged, không cần đóng)
 
 
 @pytest.mark.asyncio
-async def test_cancel_at_verify_closes_pr_no_revert(db, fakes, tmp_path):
-    """Huỷ ở VERIFY (chưa merge dev) → đóng PR + xoá nhánh, KHÔNG revert dev."""
+async def test_cancel_at_uat_reverts_dev(db, fakes, tmp_path):
+    """Preview-first: huỷ ở VERIFY nghĩa là đã merge dev (UAT) → PHẢI revert dev + xoá nhánh,
+    để thay đổi bị bỏ không rò lên main ở lần approve kế tiếp."""
     t, repo, emp, mgr = _seed(db)
     claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
     orch = _orch(db, fakes, claude)
@@ -447,12 +450,12 @@ async def test_cancel_at_verify_closes_pr_no_revert(db, fakes, tmp_path):
     req = await orch.create_request(repo, emp, "Thêm X", "chi tiết")
     await orch.handle_callback(req, emp, cb("confirm", req.id))
     assert req.status == RequestStatus.VERIFY
+    assert req.dev_merge_sha == "mergesha7"                  # đã merge dev khi confirm
 
     await orch.handle_callback(req, emp, cb("cancel", req.id))
     assert req.status == RequestStatus.CANCELLED
-    assert req.pr_number in fakes["github"].closed_prs
+    assert fakes["git"].reverted == "mergesha7"              # dev đã được revert
     assert req.branch_name in fakes["github"].deleted_branches
-    assert getattr(fakes["git"], "reverted", None) is None  # dev chưa bị đụng
 
 
 def _mkreq(db, t, repo, emp, status, **kw):
@@ -464,34 +467,54 @@ def _mkreq(db, t, repo, emp, status, **kw):
 
 
 @pytest.mark.asyncio
-async def test_verify_blocked_when_dev_slot_occupied(db, fakes, tmp_path):
-    """Serialize: request khác cùng repo đang AWAIT_MANAGER ⇒ verify_ok KHÔNG merge dev,
-    giữ VERIFY, gửi lại nút để bấm Đạt sau (tránh approve cuốn cả dev → mồ côi)."""
+async def test_dev_slot_parks_when_occupied(db, fakes, tmp_path):
+    """Preview-first serialize: request khác cùng repo đang giữ slot dev (đã merge, chưa release)
+    ⇒ _merge_to_dev KHÔNG merge, PARK (VERIFY + cờ chờ), báo requester — tránh trộn preview."""
     t, repo, emp, mgr = _seed(db)
-    holder = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER)
-    waiter = _mkreq(db, t, repo, emp, RequestStatus.VERIFY, pr_number=9)
+    holder = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER, dev_merge_sha="held")
+    waiter = _mkreq(db, t, repo, emp, RequestStatus.EXECUTING, pr_number=9)
     orch = _orch(db, fakes, FakeClaude([]))
 
-    await orch.handle_callback(waiter, emp, cb("verify_ok", waiter.id))
+    await orch._merge_to_dev(waiter)
 
-    assert waiter.status == RequestStatus.VERIFY       # chưa merge dev
+    assert waiter.status == RequestStatus.VERIFY and orch._is_parked(waiter)  # đang xếp hàng
+    assert waiter.dev_merge_sha is None                # chưa merge dev
     assert 9 not in fakes["github"].merged             # PR không bị merge
-    last = fakes["adapter"].sent[-1]
-    assert f"#{holder.id}" in last[1] and last[2]      # báo chờ + có nút verify gửi lại
+    assert f"#{holder.id}" in fakes["adapter"].sent[-1][1]  # báo đang chờ holder
 
 
 @pytest.mark.asyncio
-async def test_verify_proceeds_when_slot_free(db, fakes, tmp_path):
-    """Holder đã CLOSED (không còn chiếm dev) ⇒ verify_ok merge dev bình thường."""
+async def test_dev_slot_proceeds_when_free(db, fakes, tmp_path):
+    """Holder đã CLOSED (không còn chiếm dev) ⇒ _merge_to_dev merge + mời UAT (deploy_gate off)."""
     t, repo, emp, mgr = _seed(db)
-    _mkreq(db, t, repo, emp, RequestStatus.CLOSED)     # đã release, không chiếm slot
-    waiter = _mkreq(db, t, repo, emp, RequestStatus.VERIFY, pr_number=9,
+    _mkreq(db, t, repo, emp, RequestStatus.CLOSED, dev_merge_sha="old")  # đã release
+    waiter = _mkreq(db, t, repo, emp, RequestStatus.EXECUTING, pr_number=9,
                     branch_name="bot/req-x")
     orch = _orch(db, fakes, FakeClaude([]))
 
-    await orch.handle_callback(waiter, emp, cb("verify_ok", waiter.id))
+    await orch._merge_to_dev(waiter)
 
-    assert waiter.status == RequestStatus.AWAIT_MANAGER
+    assert 9 in fakes["github"].merged
+    assert waiter.dev_merge_sha == "mergesha9" and not orch._is_parked(waiter)
+    assert waiter.status == RequestStatus.VERIFY       # UAT (deploy_gate off → enter_uat)
+
+
+@pytest.mark.asyncio
+async def test_dev_queue_advances_on_release(db, fakes, tmp_path):
+    """Holder nhả slot (manager duyệt xong) ⇒ tự động kick request đang park → merge dev cho nó."""
+    t, repo, emp, mgr = _seed(db)
+    holder = _mkreq(db, t, repo, emp, RequestStatus.AWAIT_MANAGER, dev_merge_sha="held",
+                    pr_url="http://x/pull/1", branch_name="bot/req-h")
+    # waiter đang park: VERIFY + dev_merge_sha None + cờ _await_slot
+    waiter = _mkreq(db, t, repo, emp, RequestStatus.VERIFY, pr_number=9,
+                    report_json={"_await_slot": True})
+    orch = _orch(db, fakes, FakeClaude([]))
+
+    await orch.handle_callback(holder, mgr, cb("mgr_approve", holder.id))
+
+    assert holder.status == RequestStatus.CLOSED       # holder nhả slot
+    assert waiter.status == RequestStatus.VERIFY and not orch._is_parked(waiter)  # đã được kick
+    assert waiter.dev_merge_sha == "mergesha9"         # waiter đã merge dev
     assert 9 in fakes["github"].merged
 
 
