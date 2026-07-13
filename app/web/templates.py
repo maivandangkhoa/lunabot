@@ -28,7 +28,7 @@ def landing(login_url: str, enabled: bool) -> str:
             "<span class='code'>deploy/self-service.md</span>.</div></div>"
             "</div></div>"
         )
-        return onboarding("Luna", body)
+        return onboarding("Rio", body)
 
     flow = ("<span class='flow'>" + f"{icon('arrow-right')}".join(
         f"<span class='fstep'>{esc(t(k))}</span>" for k in _FLOW) + "</span>")

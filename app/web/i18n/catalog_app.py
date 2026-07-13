@@ -1,6 +1,6 @@
 """Catalog dịch — shell, navigation, wizard, done, dashboard. (xem app/web/i18n/__init__.py)
 
-Mỗi key: {"vi": ..., "en": ..., "ko": ...}. Brand/tech-term (Luna, GitHub App, Telegram,
+Mỗi key: {"vi": ..., "en": ..., "ko": ...}. Brand/tech-term (Rio, GitHub App, Telegram,
 FSM, Claude Code, repo names…) giữ nguyên, không dịch.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "common.next": {"vi": "Tiếp tục", "en": "Continue", "ko": "계속"},
     "common.confirm": {"vi": "Xác nhận", "en": "Confirm", "ko": "확인"},
     "common.cancel": {"vi": "Huỷ", "en": "Cancel", "ko": "취소"},
-    "common.luna_shared": {"vi": "Luna chung", "en": "Shared Luna", "ko": "공용 Luna"},
+    "common.luna_shared": {"vi": "Rio chung", "en": "Shared Rio", "ko": "공용 Rio"},
     "lang.label": {"vi": "Ngôn ngữ", "en": "Language", "ko": "언어"},
 
     # ── Navigation / shell ──
@@ -33,10 +33,10 @@ TEXTS: dict[str, dict[str, str]] = {
     "shell.menu": {"vi": "Menu", "en": "Menu", "ko": "메뉴"},
 
     # ── Document titles ──
-    "title.landing": {"vi": "Luna — Kỹ sư bảo trì AI", "en": "Luna — AI Maintenance Engineer", "ko": "Luna — AI 유지보수 엔지니어"},
-    "title.wizard": {"vi": "Luna — cấu hình bot", "en": "Luna — configure bot", "ko": "Luna — 봇 설정"},
-    "title.done": {"vi": "Luna — đã tạo bot", "en": "Luna — bot created", "ko": "Luna — 봇 생성 완료"},
-    "title.dashboard": {"vi": "Luna — Bảng điều khiển", "en": "Luna — Dashboard", "ko": "Luna — 대시보드"},
+    "title.landing": {"vi": "Rio — Kỹ sư bảo trì AI", "en": "Rio — AI Maintenance Engineer", "ko": "Rio — AI 유지보수 엔지니어"},
+    "title.wizard": {"vi": "Rio — cấu hình bot", "en": "Rio — configure bot", "ko": "Rio — 봇 설정"},
+    "title.done": {"vi": "Rio — đã tạo bot", "en": "Rio — bot created", "ko": "Rio — 봇 생성 완료"},
+    "title.dashboard": {"vi": "Rio — Bảng điều khiển", "en": "Rio — Dashboard", "ko": "Rio — 대시보드"},
 
     # ── Wizard ──
     "wizard.repo_empty": {"vi": "— chưa có repo, hãy cài GitHub App —", "en": "— no repos yet, install the GitHub App —", "ko": "— 저장소 없음, GitHub App을 설치하세요 —"},
@@ -50,32 +50,32 @@ TEXTS: dict[str, dict[str, str]] = {
     "wizard.install_app": {"vi": "Cài GitHub App", "en": "Install GitHub App", "ko": "GitHub App 설치"},
     "wizard.hosting.label": {"vi": "Hạ tầng chạy bot", "en": "Bot infrastructure", "ko": "봇 인프라"},
     "wizard.hosting.shared.title": {"vi": "Chạy chung", "en": "Shared", "ko": "공용"},
-    "wizard.hosting.shared.desc": {"vi": "Khuyến nghị — khởi động tức thì trên hạ tầng Luna.", "en": "Recommended — starts instantly on Luna's infrastructure.", "ko": "추천 — Luna 인프라에서 즉시 시작됩니다."},
+    "wizard.hosting.shared.desc": {"vi": "Khuyến nghị — khởi động tức thì trên hạ tầng Rio.", "en": "Recommended — starts instantly on Rio's infrastructure.", "ko": "추천 — Rio 인프라에서 즉시 시작됩니다."},
     "wizard.hosting.dedicated.title": {"vi": "Container riêng", "en": "Dedicated container", "ko": "전용 컨테이너"},
     "wizard.hosting.dedicated.desc": {"vi": "Cô lập thật cho khối lượng công việc nhạy cảm.", "en": "True isolation for sensitive workloads.", "ko": "민감한 워크로드를 위한 완전한 격리."},
     "wizard.title": {"vi": "Tạo bot bảo trì", "en": "Create a maintenance bot", "ko": "유지보수 봇 만들기"},
     "wizard.greeting": {"vi": "Chào {name} 👋 — bốn bước là bot của bạn sẵn sàng.", "en": "Hi {name} 👋 — four steps and your bot is ready.", "ko": "{name}님 안녕하세요 👋 — 네 단계면 봇이 준비됩니다."},
     "wizard.s0.title": {"vi": "Kết nối repository", "en": "Connect repository", "ko": "저장소 연결"},
-    "wizard.s0.desc": {"vi": "Cho phép Luna truy cập & bảo trì codebase của bạn một cách an toàn.", "en": "Let Luna securely access & maintain your codebase.", "ko": "Luna가 코드베이스에 안전하게 접근하고 유지보수하도록 허용하세요."},
+    "wizard.s0.desc": {"vi": "Cho phép Rio truy cập & bảo trì codebase của bạn một cách an toàn.", "en": "Let Rio securely access & maintain your codebase.", "ko": "Rio가 코드베이스에 안전하게 접근하고 유지보수하도록 허용하세요."},
     "wizard.s0.ghapp_desc": {"vi": "Cài/đổi quyền repo, rồi quay lại đây.", "en": "Install/change repo permissions, then come back here.", "ko": "저장소 권한을 설치/변경한 뒤 여기로 돌아오세요."},
     "wizard.s0.select": {"vi": "Chọn repository", "en": "Select repository", "ko": "저장소 선택"},
     "wizard.s1.title": {"vi": "Chọn loại bot", "en": "Choose bot type", "ko": "봇 유형 선택"},
-    "wizard.s1.desc": {"vi": "Dùng bot Luna chung hoặc bot Telegram mang thương hiệu của bạn.", "en": "Use the shared Luna bot or your own branded Telegram bot.", "ko": "공용 Luna 봇 또는 자체 브랜드 Telegram 봇을 사용하세요."},
+    "wizard.s1.desc": {"vi": "Dùng bot Rio chung hoặc bot Telegram mang thương hiệu của bạn.", "en": "Use the shared Rio bot or your own branded Telegram bot.", "ko": "공용 Rio 봇 또는 자체 브랜드 Telegram 봇을 사용하세요."},
     "wizard.s1.platform": {"vi": "Kênh chat", "en": "Chat channel", "ko": "채팅 채널"},
     "wizard.s1.platform.telegram": {"vi": "Telegram", "en": "Telegram", "ko": "Telegram"},
     "wizard.s1.platform.telegram_desc": {"vi": "Nhắn tin với bot qua Telegram.", "en": "Chat with the bot via Telegram.", "ko": "Telegram으로 봇과 대화하세요."},
     "wizard.s1.platform.gchat": {"vi": "Google Chat", "en": "Google Chat", "ko": "Google Chat"},
     "wizard.s1.platform.gchat_desc": {"vi": "Nhắn tin với bot qua Google Chat (Workspace).", "en": "Chat with the bot via Google Chat (Workspace).", "ko": "Google Chat(Workspace)으로 봇과 대화하세요."},
-    "wizard.s1.gchat_note": {"vi": "Google Chat chỉ hỗ trợ bot Luna chung — không có bot riêng.", "en": "Google Chat supports the shared Luna bot only — no own bot.", "ko": "Google Chat은 공용 Luna 봇만 지원합니다 — 자체 봇은 없습니다."},
+    "wizard.s1.gchat_note": {"vi": "Google Chat chỉ hỗ trợ bot Rio chung — không có bot riêng.", "en": "Google Chat supports the shared Rio bot only — no own bot.", "ko": "Google Chat은 공용 Rio 봇만 지원합니다 — 자체 봇은 없습니다."},
     "wizard.s1.platform.zalo": {"vi": "Zalo", "en": "Zalo", "ko": "Zalo"},
     "wizard.s1.platform.zalo_desc": {"vi": "Nhắn tin với bot qua Zalo OA.", "en": "Chat with the bot via Zalo OA.", "ko": "Zalo OA로 봇과 대화하세요."},
     "wizard.s1.platform.messenger": {"vi": "Messenger", "en": "Messenger", "ko": "Messenger"},
     "wizard.s1.platform.messenger_desc": {"vi": "Nhắn tin với bot qua Facebook Messenger.", "en": "Chat with the bot via Facebook Messenger.", "ko": "Facebook Messenger로 봇과 대화하세요."},
     "wizard.s1.platform.slack": {"vi": "Slack", "en": "Slack", "ko": "Slack"},
     "wizard.s1.platform.slack_desc": {"vi": "Nhắn tin với bot qua Slack.", "en": "Chat with the bot via Slack.", "ko": "Slack으로 봇과 대화하세요."},
-    "wizard.s1.sharedonly_note": {"vi": "Kênh này chỉ hỗ trợ bot Luna chung — không có bot riêng.", "en": "This channel supports the shared Luna bot only — no own bot.", "ko": "이 채널은 공용 Luna 봇만 지원합니다 — 자체 봇은 없습니다."},
-    "wizard.s1.shared.title": {"vi": "Bot Luna chung", "en": "Shared Luna bot", "ko": "공용 Luna 봇"},
-    "wizard.s1.shared.desc": {"vi": "Không cần cài gì. Bắt đầu ngay trên hạ tầng Luna.", "en": "Nothing to install. Start right away on Luna's infrastructure.", "ko": "설치 불필요. Luna 인프라에서 바로 시작하세요."},
+    "wizard.s1.sharedonly_note": {"vi": "Kênh này chỉ hỗ trợ bot Rio chung — không có bot riêng.", "en": "This channel supports the shared Rio bot only — no own bot.", "ko": "이 채널은 공용 Rio 봇만 지원합니다 — 자체 봇은 없습니다."},
+    "wizard.s1.shared.title": {"vi": "Bot Rio chung", "en": "Shared Rio bot", "ko": "공용 Rio 봇"},
+    "wizard.s1.shared.desc": {"vi": "Không cần cài gì. Bắt đầu ngay trên hạ tầng Rio.", "en": "Nothing to install. Start right away on Rio's infrastructure.", "ko": "설치 불필요. Rio 인프라에서 바로 시작하세요."},
     "wizard.s1.own.title": {"vi": "Bot riêng", "en": "Your own bot", "ko": "자체 봇"},
     "wizard.s1.own.desc": {"vi": "Dùng tên & avatar Telegram của riêng bạn.", "en": "Use your own Telegram name & avatar.", "ko": "자체 Telegram 이름과 아바타를 사용하세요."},
     "wizard.s2.title": {"vi": "Cấu hình bot", "en": "Configure bot", "ko": "봇 구성"},
@@ -114,12 +114,12 @@ TEXTS: dict[str, dict[str, str]] = {
     "wizard.create_btn": {"vi": "Tạo bot", "en": "Create bot", "ko": "봇 만들기"},
     "wizard.foot_view": {"vi": "Xem bot đã tạo", "en": "View created bots", "ko": "생성된 봇 보기"},
     "wizard.js.own": {"vi": "Bot riêng (Telegram)", "en": "Your own bot (Telegram)", "ko": "자체 봇 (Telegram)"},
-    "wizard.js.shared": {"vi": "Bot Luna chung", "en": "Shared Luna bot", "ko": "공용 Luna 봇"},
+    "wizard.js.shared": {"vi": "Bot Rio chung", "en": "Shared Rio bot", "ko": "공용 Rio 봇"},
 
     # ── Done ──
     "done.open_telegram": {"vi": "Mở bot trong Telegram", "en": "Open bot in Telegram", "ko": "Telegram에서 봇 열기"},
-    "done.shared_msg": {"vi": "Nhắn bot Luna chung: ", "en": "Message the shared Luna bot: ", "ko": "공용 Luna 봇에 메시지: "},
-    "done.gchat_msg": {"vi": "Nhắn Luna trên Google Chat: ", "en": "Message Luna on Google Chat: ", "ko": "Google Chat에서 Luna에 메시지: "},
+    "done.shared_msg": {"vi": "Nhắn bot Rio chung: ", "en": "Message the shared Rio bot: ", "ko": "공용 Rio 봇에 메시지: "},
+    "done.gchat_msg": {"vi": "Nhắn Rio trên Google Chat: ", "en": "Message Rio on Google Chat: ", "ko": "Google Chat에서 Rio에 메시지: "},
     "done.title": {"vi": "Bot đã sẵn sàng 🎉", "en": "Your bot is ready 🎉", "ko": "봇이 준비되었습니다 🎉"},
     "done.subtitle": {"vi": "Liên kết tài khoản chat rồi bắt đầu gửi yêu cầu bảo trì.", "en": "Link your chat account and start sending maintenance requests.", "ko": "채팅 계정을 연결하고 유지보수 요청을 보내기 시작하세요."},
     "done.repo": {"vi": "Repository", "en": "Repository", "ko": "저장소"},
@@ -133,18 +133,18 @@ TEXTS: dict[str, dict[str, str]] = {
     "dash.subtitle": {"vi": "Các bot bảo trì AI của bạn và trạng thái hiện tại.", "en": "Your AI maintenance bots and their current status.", "ko": "AI 유지보수 봇과 현재 상태입니다."},
     "dash.new": {"vi": "Tạo bot mới", "en": "New bot", "ko": "새 봇"},
     "dash.empty.title": {"vi": "Chưa có bot nào", "en": "No bots yet", "ko": "아직 봇이 없습니다"},
-    "dash.empty.desc": {"vi": "Tạo bot đầu tiên để Luna bắt đầu bảo trì codebase của bạn qua chat.", "en": "Create your first bot so Luna can start maintaining your codebase over chat.", "ko": "첫 봇을 만들어 Luna가 채팅으로 코드베이스 유지보수를 시작하게 하세요."},
+    "dash.empty.desc": {"vi": "Tạo bot đầu tiên để Rio bắt đầu bảo trì codebase của bạn qua chat.", "en": "Create your first bot so Rio can start maintaining your codebase over chat.", "ko": "첫 봇을 만들어 Rio가 채팅으로 코드베이스 유지보수를 시작하게 하세요."},
     "dash.empty.cta": {"vi": "Tạo bot đầu tiên", "en": "Create your first bot", "ko": "첫 봇 만들기"},
 
     # ── Page titles (document <title>) ──
-    "title.bots": {"vi": "Luna — Bot", "en": "Luna — Bots", "ko": "Luna — 봇"},
-    "title.repositories": {"vi": "Luna — Kho mã", "en": "Luna — Repositories", "ko": "Luna — 저장소"},
-    "title.requests": {"vi": "Luna — Yêu cầu", "en": "Luna — Requests", "ko": "Luna — 요청"},
-    "title.activity": {"vi": "Luna — Hoạt động", "en": "Luna — Activity", "ko": "Luna — 활동"},
-    "title.users": {"vi": "Luna — Người dùng", "en": "Luna — Team", "ko": "Luna — 팀"},
-    "title.settings": {"vi": "Luna — Cài đặt", "en": "Luna — Settings", "ko": "Luna — 설정"},
-    "title.usage": {"vi": "Luna — Mức sử dụng", "en": "Luna — Usage", "ko": "Luna — 사용량"},
-    "title.admin_usage": {"vi": "Luna — Sử dụng toàn hệ thống", "en": "Luna — Platform usage", "ko": "Luna — 플랫폼 사용량"},
+    "title.bots": {"vi": "Rio — Bot", "en": "Rio — Bots", "ko": "Rio — 봇"},
+    "title.repositories": {"vi": "Rio — Kho mã", "en": "Rio — Repositories", "ko": "Rio — 저장소"},
+    "title.requests": {"vi": "Rio — Yêu cầu", "en": "Rio — Requests", "ko": "Rio — 요청"},
+    "title.activity": {"vi": "Rio — Hoạt động", "en": "Rio — Activity", "ko": "Rio — 활동"},
+    "title.users": {"vi": "Rio — Người dùng", "en": "Rio — Team", "ko": "Rio — 팀"},
+    "title.settings": {"vi": "Rio — Cài đặt", "en": "Rio — Settings", "ko": "Rio — 설정"},
+    "title.usage": {"vi": "Rio — Mức sử dụng", "en": "Rio — Usage", "ko": "Rio — 사용량"},
+    "title.admin_usage": {"vi": "Rio — Sử dụng toàn hệ thống", "en": "Rio — Platform usage", "ko": "Rio — 플랫폼 사용량"},
 
     # ── Usage (đo lượng dùng Claude / so quota) ──
     "nav.usage": {"vi": "Mức sử dụng", "en": "Usage", "ko": "사용량"},
@@ -189,17 +189,17 @@ TEXTS: dict[str, dict[str, str]] = {
 
     # ── Repositories ──
     "repos.title": {"vi": "Kho mã", "en": "Repositories", "ko": "저장소"},
-    "repos.subtitle": {"vi": "Các repo đã kết nối với Luna qua GitHub App.", "en": "Repositories connected to Luna via the GitHub App.", "ko": "GitHub App으로 Luna에 연결된 저장소입니다."},
+    "repos.subtitle": {"vi": "Các repo đã kết nối với Rio qua GitHub App.", "en": "Repositories connected to Rio via the GitHub App.", "ko": "GitHub App으로 Rio에 연결된 저장소입니다."},
     "repos.connect": {"vi": "Kết nối repo", "en": "Connect repo", "ko": "저장소 연결"},
     "repos.empty.title": {"vi": "Chưa có repo nào", "en": "No repositories yet", "ko": "아직 저장소가 없습니다"},
-    "repos.empty.desc": {"vi": "Kết nối repository đầu tiên để Luna có thể bảo trì codebase của bạn.", "en": "Connect your first repository so Luna can maintain your codebase.", "ko": "첫 저장소를 연결해 Luna가 코드베이스를 유지보수하게 하세요."},
+    "repos.empty.desc": {"vi": "Kết nối repository đầu tiên để Rio có thể bảo trì codebase của bạn.", "en": "Connect your first repository so Rio can maintain your codebase.", "ko": "첫 저장소를 연결해 Rio가 코드베이스를 유지보수하게 하세요."},
     "repos.installed": {"vi": "Đã cài đặt", "en": "Installed", "ko": "설치됨"},
     "repos.not_installed": {"vi": "Chưa cài GitHub App", "en": "GitHub App not installed", "ko": "GitHub App 미설치"},
     "repos.bots": {"vi": "{n} bot", "en": "{n} bot(s)", "ko": "봇 {n}개"},
     "repos.add": {"vi": "Thêm repo", "en": "Add repo", "ko": "저장소 추가"},
 
     # ── Add repository (vào tenant đã có — KHÔNG tạo bot/link mới) ──
-    "title.repo_add": {"vi": "Luna — Thêm repository", "en": "Luna — Add repository", "ko": "Luna — 저장소 추가"},
+    "title.repo_add": {"vi": "Rio — Thêm repository", "en": "Rio — Add repository", "ko": "Rio — 저장소 추가"},
     "repoadd.title": {"vi": "Thêm repository", "en": "Add repository", "ko": "저장소 추가"},
     "repoadd.subtitle": {"vi": "Gắn thêm repo vào workspace có sẵn — dùng lại bot & liên kết chat hiện tại, không tạo bot mới.", "en": "Attach another repo to an existing workspace — reuses your current bot & chat link, no new bot.", "ko": "기존 워크스페이스에 저장소를 추가합니다 — 현재 봇과 채팅 연결을 재사용하며 새 봇을 만들지 않습니다."},
     "repoadd.tenant": {"vi": "Workspace", "en": "Workspace", "ko": "워크스페이스"},
@@ -278,7 +278,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "set.plan": {"vi": "Gói", "en": "Plan", "ko": "요금제"},
     "set.empty": {"vi": "Chưa có workspace nào.", "en": "No workspaces yet.", "ko": "아직 워크스페이스가 없습니다."},
     "set.danger": {"vi": "Phiên đăng nhập", "en": "Session", "ko": "세션"},
-    "set.signout.desc": {"vi": "Đăng xuất khỏi bảng điều khiển Luna trên thiết bị này.", "en": "Sign out of the Luna console on this device.", "ko": "이 기기에서 Luna 콘솔에서 로그아웃합니다."},
+    "set.signout.desc": {"vi": "Đăng xuất khỏi bảng điều khiển Rio trên thiết bị này.", "en": "Sign out of the Rio console on this device.", "ko": "이 기기에서 Rio 콘솔에서 로그아웃합니다."},
 
     # ── Team (Người dùng + workspace) ──
     "team.title": {"vi": "Người dùng & Workspace", "en": "Team & Workspace", "ko": "팀 & 워크스페이스"},
@@ -306,7 +306,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "team.empty.desc": {"vi": "Tạo bot đầu tiên để có workspace, rồi mời thành viên vào đây.", "en": "Create your first bot to get a workspace, then invite members here.", "ko": "첫 봇을 만들어 워크스페이스를 생성한 뒤 멤버를 초대하세요."},
 
     # ── Platform admin (super admin — xem mọi tenant) ──
-    "title.admin": {"vi": "Luna — Quản trị tenant", "en": "Luna — Tenants admin", "ko": "Luna — 테넌트 관리"},
+    "title.admin": {"vi": "Rio — Quản trị tenant", "en": "Rio — Tenants admin", "ko": "Rio — 테넌트 관리"},
     "admin.title": {"vi": "Quản trị tenant", "en": "Tenants admin", "ko": "테넌트 관리"},
     "admin.subtitle": {"vi": "Toàn cảnh nền tảng — mọi tenant và thống kê hệ thống.", "en": "Platform-wide view — every tenant and system stats.", "ko": "플랫폼 전체 보기 — 모든 테넌트와 시스템 통계."},
     "admin.stat.tenants": {"vi": "Tenant", "en": "Tenants", "ko": "테넌트"},

@@ -212,15 +212,15 @@ def _demo_phone() -> str:
     # (side, inner) — tin nhắn lần lượt hiện ra (mỗi cái 1 keyframe đồng bộ → loop sạch)
     msgs = [
         ("out", t("demo.m1")),
-        ("in", f"<div class='who'>{icon('sparkles', 11)} Luna</div>" + t("demo.m2")),
-        ("in", f"<div class='who'>{icon('sparkles', 11)} Luna</div>" + t("demo.m3")
+        ("in", f"<div class='who'>{icon('sparkles', 11)} Rio</div>" + t("demo.m2")),
+        ("in", f"<div class='who'>{icon('sparkles', 11)} Rio</div>" + t("demo.m3")
                + f"<div class='mini'><b class='yes'>{t('demo.btn.approve')}</b>"
                + f"<b class='no'>{t('demo.btn.fix')}</b></div>"),
         ("out", t("demo.btn.approve")),
-        ("in", f"<div class='who'>{icon('check', 11)} Luna</div>" + t("demo.m5")
+        ("in", f"<div class='who'>{icon('check', 11)} Rio</div>" + t("demo.m5")
                + f"<div class='mini'><b class='yes'>{t('demo.btn.approve_merge')}</b></div>"),
         ("out", t("demo.btn.approve_merge")),
-        ("in", "<div class='who'>🚀 Luna</div>" + t("demo.m7")),
+        ("in", "<div class='who'>🚀 Rio</div>" + t("demo.m7")),
     ]
     n = len(msgs)
     spread = 79 / (n - 1)  # rải thời điểm hiện từ 5% → 84% của vòng lặp
@@ -245,7 +245,7 @@ def _demo_phone() -> str:
           <div class='island'></div>
           <div class='istatus'><span>9:41</span><span class='rt'>{_SIG}{_WIFI}{_BATT}</span></div>
           <div class='ihead'><span class='av'>{icon('moon', 18)}</span>
-            <div style='flex:1'><div class='nm'>Luna</div>
+            <div style='flex:1'><div class='nm'>Rio</div>
               <div class='st'><i></i> {t('demo.status')}</div></div>{icon('send', 16, 'muted')}</div>
           <div class='ibody'><div class='ifeed'>{''.join(bubbles)}</div></div>
         </div></div>
@@ -425,7 +425,7 @@ def _dashboard_preview() -> str:
       </div>
       <div class='browser'>
         <div class='browser-bar'><span class='browser-dot'></span><span class='browser-dot'></span>
-          <span class='browser-dot'></span><span class='browser-url'>app.luna.dev/dashboard</span></div>
+          <span class='browser-dot'></span><span class='browser-url'>app.rio.dev/dashboard</span></div>
         <div class='browser-body'>
           <div class='bp-head'><h4>{t('dprev.bots')}</h4><span class='bp-pill'>{t('dprev.new')}</span></div>
           {body}

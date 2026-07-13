@@ -55,7 +55,7 @@ def _owned_user(db: Session, data: dict, user_id: int | None) -> User | None:
 
 def _invite_binding(db: Session, tn: Tenant) -> tuple[str, int | None]:
     """Suy (platform, bot_id) để user mời khớp đúng bot tenant đã provision (deeplink /start).
-    Bot riêng (own) ⇒ bind bot_id; bot Luna chung ⇒ bot_id=None."""
+    Bot riêng (own) ⇒ bind bot_id; bot Rio chung ⇒ bot_id=None."""
     bot = db.scalar(select(Bot).where(Bot.tenant_id == tn.id).order_by(Bot.id))
     if bot is None:
         return "telegram", None

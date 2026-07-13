@@ -1,4 +1,4 @@
-"""Design system cho web UI của Luna — premium SaaS, dark-mode-first.
+"""Design system cho web UI của Rio — premium SaaS, dark-mode-first.
 
 Tách riêng khỏi templates.py: chứa CSS (design tokens + components), bộ icon Lucide
 (inline SVG, không thêm dep), và 2 layout shell — `doc()` (tài liệu HTML) + `shell()`
@@ -403,7 +403,7 @@ def doc(title: str, body: str, body_class: str = "", extra_head: str = "") -> st
 
 
 def brand() -> str:
-    return (f"<a class='brand' href='/'><span class='logo'>{icon('moon', 19)}</span>Luna</a>")
+    return (f"<a class='brand' href='/'><span class='logo'>{icon('moon', 19)}</span>Rio</a>")
 
 
 def onboarding(title: str, body: str, *, user_name: str | None = None) -> str:
