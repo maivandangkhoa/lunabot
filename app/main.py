@@ -34,6 +34,7 @@ from app.dispatcher import handle_channel_update
 from app.github_app import GitHubApp
 from app.poller import run_polling
 from app.recovery import recover_interrupted_requests, rekick_pending_deploys
+from app.web import i18n
 from app.web.activity import router as web_activity_router
 from app.web.admin import router as web_admin_router
 from app.web.approvals import router as web_approvals_router
@@ -233,14 +234,17 @@ async def webhook_google_chat(
         # tin có tên người gửi → group không biết ai bấm). Kết quả thật tới async qua REST.
         who = click_actor_name(raw)
         label = click_button_label(raw)
-        if who and label:
-            footer = f"👤 {who} → {label} — ⏳ đang xử lý…"
-        elif who:
-            footer = f"👤 {who} — ⏳ đang xử lý…"
-        else:
-            footer = "⏳ Đã nhận, đang xử lý…"
         # Giữ nội dung câu hỏi/báo cáo gốc (updateMessageAction thay TOÀN BỘ message), nối footer.
         src = click_source_text(raw)
+        # Card gốc đã compose theo ngôn ngữ người nhận → suy ngôn ngữ từ chính nội dung đó
+        # (webhook đồng bộ, chưa tra DB) để footer khớp ngôn ngữ. Nút/label đã localize sẵn.
+        i18n.set_lang(i18n.detect(src) or i18n.DEFAULT)
+        if who and label:
+            footer = i18n.t("gchat.ack.by", who=who, label=label)
+        elif who:
+            footer = i18n.t("gchat.ack.who", who=who)
+        else:
+            footer = i18n.t("gchat.ack.plain")
         ack = f"{src}\n\n{footer}" if src else footer
         return JSONResponse(
             content=ack_update_message(ack),

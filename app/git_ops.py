@@ -199,6 +199,23 @@ async def divergence(
     return int(res.stdout.strip() or "0")
 
 
+async def prod_diverges_only_by_merge(
+    repo_dir: Path, base_branch: str, prod_branch: str, remote: str = "origin"
+) -> bool:
+    """True khi prod hơn base ĐÚNG 1 commit và commit đó là MERGE-commit (≥2 cha).
+
+    Đây là dấu vết lần release base→prod của chính bot (merge bookkeeping) — nội dung đã có
+    sẵn trong base, gộp ngược prod→base chỉ là no-op ⇒ an toàn tự gộp, KHÔNG cần hỏi.
+    Hotfix người push thẳng prod là commit THƯỜNG (0 merge) ⇒ trả False, vẫn phải hỏi.
+    Giả định caller đã fetch prod (vd vừa gọi divergence()).
+    """
+    rng = f"{remote}/{base_branch}..{remote}/{prod_branch}"
+    total = int((await run_git(["rev-list", "--count", rng], cwd=repo_dir)).stdout.strip() or "0")
+    merges = int(
+        (await run_git(["rev-list", "--count", "--merges", rng], cwd=repo_dir)).stdout.strip() or "0")
+    return total == 1 and merges == 1
+
+
 async def merge_branch(
     repo_dir: Path, into_branch: str, from_ref: str, remote: str = "origin"
 ) -> bool:

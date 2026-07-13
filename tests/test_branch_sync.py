@@ -80,6 +80,23 @@ async def test_intake_divergence_asks_confirmation_before_any_merge(db, fakes, t
 
 
 @pytest.mark.asyncio
+async def test_intake_one_merge_commit_auto_syncs_without_asking(db, fakes, tmp_path):
+    """prod hơn base đúng 1 merge-commit (dấu vết release của bot) → tự gộp, KHÔNG hỏi."""
+    t, repo, emp, mgr = _seed(db)
+    fakes["git"].divergence_count = 1
+    fakes["git"].diverge_only_merge = True
+    claude = FakeClaude([claude_json(PLAN, "s1")])
+    orch = _orch(db, fakes, claude, tmp_path)
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    # Không hỏi, tự gộp & push base, rồi phân tích tiếp thẳng tới PLAN_REVIEW.
+    assert req.report_json["prod_sync"]["state"] == "confirmed"
+    assert fakes["git"].pushed == ["dev"]
+    assert not any("bản chạy thật" in s[1] for s in fakes["adapter"].sent)
+    assert req.status == RequestStatus.PLAN_REVIEW
+
+
+@pytest.mark.asyncio
 async def test_sync_yes_clean_merge_then_continues(db, fakes, tmp_path):
     t, repo, emp, mgr = _seed(db)
     fakes["git"].divergence_count = 1

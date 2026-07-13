@@ -27,6 +27,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "⏳ I'm working on request #{id} ({status}). Please wait until I'm done before sending a new request (in a new thread).",
         "ko": "⏳ 요청 #{id}({status})을(를) 처리 중입니다. 끝날 때까지 기다렸다가 새 요청은 새 스레드로 보내주세요.",
     },
+    # ── Google Chat: footer khi bấm nút (ack đồng bộ, thay card) ──
+    "gchat.ack.by": {
+        "vi": "👤 {who} → {label} — ⏳ đang xử lý…",
+        "en": "👤 {who} → {label} — ⏳ processing…",
+        "ko": "👤 {who} → {label} — ⏳ 처리 중…",
+    },
+    "gchat.ack.who": {
+        "vi": "👤 {who} — ⏳ đang xử lý…",
+        "en": "👤 {who} — ⏳ processing…",
+        "ko": "👤 {who} — ⏳ 처리 중…",
+    },
+    "gchat.ack.plain": {
+        "vi": "⏳ Đã nhận, đang xử lý…",
+        "en": "⏳ Received, processing…",
+        "ko": "⏳ 접수되었습니다, 처리 중…",
+    },
     # ── Dispatcher: liên kết / khởi đầu ──
     "disp.start_dm_only": {
         "vi": "🔒 Hãy nhắn riêng (DM) cho bot để liên kết: /start <token>.",

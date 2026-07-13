@@ -73,6 +73,22 @@ async def check_divergence_at_intake(
     if n <= 0:
         return False
 
+    # prod hơn base đúng 1 merge-commit = dấu vết lần release base→prod của bot (nội dung đã
+    # có trong base) → gộp ngược là no-op, tự làm im lặng, KHÔNG hỏi. Hotfix thật (commit
+    # thường) rơi xuống nhánh hỏi bên dưới.
+    try:
+        auto = await orch.git.prod_diverges_only_by_merge(
+            repo_dir, repo.base_branch, repo.prod_branch)
+    except Exception as exc:  # noqa: BLE001
+        auto = False
+        log.warning("check auto-sync req %s lỗi: %s", req.id, exc)
+    if auto:
+        ok = await sync_prod_into_base(orch, req, repo)
+        _set(orch, req, SYNC_KEY, {"state": "confirmed" if ok else "failed"})
+        if not ok:
+            log.warning("auto-sync prod→base req %s thất bại, tiếp tục trên base hiện tại", req.id)
+        return False  # đi tiếp _analyze ngay, không chặn luồng
+
     _set(orch, req, SYNC_KEY, {"state": "asked"})
     orch._set_status(req, RequestStatus.CLARIFYING)
     orch.db.commit()

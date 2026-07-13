@@ -142,6 +142,7 @@ class FakeGit:
         self.has_changes = True
         # branch_sync: mặc định không phân kỳ / merge sạch → mọi test cũ giữ nguyên hành vi.
         self.divergence_count = 0
+        self.diverge_only_merge = False  # True → prod hơn base đúng 1 merge-commit (auto-sync)
         self.merge_conflict = False
         self.conflict_files_list = ["src/Navbar.tsx"]
         self.markers_after_resolve = False
@@ -166,6 +167,9 @@ class FakeGit:
 
     async def divergence(self, *a, **k):
         return self.divergence_count
+
+    async def prod_diverges_only_by_merge(self, *a, **k):
+        return self.diverge_only_merge
 
     async def merge_branch(self, *a, **k):
         if self.merge_conflict:

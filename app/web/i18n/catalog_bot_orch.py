@@ -204,14 +204,14 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "en": (
             "📋 Plan (risk: {risk}):\n{summary}\n\n{steps}"
-            "\n\n(Tap a button, or reply: ok to approve · sửa · huỷ)"
+            "\n\n(Tap a button, or reply: ok to approve · edit · cancel)"
         ),
         "ko": (
             "📋 계획 (risk: {risk}):\n{summary}\n\n{steps}"
-            "\n\n(버튼을 누르거나, 답장하세요: 승인하려면 ok · sửa · huỷ)"
+            "\n\n(버튼을 누르거나, 답장하세요: 승인하려면 ok · 수정 · 취소)"
         ),
     },
-    "orch.btn.confirm": {"vi": "✅ Confirm", "en": "✅ Confirm", "ko": "✅ Confirm"},
+    "orch.btn.confirm": {"vi": "✅ Confirm", "en": "✅ Confirm", "ko": "✅ 확인"},
     "orch.btn.edit": {"vi": "✏️ Sửa", "en": "✏️ Edit", "ko": "✏️ 수정"},
     "orch.btn.cancel": {"vi": "❌ Huỷ", "en": "❌ Cancel", "ko": "❌ 취소"},
 
