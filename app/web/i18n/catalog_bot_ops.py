@@ -20,9 +20,12 @@ TEXTS: dict[str, dict[str, str]] = {
 
     # ── post_deploy: enter_await_manager ──
     "ops.await_manager.default": {
-        "vi": "✅ Đã merge vào `{base}`. Đang chờ manager duyệt.",
-        "en": "✅ Merged into `{base}`. Waiting for manager approval.",
-        "ko": "✅ `{base}`에 머지했습니다. 매니저 승인을 기다리는 중입니다.",
+        "vi": "✅ Em đã trình yêu cầu lên manager để duyệt triển khai production. "
+              "Em sẽ báo anh/chị ngay khi có kết quả.",
+        "en": "✅ I've submitted the request to the manager for production approval. "
+              "I'll let you know as soon as there's a decision.",
+        "ko": "✅ 운영 배포 승인을 위해 매니저에게 요청을 올렸습니다. "
+              "결과가 나오는 대로 알려드리겠습니다.",
     },
 
     # ── post_deploy: enter_uat (preview-first: mời requester UAT trên URL dev thật) ──
