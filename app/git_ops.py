@@ -88,6 +88,10 @@ async def ensure_clone(
         await run_git(["checkout", base_branch], cwd=repo_dir, check=False)
         await run_git(["reset", "--hard", f"origin/{base_branch}"], cwd=repo_dir)
     install_pre_push_hook(repo_dir, protected)
+    # Claude Code CLI tạo git-worktree nội bộ tại .claude/worktrees/agent-* (có file .git ⇒
+    # git coi là gitlink/submodule). Nếu để `git add -A` quét vào commit thì chúng bị track
+    # vĩnh viễn, luôn ở trạng thái "modified" ⇒ commit_all fail (code 1) → loop "trục trặc khi lưu".
+    exclude_local(repo_dir, ".claude/")
     return repo_dir
 
 

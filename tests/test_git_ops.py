@@ -96,6 +96,30 @@ async def test_commit_all_noop_when_clean(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_claude_worktrees_excluded_from_commit(tmp_path):
+    """Regression: Claude Code tạo git-worktree nội bộ .claude/worktrees/agent-* (embedded
+    git repo ⇒ gitlink). ensure_clone phải exclude .claude/ để `git add -A` không quét vào
+    commit — nếu không chúng bị track vĩnh viễn, luôn "modified" ⇒ commit_all fail (code 1)."""
+    remote = await _seed_remote(tmp_path)
+    repo_dir = tmp_path / "ws_claude"
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    await _config_identity(repo_dir)
+
+    # Mô phỏng worktree nội bộ của Claude Code: 1 git repo con lồng trong .claude/worktrees/.
+    wt = repo_dir / ".claude" / "worktrees" / "agent-abce752f6bb8507e5"
+    wt.mkdir(parents=True)
+    await run_git(["init", str(wt)])
+    (wt / "scratch.txt").write_text("claude internal state\n")
+
+    # Không có thay đổi thật nào ⇒ commit_all phải coi là sạch (không cố commit gitlink).
+    assert await commit_all(repo_dir, "should be noop") is False
+
+    # Và .claude/ không lọt vào index.
+    tracked = await run_git(["ls-files", ".claude/"], cwd=repo_dir)
+    assert tracked.stdout.strip() == ""
+
+
+@pytest.mark.asyncio
 async def test_pre_push_hook_blocks_main(tmp_path):
     remote = await _seed_remote(tmp_path)
     repo_dir = tmp_path / "ws3"
