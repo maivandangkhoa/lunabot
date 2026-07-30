@@ -202,3 +202,49 @@ async def test_merge_branch_conflict_resolve_and_abort(tmp_path):
     assert await commit_all(repo_dir, "merge main into dev (resolved)") is True
     await push_branch(repo_dir, "dev")
     assert await divergence(repo_dir, "dev", "main") == 0
+
+
+@pytest.mark.asyncio
+async def test_prepare_branch_resets_branch_already_merged_into_base(tmp_path):
+    """Vòng rework sau khi PR merged: nhánh cũ 0 commit khác base và base đã chạy tiếp.
+    prepare_branch phải reset nhánh về base mới nhất — nếu không Claude sửa trên code cũ
+    và nhánh vẫn rỗng so với base ⇒ GitHub 422 'No commits between'."""
+    remote = await _seed_remote(tmp_path)
+    repo_dir = tmp_path / "ws" / "acme" / "widgets"
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    await _config_identity(repo_dir)
+
+    # Vòng 1: làm việc trên nhánh bot + merge vào dev (đóng vai PR merged) + push dev.
+    await prepare_branch(repo_dir, "bot/req-1", "dev")
+    (repo_dir / "feature.txt").write_text("v1\n")
+    await commit_all(repo_dir, "feat: v1")
+    await run_git(["checkout", "dev"], cwd=repo_dir)
+    await run_git(["merge", "--no-ff", "-m", "merge bot/req-1", "bot/req-1"], cwd=repo_dir)
+    (repo_dir / "other.txt").write_text("người khác đẩy lên dev\n")  # dev chạy tiếp
+    await commit_all(repo_dir, "chore: other")
+    await run_git(["push", "origin", "dev"], cwd=repo_dir)
+
+    # Vòng 2 (rework): nhánh cũ vẫn còn → phải được đưa về đúng đầu dev.
+    await prepare_branch(repo_dir, "bot/req-1", "dev")
+    head = await run_git(["rev-parse", "HEAD"], cwd=repo_dir)
+    dev = await run_git(["rev-parse", "dev"], cwd=repo_dir)
+    assert head.stdout.strip() == dev.stdout.strip()
+    assert (repo_dir / "other.txt").exists()          # thấy code mới nhất của dev
+
+
+@pytest.mark.asyncio
+async def test_prepare_branch_keeps_unmerged_work(tmp_path):
+    """Nhánh còn commit CHƯA merge vào base (đang làm dở) → giữ nguyên, không reset."""
+    remote = await _seed_remote(tmp_path)
+    repo_dir = tmp_path / "ws" / "acme" / "widgets"
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    await _config_identity(repo_dir)
+
+    await prepare_branch(repo_dir, "bot/req-2", "dev")
+    (repo_dir / "wip.txt").write_text("đang làm dở\n")
+    await commit_all(repo_dir, "wip")
+    wip = (await run_git(["rev-parse", "HEAD"], cwd=repo_dir)).stdout.strip()
+
+    await prepare_branch(repo_dir, "bot/req-2", "dev")
+    assert (await run_git(["rev-parse", "HEAD"], cwd=repo_dir)).stdout.strip() == wip
+    assert (repo_dir / "wip.txt").exists()

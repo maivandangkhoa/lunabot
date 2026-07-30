@@ -237,6 +237,17 @@ TEXTS: dict[str, dict[str, str]] = {
         "ko": "⚠️ 변경 작업 중 문제가 발생하여 완료하지 못했습니다. "
               "Confirm을 눌러 주시면 다시 시도하겠습니다.",
     },
+    "orch.no_changes": {
+        "vi": "🔎 Em đã rà lại nhưng không có chỗ nào trong code cần đổi cho yêu cầu này "
+              "— nhiều khả năng thay đổi đã có sẵn rồi.\n\n{answer}\n\n"
+              "Anh/chị mô tả rõ hơn giúp em (đang thấy gì, mong muốn thế nào) để em làm tiếp nhé.",
+        "en": "🔎 I went through the code again but found nothing that needs changing for this "
+              "request — most likely the change is already in place.\n\n{answer}\n\n"
+              "Could you describe it in more detail (what you're seeing, what you expect) so I can continue?",
+        "ko": "🔎 코드를 다시 확인했지만 이 요청과 관련해 변경할 부분이 없었습니다 "
+              "— 이미 반영되어 있을 가능성이 큽니다.\n\n{answer}\n\n"
+              "지금 보이는 상태와 원하시는 결과를 조금 더 자세히 알려주시면 이어서 진행하겠습니다.",
+    },
     "orch.push_pr_error": {
         "vi": "⚠️ Em gặp trục trặc khi lưu lại thay đổi. "
               "Anh/chị bấm Confirm để em thử lại nhé.",

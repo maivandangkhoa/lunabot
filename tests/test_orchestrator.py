@@ -602,3 +602,63 @@ async def test_group_origin_no_extra_approver_dm(db, fakes, tmp_path):
     await orch.handle_callback(req, mgr, cb("mgr_approve", req.id))
     assert req.status == RequestStatus.CLOSED
     assert len([s for s in fakes["adapter"].sent if s[0] == "mgr-1"]) == before
+
+
+@pytest.mark.asyncio
+async def test_no_file_change_asks_to_clarify_instead_of_retry_loop(db, fakes, tmp_path):
+    """EXECUTING mà Claude không đụng file nào (vd thay đổi đã có sẵn) → KHÔNG mở PR
+    (sẽ 422) và KHÔNG báo 'trục trặc khi lưu' + nút Confirm — vì bấm lại chỉ lặp y hệt.
+    Thay vào đó về CLARIFYING xin mô tả rõ hơn."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    fakes["git"].has_changes = False       # commit_all → False (working tree sạch)
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    assert req.status == RequestStatus.CLARIFYING
+    assert fakes["github"].created_prs == []          # không cố mở PR rỗng
+    assert req.pr_number is None
+    assert any("không có chỗ nào trong code cần đổi" in s[1] for s in fakes["adapter"].sent)
+    assert not any("trục trặc khi lưu" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_create_pr_422_without_open_pr_treated_as_no_changes(db, fakes, tmp_path):
+    """Có commit nhưng GitHub vẫn 422 và không có PR nào đang mở ⇒ nhánh 0 commit khác
+    base → coi như không có thay đổi (CLARIFYING), không lặp vòng Confirm."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    fakes["github"].fail_create_422 = 1
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    assert req.status == RequestStatus.CLARIFYING
+    assert req.pr_number is None
+    assert any("không có chỗ nào trong code cần đổi" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_create_pr_422_reuses_existing_open_pr(db, fakes, tmp_path):
+    """422 vì PR head→base đã mở sẵn → dùng lại PR cũ, chạy tiếp bình thường."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    req = await orch.create_request(repo, emp, "X", "y")
+    # PR bot/req-N → dev đã tồn tại (vòng trước lưu pr_number thất bại).
+    fakes["github"].created_prs.append(
+        {"number": 99, "head": f"bot/req-{req.id}", "base": "dev", "title": "cũ"})
+    fakes["github"].fail_create_422 = 1
+
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    # PR cũ được dùng lại (merge vào dev) — không tạo PR mới, không rơi vào CLARIFYING.
+    assert 99 in fakes["github"].merged
+    assert len(fakes["github"].created_prs) == 1
+    assert req.status == RequestStatus.VERIFY

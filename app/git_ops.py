@@ -110,14 +110,24 @@ def exclude_local(repo_dir: Path, pattern: str) -> None:
 
 
 async def prepare_branch(repo_dir: Path, branch: str, base_branch: str) -> None:
-    """Tạo/đưa về nhánh làm việc từ base mới nhất (idempotent)."""
+    """Tạo/đưa về nhánh làm việc từ base mới nhất (idempotent).
+
+    Vòng rework sau khi PR đã merge: nhánh cũ còn nguyên nhưng mọi commit của nó đã nằm
+    trong base, và base thì đã chạy tiếp. Giữ nguyên nhánh đó ⇒ Claude sửa trên code CŨ và
+    nhánh vẫn 0 commit khác base ⇒ GitHub từ chối mở PR (422 "No commits between").
+    Vì thế: nhánh đã merge hết vào base → reset cứng về base mới nhất (giữ tên nhánh).
+    Nhánh còn commit chưa merge → để nguyên (đang làm dở, không được xoá việc)."""
     await run_git(["checkout", base_branch], cwd=repo_dir)
     await run_git(["pull", "--rebase", "origin", base_branch], cwd=repo_dir, check=False)
     existing = await run_git(["rev-parse", "--verify", branch], cwd=repo_dir, check=False)
-    if existing.returncode == 0:
-        await run_git(["checkout", branch], cwd=repo_dir)
-    else:
+    if existing.returncode != 0:
         await run_git(["checkout", "-b", branch], cwd=repo_dir)
+        return
+    await run_git(["checkout", branch], cwd=repo_dir)
+    ahead = await run_git(["rev-list", "--count", f"{base_branch}..{branch}"],
+                          cwd=repo_dir, check=False)
+    if ahead.returncode == 0 and ahead.stdout.strip() == "0":
+        await run_git(["reset", "--hard", base_branch], cwd=repo_dir)
 
 
 async def commit_all(repo_dir: Path, message: str) -> bool:

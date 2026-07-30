@@ -462,6 +462,42 @@ class Orchestrator:
         await self._say(req, requester, t(msg_key), buttons=self._plan_buttons(req))
         self.db.commit()
 
+    async def _open_work_pr(self, req: Request, repo, branch: str, result: str) -> dict | None:
+        """Mở PR nhánh làm việc → base, idempotent. Trả None khi nhánh KHÔNG có commit nào
+        khác base (GitHub 422 'No commits between') — caller xử lý như 'không có thay đổi'.
+
+        422 có 2 nguyên nhân: (a) PR cho head→base đã mở sẵn (vd vòng trước lưu pr_number
+        thất bại) → tra lại PR cũ dùng tiếp; (b) không có commit nào để mở PR → None."""
+        try:
+            return await self.github.create_pull_request(
+                repo.gh_installation_id, repo.repo_full_name,
+                head=branch, base=repo.base_branch,
+                title=f"[luna] {req.title}", body=result[:1000])
+        except GitHubAppError as exc:
+            if exc.status_code != 422:
+                raise
+            existing = await self.github.find_open_pull_request(
+                repo.gh_installation_id, repo.repo_full_name,
+                head=branch, base=repo.base_branch)
+            if existing:
+                return existing
+            log.info("req %s: nhánh %s không có commit nào khác %s → không mở được PR",
+                     req.id, branch, repo.base_branch)
+            return None
+
+    async def _no_changes(self, req: Request, requester: User, result: str) -> None:
+        """Thực thi xong nhưng KHÔNG sinh commit nào → không có gì để review/merge.
+
+        Về CLARIFYING (không phải PLAN_REVIEW): kế hoạch cũ chạy lại y hệt cũng ra 0 thay
+        đổi, nên cần user mô tả rõ hơn thay vì mời bấm Confirm — chính vòng lặp đó đốt lượt
+        Claude mà không bao giờ thoát."""
+        log.info("execute req %s: không có thay đổi file nào", req.id)
+        self._event(req, EventKind.SYSTEM, EventDirection.OUT, no_changes=True)
+        self._set_status(req, RequestStatus.CLARIFYING)
+        self.db.commit()
+        answer = scrub_meta(strip_json_block(result)).strip()
+        await self._say(req, requester, t("orch.no_changes", answer=answer[:1500]))
+
     async def _execute(self, req: Request, fix_feedback: str | None = None) -> None:
         repo = self._repo(req)
         requester = self._requester(req)
@@ -500,13 +536,20 @@ class Orchestrator:
                 return
 
             try:
-                await self.git.commit_all(repo_dir, f"luna: req-{req.id} {req.title[:60]}")
+                changed = await self.git.commit_all(
+                    repo_dir, f"luna: req-{req.id} {req.title[:60]}")
+                if not changed and not req.pr_number:
+                    # Claude báo xong nhưng không đụng file nào (vd yêu cầu đã có sẵn trong
+                    # code). Không có commit ⇒ mở PR sẽ bị 422 → trước đây rơi vào nhánh lỗi
+                    # chung "trục trặc khi lưu" + Confirm lặp vô hạn.
+                    await self._no_changes(req, requester, res.result)
+                    return
                 await self.git.push_branch(repo_dir, branch)
                 if not req.pr_number:
-                    pr = await self.github.create_pull_request(
-                        repo.gh_installation_id, repo.repo_full_name,
-                        head=branch, base=repo.base_branch,
-                        title=f"[luna] {req.title}", body=res.result[:1000])
+                    pr = await self._open_work_pr(req, repo, branch, res.result)
+                    if pr is None:
+                        await self._no_changes(req, requester, res.result)
+                        return
                     req.pr_number = pr.get("number")
                     req.pr_url = pr.get("html_url")
                 # Gói báo cáo nghiệp vụ: tín hiệu Claude + thống kê diff từ git (nguồn sự thật).
