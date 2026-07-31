@@ -614,6 +614,7 @@ async def test_no_file_change_asks_to_clarify_instead_of_retry_loop(db, fakes, t
     orch = _orch(db, fakes, claude)
     orch.workspace = tmp_path
     fakes["git"].has_changes = False       # commit_all → False (working tree sạch)
+    fakes["git"].commits_ahead = 0         # …và nhánh KHÔNG đi trước base ⇒ thật sự trống
 
     req = await orch.create_request(repo, emp, "X", "y")
     await orch.handle_callback(req, emp, cb("confirm", req.id))
@@ -623,6 +624,28 @@ async def test_no_file_change_asks_to_clarify_instead_of_retry_loop(db, fakes, t
     assert req.pr_number is None
     assert any("không có chỗ nào trong code cần đổi" in s[1] for s in fakes["adapter"].sent)
     assert not any("trục trặc khi lưu" in s[1] for s in fakes["adapter"].sent)
+
+
+@pytest.mark.asyncio
+async def test_claude_self_commit_still_goes_to_pr(db, fakes, tmp_path):
+    """Claude TỰ commit (prompt EXECUTING bảo thế) ⇒ working tree sạch ⇒ commit_all False,
+    nhưng nhánh vẫn đi trước base. Trước đây app coi đó là 'không có thay đổi' → về
+    CLARIFYING, bỏ luôn push/PR/merge dev dù code đã sửa xong (req #255 trên production)."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+    fakes["git"].has_changes = False       # Claude commit rồi → không còn gì để stage
+    fakes["git"].commits_ahead = 1         # nhưng nhánh CÓ commit
+
+    req = await orch.create_request(repo, emp, "X", "y")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))
+
+    assert req.status != RequestStatus.CLARIFYING
+    # PR đã mở & merge vào dev (pr_number reset về None sau merge — xem test luồng chuẩn).
+    assert [p["base"] for p in fakes["github"].created_prs] == ["dev"]
+    assert req.branch_name in fakes["git"].pushed
+    assert not any("không có chỗ nào trong code cần đổi" in s[1] for s in fakes["adapter"].sent)
 
 
 @pytest.mark.asyncio

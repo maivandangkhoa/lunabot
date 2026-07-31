@@ -536,12 +536,15 @@ class Orchestrator:
                 return
 
             try:
-                changed = await self.git.commit_all(
+                await self.git.commit_all(
                     repo_dir, f"luna: req-{req.id} {req.title[:60]}")
-                if not changed and not req.pr_number:
-                    # Claude báo xong nhưng không đụng file nào (vd yêu cầu đã có sẵn trong
-                    # code). Không có commit ⇒ mở PR sẽ bị 422 → trước đây rơi vào nhánh lỗi
-                    # chung "trục trặc khi lưu" + Confirm lặp vô hạn.
+                # "Có thay đổi hay không" = nhánh có đi trước base hay không, KHÔNG phải
+                # commit_all trả True — prompt EXECUTING bảo Claude tự commit, nên tree sạch
+                # thường là vì Claude commit rồi (xem count_ahead). Chỉ khi nhánh đúng 0
+                # commit khác base mới là ca Claude không đụng file nào (yêu cầu đã có sẵn
+                # trong code): mở PR sẽ bị 422 nên dừng sớm, tránh Confirm lặp vô hạn.
+                ahead = await self.git.count_ahead(repo_dir, repo.base_branch, branch)
+                if ahead == 0 and not req.pr_number:
                     await self._no_changes(req, requester, res.result)
                     return
                 await self.git.push_branch(repo_dir, branch)

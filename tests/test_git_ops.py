@@ -8,6 +8,7 @@ import pytest
 from app.git_ops import (
     abort_merge,
     commit_all,
+    count_ahead,
     conflicted_files,
     divergence,
     ensure_clone,
@@ -93,6 +94,34 @@ async def test_commit_all_noop_when_clean(tmp_path):
     await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
     await _config_identity(repo_dir)
     assert await commit_all(repo_dir, "nothing") is False
+
+
+@pytest.mark.asyncio
+async def test_count_ahead_sees_commit_made_by_claude(tmp_path):
+    """Claude tự commit trên nhánh làm việc: tree sạch (commit_all False) nhưng nhánh vẫn
+    đi trước base — count_ahead phải thấy, nếu không app báo nhầm 'không có thay đổi'."""
+    remote = await _seed_remote(tmp_path)
+    repo_dir = tmp_path / "ws_ahead"
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    await _config_identity(repo_dir)
+    await prepare_branch(repo_dir, "bot/req-9", "dev")
+    assert await count_ahead(repo_dir, "dev", "bot/req-9") == 0
+
+    (repo_dir / "by_claude.txt").write_text("done\n")
+    await run_git(["add", "-A"], cwd=repo_dir)
+    await run_git(["commit", "-m", "fix: claude tự commit"], cwd=repo_dir)
+
+    assert await commit_all(repo_dir, "luna: req-9") is False   # không còn gì để stage
+    assert await count_ahead(repo_dir, "dev", "bot/req-9") == 1
+
+
+@pytest.mark.asyncio
+async def test_count_ahead_unknown_ref_returns_none(tmp_path):
+    """Ref lạ → None (không xác định) để caller coi như CÓ thay đổi, không dừng nhầm."""
+    remote = await _seed_remote(tmp_path)
+    repo_dir = tmp_path / "ws_ahead_bad"
+    await ensure_clone(repo_dir, str(remote), "dev", PROTECTED)
+    assert await count_ahead(repo_dir, "dev", "bot/khong-ton-tai") is None
 
 
 @pytest.mark.asyncio

@@ -160,6 +160,9 @@ class FakeGit:
 
     def __init__(self):
         self.has_changes = True
+        # Nhánh làm việc đi trước base bao nhiêu commit — độc lập với has_changes: Claude
+        # thường tự commit ⇒ commit_all False mà nhánh vẫn có commit.
+        self.commits_ahead = 1
         # branch_sync: mặc định không phân kỳ / merge sạch → mọi test cũ giữ nguyên hành vi.
         self.divergence_count = 0
         self.diverge_only_merge = False  # True → prod hơn base đúng 1 merge-commit (auto-sync)
@@ -177,6 +180,9 @@ class FakeGit:
 
     async def commit_all(self, *a, **k):
         return self.has_changes
+
+    async def count_ahead(self, *a, **k):
+        return self.commits_ahead
 
     async def push_branch(self, repo_dir, branch, *a, **k):
         self.pushed.append(branch)

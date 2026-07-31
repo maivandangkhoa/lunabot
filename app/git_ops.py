@@ -140,6 +140,29 @@ async def commit_all(repo_dir: Path, message: str) -> bool:
     return True
 
 
+async def count_ahead(repo_dir: Path, base_branch: str, branch: str) -> int | None:
+    """Số commit `branch` đang đi trước `base_branch`. None = không xác định được.
+
+    Đây mới là câu trả lời cho "có thay đổi gì không". `commit_all` trả False chỉ nghĩa là
+    working tree sạch — mà prompt EXECUTING lại bảo Claude tự commit, nên tree sạch thường
+    là vì Claude đã commit rồi. Tin vào commit_all ⇒ báo nhầm "không có thay đổi" và bỏ qua
+    push/PR/merge dev dù code đã sửa xong.
+    """
+    try:
+        res = await run_git(["rev-list", "--count", f"{base_branch}..{branch}"],
+                            cwd=repo_dir, check=False)
+    except Exception as exc:  # noqa: BLE001 — không xác định được ≠ không có thay đổi
+        log.warning("count_ahead %s..%s lỗi: %s", base_branch, branch, exc)
+        return None
+    if res.returncode != 0:
+        log.warning("count_ahead %s..%s lỗi: %s", base_branch, branch, res.stderr[:200])
+        return None
+    try:
+        return int(res.stdout.strip())
+    except ValueError:
+        return None
+
+
 async def push_branch(repo_dir: Path, branch: str, remote: str = "origin") -> None:
     """Push nhánh làm việc. pre-push hook sẽ chặn nếu là nhánh protected."""
     await run_git(["push", "-u", remote, branch], cwd=repo_dir)
