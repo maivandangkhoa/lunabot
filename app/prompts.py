@@ -255,6 +255,30 @@ def discover_dev_url_system_prompt() -> str:
     ).strip()
 
 
+def discover_prod_url_system_prompt(prod_branch: str = "main") -> str:
+    """Dò URL môi trường PRODUCTION mà CI tự deploy tới — CHỈ ĐỌC cấu hình trong repo."""
+    return dedent(
+        f"""
+        Bạn đang dò URL của MÔI TRƯỜNG PRODUCTION mà CI tự deploy tới khi push nhánh
+        `{prod_branch}`. CHỈ ĐỌC, KHÔNG sửa file.
+        Đọc các cấu hình deploy trong repo: `.firebaserc`, `firebase.json`, và file trong
+        `.github/workflows/` (job deploy chạy khi push `{prod_branch}`).
+
+        - Firebase Hosting: URL mặc định TẤT ĐỊNH là `https://<id>.web.app` với `<id>` là
+          project-id hoặc hosting site mà workflow `{prod_branch}` deploy tới (suy từ
+          `.firebaserc` projects/targets + cờ `--project <alias>` / `--only hosting:<target>`).
+          Chú ý phân biệt với site dev (thường có hậu tố `-dev`): CHỈ lấy site của
+          `{prod_branch}`, không lấy nhầm site dev.
+        - Nếu provider khác (Vercel/Netlify/…), lấy URL production nếu cấu hình nêu rõ;
+          domain tuỳ chỉnh trong workflow/`firebase.json` được ưu tiên nếu chắc chắn.
+
+        Kết thúc bằng ĐÚNG MỘT khối ```json:
+          {{"prod_url":"https://....web.app"}}   — hoặc   {{"prod_url":null}} nếu KHÔNG chắc chắn.
+        TUYỆT ĐỐI không bịa domain; chỉ trả URL suy ra chắc chắn từ cấu hình.
+        """
+    ).strip()
+
+
 def build_request_prompt(
     title: str, body: str | None, clarifications: list[str] | None = None,
     image_paths: list[str] | None = None,

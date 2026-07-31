@@ -331,6 +331,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "⚠️ I couldn't deploy to `{prod}`. Please check and try approving again shortly.",
         "ko": "⚠️ `{prod}`에 배포하지 못했습니다. 확인 후 잠시 뒤 다시 승인해 주세요.",
     },
+    "orch.merged_main_waiting_deploy": {
+        "vi": "✅ Em đã gộp thay đổi vào `{prod}`. Em đang chờ hệ thống triển khai lên "
+              "production, xong em báo lại ngay ạ.",
+        "en": "✅ I've merged the change into `{prod}`. I'm waiting for the production "
+              "deployment to finish and will report back right away.",
+        "ko": "✅ 변경 사항을 `{prod}`에 병합했습니다. 운영 배포가 끝나기를 기다리고 있으며 "
+              "완료되는 대로 바로 알려드리겠습니다.",
+    },
     "orch.merged_main_closed": {
         "vi": "🎉 Yêu cầu #{id} đã merge `{prod}` và đóng.",
         "en": "🎉 Request #{id} has been merged into `{prod}` and closed.",

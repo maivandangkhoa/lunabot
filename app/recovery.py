@@ -89,8 +89,12 @@ async def rekick_pending_deploys(settings: Settings, *, db: Session | None = Non
     """Sau restart: tiếp tục deploy-gate cho request kẹt ở MERGED_DEV (background task chết khi
     restart). Re-poll theo `dev_merge_sha` đã lưu — idempotent: deploy đã xong thì đi tiếp ngay.
 
+    Kèm cả cổng production: request kẹt ở MERGED_MAIN (đã merge `main`, chưa kết luận deploy)
+    được re-poll theo sha đã lưu trong report_json.
+
     Spawn task có db/adapter/github RIÊNG (xem post_deploy.verify_after_dev_merge)."""
     from app.post_deploy import verify_after_dev_merge
+    from app.prod_verify import verify_after_main_merge
 
     own = db is None
     db = db or SessionLocal()
@@ -99,7 +103,11 @@ async def rekick_pending_deploys(settings: Settings, *, db: Session | None = Non
             select(Request).where(Request.status == RequestStatus.MERGED_DEV)).all())
         for req in reqs:
             asyncio.create_task(verify_after_dev_merge(req.id, settings=settings))
-        return len(reqs)
+        prod = list(db.scalars(
+            select(Request).where(Request.status == RequestStatus.MERGED_MAIN)).all())
+        for req in prod:
+            asyncio.create_task(verify_after_main_merge(req.id, settings=settings))
+        return len(reqs) + len(prod)
     finally:
         if own:
             db.close()

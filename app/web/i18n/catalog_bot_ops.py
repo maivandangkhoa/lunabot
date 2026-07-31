@@ -67,6 +67,29 @@ TEXTS: dict[str, dict[str, str]] = {
     "ops.btn.needs_fix": {"vi": "🔧 Cần sửa", "en": "🔧 Needs fix", "ko": "🔧 수정 필요"},
     "ops.btn.cancel": {"vi": "❌ Huỷ", "en": "❌ Cancel", "ko": "❌ 취소"},
 
+    # ── prod_verify: kết luận sau khi merge production (đã deploy thật chưa) ──
+    "ops.prod.deployed_link": {
+        "vi": "🎉 Yêu cầu #{id} đã lên production và đóng. Anh/chị xem tại:\n{url}",
+        "en": "🎉 Request #{id} is live on production and closed. See it here:\n{url}",
+        "ko": "🎉 #{id} 요청이 운영 환경에 반영되었고 종료되었습니다. 여기에서 확인하세요:\n{url}",
+    },
+    "ops.prod.deployed": {
+        "vi": "🎉 Yêu cầu #{id} đã lên production và đóng.",
+        "en": "🎉 Request #{id} is live on production and closed.",
+        "ko": "🎉 #{id} 요청이 운영 환경에 반영되었고 종료되었습니다.",
+    },
+    "ops.prod.deploy_failed": {
+        "vi": "⚠️ Yêu cầu #{id}: thay đổi đã gộp vào `{prod}` nhưng bước triển khai lên "
+              "production KHÔNG thành công. Em không tự sửa trực tiếp trên production. "
+              "Nhờ anh/chị kiểm tra hệ thống triển khai; nếu cần em sửa, anh/chị gửi yêu cầu mới giúp em.",
+        "en": "⚠️ Request #{id}: the change was merged into `{prod}` but the production "
+              "deployment did NOT succeed. I won't fix production directly. "
+              "Please check the deployment pipeline; if you want me to fix it, send me a new request.",
+        "ko": "⚠️ #{id} 요청: 변경 사항은 `{prod}`에 병합되었지만 운영 배포가 실패했습니다. "
+              "운영 환경을 직접 수정하지는 않습니다. 배포 파이프라인을 확인해 주시고, "
+              "수정이 필요하면 새 요청을 보내주세요.",
+    },
+
     # ── cleanup: warns ──
     "ops.revert_failed": {
         "vi": "hoàn tác `{base}` thất bại — cần kiểm tra thủ công",

@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import branch_sync, git_ops, post_deploy, prompts, report, usage
+from app import branch_sync, git_ops, post_deploy, prod_verify, prompts, report, usage
 from app.cleanup import cleanup_branch
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
@@ -677,7 +677,7 @@ class Orchestrator:
         repo = self._repo(req)
         try:
             pr = await self._ensure_release_pr(req, repo)
-            await self._merge_release_pr(repo, pr["number"])
+            merged = await self._merge_release_pr(repo, pr["number"])
         except Exception as exc:
             log.warning("merge main req %s lỗi: %s", req.id, exc)
             self.db.commit()
@@ -693,8 +693,7 @@ class Orchestrator:
         self.db.add(Approval(request_id=req.id, approver_user_id=approver.id,
                              decision=ApprovalDecision.APPROVED))
         self._set_status(req, RequestStatus.MERGED_MAIN)
-        self.db.commit()
-        self._set_status(req, RequestStatus.CLOSED)
+        prod_verify.remember_main_sha(req, (merged or {}).get("sha"))
         self.db.commit()
         # Dọn nhánh feature đã merge xong (best-effort) — tránh tích tụ bot/req-* trên repo khách.
         if req.branch_name:
@@ -702,10 +701,24 @@ class Orchestrator:
                 await self.github.delete_branch(repo.gh_installation_id, repo.repo_full_name, req.branch_name)
             except Exception as exc:  # noqa: BLE001
                 log.warning("xoá nhánh %s req %s lỗi: %s", req.branch_name, req.id, exc)
-        await self._say(req, self._requester(req), t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
+        # Cổng production: merge xong MỚI CHỈ LÀ CODE VÀO `main`. Chờ CI deploy + curl trang
+        # production rồi mới kết luận (app/prod_verify.py). Tắt cổng → đóng & báo ngay như cũ.
+        settings = get_settings()
+        gate = settings.prod_verify_enabled and prod_verify.prod_verify_configured(repo)
+        if gate:
+            await self._say(req, self._requester(req),
+                            t("orch.merged_main_waiting_deploy", prod=repo.prod_branch))
+        else:
+            self._set_status(req, RequestStatus.CLOSED)
+            self.db.commit()
+            await self._say(req, self._requester(req),
+                            t("orch.merged_main_closed", id=req.id, prod=repo.prod_branch))
         # Các approver khác từng được DM lời mời → báo đã xử lý (lời mời hết stale).
         await post_deploy.notify_other_approvers(self, req, repo, approver, approved=True)
         await self._advance_dev_queue(repo)  # nhả slot dev → kick request đang xếp hàng
+        if gate:  # spawn SAU khi nhả slot: task nền có db riêng, poll lâu, không chặn caller
+            asyncio.create_task(prod_verify.verify_after_main_merge(
+                req.id, settings=settings, github=self.github))
 
     async def _ensure_release_pr(self, req: Request, repo) -> dict:
         """PR release base→prod, idempotent. Nếu create trả 422 (PR đã mở từ lần duyệt
@@ -724,14 +737,14 @@ class Orchestrator:
                     return existing
             raise
 
-    async def _merge_release_pr(self, repo, number: int) -> None:
+    async def _merge_release_pr(self, repo, number: int) -> dict:
         """Merge PR, retry 1 lần khi GitHub trả 405 'Base branch was modified' (race
-        khi prod bị đẩy commit ngay giữa lúc tạo PR và merge)."""
+        khi prod bị đẩy commit ngay giữa lúc tạo PR và merge). Trả payload merge (có `sha`
+        commit trên prod → cổng production poll CI theo sha này)."""
         for attempt in range(2):
             try:
-                await self.github.merge_pull_request(
-                    repo.gh_installation_id, repo.repo_full_name, number)
-                return
+                return await self.github.merge_pull_request(
+                    repo.gh_installation_id, repo.repo_full_name, number) or {}
             except GitHubAppError as exc:
                 if exc.status_code == 405 and attempt == 0 \
                         and not branch_sync.is_merge_conflict_405(exc):

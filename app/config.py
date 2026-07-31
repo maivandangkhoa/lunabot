@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     # Số vòng auto-fix tối đa khi deploy/curl lỗi (0 = không auto-fix, chỉ báo lỗi).
     dev_verify_max_rounds: int = 2
 
+    # --- Deploy verify (sau merge main = production) ---
+    # Bật: sau khi merge lên `main`, chờ CI deploy xong + curl URL production rồi mới báo
+    # "đã lên production" (kèm link) / báo động nếu hỏng. KHÔNG auto-fix trên production.
+    # Tắt = hành vi cũ (merge xong đóng request và báo ngay).
+    # Dùng chung deploy_poll_interval_s / deploy_timeout_s / deploy_ci_grace_s với cổng dev.
+    prod_verify_enabled: bool = True
+
     # --- GitHub App (M2) ---
     github_app_id: str | None = None
     github_app_private_key_path: Path | None = None

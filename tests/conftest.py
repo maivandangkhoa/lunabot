@@ -10,6 +10,7 @@ from app import models  # noqa: F401 — đăng ký metadata
 from app.channels.google_chat import GoogleChatAdapter
 from app.channels.telegram import TelegramAdapter
 from app.claude_runner import ClaudeResult
+from app.config import get_settings
 from app.db import Base
 from app.github_app import GitHubAppError
 from app.web.i18n import DEFAULT, set_lang
@@ -21,6 +22,25 @@ def _reset_lang():
     về DEFAULT (vi) trước mỗi test, để test khớp chuỗi tiếng Việt không lệ thuộc thứ tự chạy."""
     set_lang(DEFAULT)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _prod_gate_off(monkeypatch):
+    """Tắt cổng production mặc định trong test: phần lớn test khẳng định hợp đồng 'merge main
+    → CLOSED ngay'. Test cổng production (tests/test_prod_verify.py) tự bật lại bằng
+    `prod_gate_on`."""
+    monkeypatch.setenv("PROD_VERIFY_ENABLED", "false")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def prod_gate_on(monkeypatch):
+    monkeypatch.setenv("PROD_VERIFY_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
