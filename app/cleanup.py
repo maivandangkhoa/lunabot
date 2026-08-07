@@ -11,6 +11,37 @@ from app.web.i18n import t
 
 log = logging.getLogger("luna.cleanup")
 
+# Sổ ghi MỌI merge commit lên dev của 1 request. Mỗi vòng "Cần sửa"/auto-fix mở PR mới
+# (prepare_branch reset nhánh về dev) ⇒ thêm 1 merge commit riêng; chỉ nhớ sha cuối thì
+# revert sót các vòng trước và chúng rò lên main ở lần approve kế tiếp.
+# Khoá "_" = nội bộ FSM, được build_report giữ lại (xem orchestrator._execute).
+_SHAS_KEY = "_dev_merge_shas"
+
+
+def remember_dev_merge(req: Request, sha: str | None) -> None:
+    """Ghi nhận 1 lần merge lên dev: `dev_merge_sha` = sha MỚI NHẤT (poll deploy/reconcile
+    dùng nó), sổ `_dev_merge_shas` giữ ĐỦ các vòng theo thứ tự cũ → mới để revert sạch."""
+    prev = req.dev_merge_sha
+    req.dev_merge_sha = sha
+    if not sha:
+        return
+    rj = req.report_json or {}
+    ledger = [s for s in (rj.get(_SHAS_KEY) or []) if s]
+    # Sổ rỗng mà đã có sha cũ = request dang dở lúc deploy bản này → nạp sha đó vào sổ,
+    # nếu không vòng merge cũ mất dấu và ở lại dev sau khi revert.
+    if not ledger and prev:
+        ledger = [prev]
+    req.report_json = {**rj, _SHAS_KEY: [*(s for s in ledger if s != sha), sha]}
+
+
+def dev_merge_shas(req: Request) -> list[str]:
+    """Các sha cần revert, thứ tự MỚI → CŨ (revert ngược chiều merge).
+    Fallback `dev_merge_sha` cho request tạo trước khi có sổ."""
+    shas = [s for s in ((req.report_json or {}).get(_SHAS_KEY) or []) if s]
+    if not shas:
+        return [req.dev_merge_sha] if req.dev_merge_sha else []
+    return list(reversed(shas))
+
 
 async def cleanup_branch(orch, req: Request, *, revert_dev: bool) -> list[str]:
     """revert dev (nếu đã merge), đóng PR, xoá nhánh. `orch` là Orchestrator (dùng github/
@@ -22,13 +53,14 @@ async def cleanup_branch(orch, req: Request, *, revert_dev: bool) -> list[str]:
 
     repo = orch._repo(req)
     iid = repo.gh_installation_id
-    if revert_dev and req.dev_merge_sha:
+    shas = dev_merge_shas(req) if revert_dev else []
+    if shas:
         try:
             async with _repo_locks[repo.id]:
                 repo_dir = await orch._ensure_repo_cloned(repo)
-                await orch.git.revert_merge(repo_dir, repo.base_branch, req.dev_merge_sha)
+                await orch.git.revert_merges(repo_dir, repo.base_branch, shas)
         except Exception as exc:  # noqa: BLE001
-            log.warning("revert dev req %s lỗi: %s", req.id, exc)
+            log.warning("revert dev req %s (%s sha) lỗi: %s", req.id, len(shas), exc)
             warns.append(t("ops.revert_failed", base=repo.base_branch))
     ops = []
     if req.pr_number:

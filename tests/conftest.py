@@ -222,8 +222,9 @@ class FakeGit:
         return {"files": [{"path": "src/app.py", "status": "modified", "added": 5, "deleted": 2}],
                 "files_changed": 1, "insertions": 5, "deletions": 2}
 
-    async def revert_merge(self, *a, **k):
-        self.reverted = a[-1] if a else None
+    async def revert_merges(self, repo_dir, base_branch, merge_shas, *a, **k):
+        self.reverted_all = list(merge_shas)          # thứ tự MỚI → CŨ
+        self.reverted = self.reverted_all[0] if self.reverted_all else None
         return None
 
 

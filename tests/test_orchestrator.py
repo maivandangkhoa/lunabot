@@ -438,6 +438,44 @@ async def test_manager_reject_reverts_dev_and_cleans(db, fakes, tmp_path):
     # (pr_number đã reset về None sau merge dev — PR feature đã merged, không cần đóng)
 
 
+def test_dev_merge_shas_fallback_for_legacy_request():
+    """Request tạo trước khi có sổ (chỉ có dev_merge_sha) vẫn revert được."""
+    from app.cleanup import dev_merge_shas, remember_dev_merge
+
+    legacy = Request(dev_merge_sha="old7")
+    assert dev_merge_shas(legacy) == ["old7"]
+    # Vòng sửa tiếp theo (sau khi deploy bản có sổ): sha cũ phải được nạp vào sổ, không mất.
+    remember_dev_merge(legacy, "new8")
+    assert dev_merge_shas(legacy) == ["new8", "old7"]
+    assert legacy.dev_merge_sha == "new8"
+    assert dev_merge_shas(Request()) == []
+
+
+@pytest.mark.asyncio
+async def test_reject_reverts_every_rework_round(db, fakes, tmp_path):
+    """Nhiều vòng "Cần sửa" ⇒ mỗi vòng 1 merge commit riêng trên dev (prepare_branch reset
+    nhánh về dev). Từ chối phải revert ĐỦ các vòng, mới → cũ; sót vòng nào là vòng đó rò
+    lên main ở lần approve kế tiếp."""
+    t, repo, emp, mgr = _seed(db)
+    claude = FakeClaude([claude_json(PLAN, "s1"), claude_json(IMPL, "s2"),
+                         claude_json(IMPL, "s3"), claude_json(IMPL, "s4")])
+    orch = _orch(db, fakes, claude)
+    orch.workspace = tmp_path
+
+    req = await orch.create_request(repo, emp, "Thêm X", "chi tiết")
+    await orch.handle_callback(req, emp, cb("confirm", req.id))      # vòng 1 → PR7 → mergesha7
+    await orch.handle_message(req, emp, "nút bị lệch, sửa lại")      # vòng 2 → PR8 → mergesha8
+    await orch.handle_message(req, emp, "màu vẫn chưa đúng")         # vòng 3 → PR9 → mergesha9
+    assert req.dev_merge_sha == "mergesha9"                          # con trỏ = sha mới nhất
+    # build_report chạy lại mỗi vòng nhưng KHÔNG được xoá sổ merge dev.
+    assert req.report_json["_dev_merge_shas"] == ["mergesha7", "mergesha8", "mergesha9"]
+
+    await orch.handle_callback(req, emp, cb("verify_ok", req.id))
+    await orch.handle_callback(req, mgr, cb("mgr_reject", req.id))
+    assert req.status == RequestStatus.CANCELLED
+    assert fakes["git"].reverted_all == ["mergesha9", "mergesha8", "mergesha7"]
+
+
 @pytest.mark.asyncio
 async def test_cancel_at_uat_reverts_dev(db, fakes, tmp_path):
     """Preview-first: huỷ ở VERIFY nghĩa là đã merge dev (UAT) → PHẢI revert dev + xoá nhánh,

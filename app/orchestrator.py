@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import branch_sync, git_ops, post_deploy, prod_verify, prompts, report, usage
-from app.cleanup import cleanup_branch
+from app.cleanup import cleanup_branch, remember_dev_merge
 from app.claude_runner import PermissionMode, run_claude
 from app.channels.base import Button, ChannelAdapter
 from app.config import get_settings
@@ -557,7 +557,11 @@ class Orchestrator:
                     req.pr_url = pr.get("html_url")
                 # Gói báo cáo nghiệp vụ: tín hiệu Claude + thống kê diff từ git (nguồn sự thật).
                 diff = await self.git.diff_summary(repo_dir, repo.base_branch)
-                req.report_json = report.build_report(parse_signal(res.result).data, diff)
+                # Giữ lại khoá nội bộ "_..." (sổ merge dev, cờ hàng đợi): build_report ghi đè
+                # report_json mỗi vòng sửa — mất sổ ⇒ revert sót commit của vòng trước.
+                internal = {k: v for k, v in (req.report_json or {}).items() if k.startswith("_")}
+                req.report_json = {**internal,
+                                   **report.build_report(parse_signal(res.result).data, diff)}
             except Exception as exc:
                 log.warning("push/PR req %s lỗi: %s", req.id, exc)
                 await self._fail_to_plan_review(req, requester, classify_push_error(exc))
@@ -651,7 +655,8 @@ class Orchestrator:
             self.db.commit()
             await self._say(req, requester, t("orch.merge_dev_error", base=repo.base_branch))
             return
-        req.dev_merge_sha = (res or {}).get("sha")  # để revert dev / poll deploy theo sha này
+        # sha mới nhất + ghi vào sổ merge dev (revert đủ mọi vòng khi huỷ/từ chối)
+        remember_dev_merge(req, (res or {}).get("sha"))
         # PR đã đóng khi merge → reset pr_number để vòng rework (Cần sửa) mở PR MỚI sạch.
         # Giữ pr_url (PR vừa merge, vẫn xem được) cho gói duyệt manager tham chiếu.
         req.pr_number = None

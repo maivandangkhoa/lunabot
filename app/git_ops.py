@@ -10,6 +10,7 @@ nhánh protected. Port logic từ bot.py:62-75.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -296,17 +297,35 @@ def has_conflict_markers(repo_dir: Path, files: list[str]) -> bool:
     return False
 
 
-async def revert_merge(
-    repo_dir: Path, base_branch: str, merge_sha: str, remote: str = "origin"
+async def revert_merges(
+    repo_dir: Path, base_branch: str, merge_shas: Sequence[str], remote: str = "origin"
 ) -> None:
-    """Revert merge commit `merge_sha` trên `base_branch` rồi push.
+    """Revert các merge commit `merge_shas` (thứ tự MỚI → CŨ) trên `base_branch`, 1 lần push.
 
-    Đồng bộ về remote trước (reset --hard) vì merge vào dev làm qua GitHub API ⇒ bản
-    local có thể cũ. `-m 1`: revert giữ phía base_branch làm mainline. base_branch KHÔNG
-    nằm danh sách protected nên pre-push hook không chặn.
+    Một request có thể merge lên dev nhiều lần (mỗi vòng "Cần sửa"/auto-fix là 1 merge
+    commit riêng) ⇒ phải revert ĐỦ, ngược chiều merge, nếu không code bị từ chối vẫn nằm
+    trên dev. Đồng bộ về remote trước (reset --hard) vì merge vào dev làm qua GitHub API ⇒
+    bản local có thể cũ. `-m 1`: revert giữ phía base_branch làm mainline. base_branch
+    KHÔNG nằm danh sách protected nên pre-push hook không chặn.
     """
+    if not merge_shas:
+        return
     await run_git(["fetch", remote, base_branch], cwd=repo_dir)
     await run_git(["checkout", base_branch], cwd=repo_dir)
     await run_git(["reset", "--hard", f"{remote}/{base_branch}"], cwd=repo_dir)
-    await run_git(["revert", "-m", "1", "--no-edit", merge_sha], cwd=repo_dir)
-    await run_git(["push", remote, base_branch], cwd=repo_dir)
+    reverted = 0
+    for sha in merge_shas:
+        # sha không nằm trên base (force-push, đã revert tay…) → bỏ qua, đừng để 1 sha lạc
+        # chặn các sha còn lại.
+        anc = await run_git(["merge-base", "--is-ancestor", sha, "HEAD"], cwd=repo_dir, check=False)
+        if anc.returncode != 0:
+            log.warning("revert: %s không nằm trên %s → bỏ qua", sha[:8], base_branch)
+            continue
+        try:
+            await run_git(["revert", "-m", "1", "--no-edit", sha], cwd=repo_dir)
+        except Exception:
+            await run_git(["revert", "--abort"], cwd=repo_dir, check=False)  # đừng để kẹt giữa chừng
+            raise
+        reverted += 1
+    if reverted:
+        await run_git(["push", remote, base_branch], cwd=repo_dir)

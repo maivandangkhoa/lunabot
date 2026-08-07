@@ -29,6 +29,7 @@ from sqlalchemy import select
 from app import prompts, report, usage
 from app.channels.base import Button
 from app.claude_runner import PermissionMode
+from app.cleanup import remember_dev_merge
 from app.config import Settings, get_settings
 from app.github_app import GitHubApp
 from app.models import Repository, Request, RequestStatus, User, UserRole
@@ -463,7 +464,7 @@ async def _auto_fix_round(orch: "Orchestrator", req: Request, repo: Repository,
             return None
 
     new_sha = (merged or {}).get("sha")
-    req.dev_merge_sha = new_sha
+    remember_dev_merge(req, new_sha)  # auto-fix cũng là 1 merge commit riêng → vào sổ revert
     orch._set_status(req, RequestStatus.MERGED_DEV)
     orch.db.commit()
     return new_sha
